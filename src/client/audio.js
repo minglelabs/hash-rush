@@ -64,7 +64,6 @@ export function createAudio() {
     },
     count: () => tone({ f: 520, dur: 0.1, type: 'triangle' }),
     go: () => tone({ f: 1040, dur: 0.3, type: 'triangle' }),
-    overtime: () => [660, 880, 660, 880].forEach((f, i) => tone({ f, dur: 0.12, type: 'triangle', at: i * 0.13 })),
     win: () => [523, 659, 784, 1047].forEach((f, i) => tone({ f, dur: 0.2, type: 'triangle', at: i * 0.12 })),
     lose: () => [440, 370, 311, 262].forEach((f, i) => tone({ f, dur: 0.22, type: 'triangle', vol: 0.09, at: i * 0.15 })),
   };
