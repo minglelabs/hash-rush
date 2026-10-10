@@ -4,7 +4,7 @@
   --line: #ead9b5;
   --leaf: #2f7a3d;
   --sun: #ffb400;
-  font-family: 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', system-ui, sans-serif;
+  font-family: system-ui, 'Apple SD Gothic Neo', 'Hiragino Sans', 'PingFang SC', 'Microsoft YaHei', 'Malgun Gothic', sans-serif;
 }
 
 * {
