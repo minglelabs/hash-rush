@@ -4,6 +4,19 @@
 
 const PEER_SRC = 'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js';
 const PREFIX = 'hashrush-';
+
+// STUN lets two browsers find a direct route. That fails on some networks, mobile
+// carriers above all, and then only a TURN relay can carry the traffic. PeerJS's
+// own free relays no longer exist, so there is none here yet: add a
+// { urls, username, credential } entry from a TURN provider to TURN_SERVERS.
+const TURN_SERVERS = [];
+const CONFIG = {
+  iceServers: [
+    { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
+    { urls: 'stun:stun.cloudflare.com:3478' },
+    ...TURN_SERVERS,
+  ],
+};
 let loading = null;
 
 function loadPeer() {
@@ -35,7 +48,7 @@ function randomRoom() {
 export async function hostRoom(on) {
   await loadPeer();
   const room = randomRoom();
-  const peer = new window.Peer(PREFIX + room);
+  const peer = new window.Peer(PREFIX + room, { config: CONFIG });
   await new Promise((resolve, reject) => {
     peer.on('open', resolve);
     peer.on('error', reject);
@@ -55,17 +68,24 @@ export async function hostRoom(on) {
 // the host goes away. Resolves with { send, close } once connected.
 export async function joinRoom(room, on) {
   await loadPeer();
-  const peer = new window.Peer();
+  const peer = new window.Peer({ config: CONFIG });
   await new Promise((resolve, reject) => {
     peer.on('open', resolve);
     peer.on('error', reject);
   });
   const conn = peer.connect(PREFIX + room, { reliable: true });
-  await new Promise((resolve, reject) => {
-    conn.on('open', resolve);
-    peer.on('error', reject);
-    setTimeout(() => reject(new Error('timed out')), 12000);
-  });
+  try {
+    await new Promise((resolve, reject) => {
+      conn.on('open', resolve);
+      // The broker answers "peer-unavailable" when no such room exists; anything
+      // else, including silence, means the two browsers could not reach each other.
+      peer.on('error', (err) => reject(Object.assign(new Error('join failed'), { noRoom: err && err.type === 'peer-unavailable' })));
+      setTimeout(() => reject(new Error('timed out')), 15000);
+    });
+  } catch (err) {
+    peer.destroy();
+    throw err;
+  }
   conn.on('data', (msg) => on.data(msg));
   conn.on('close', () => on.close());
   conn.on('error', () => on.close());
