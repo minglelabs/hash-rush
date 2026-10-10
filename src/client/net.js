@@ -61,6 +61,11 @@ export async function hostRoom(on) {
   });
   // The broker connection can drop without affecting guests already connected.
   peer.on('disconnected', () => peer.reconnect());
+  // A phone drops that connection as soon as the host switches apps to send the
+  // link, and the room then looks as if it did not exist. Re-register on return.
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && peer.disconnected && !peer.destroyed) peer.reconnect();
+  });
   return { room, close: () => peer.destroy() };
 }
 
