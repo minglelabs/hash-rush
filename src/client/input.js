@@ -17,7 +17,7 @@ const KEYS = {
 const HANDLED = new Set(Object.values(KEYS).flat());
 const STICK_RANGE = 46;
 
-export function createInput({ stage, canvas, stick, knob, bonkBtn, toWorld }) {
+export function createInput({ stage, canvas, stick, knob, bonkBtn, toWorld, toWorldDir }) {
   const down = new Set();
   let enabled = false;
   let touch = null;
@@ -124,6 +124,10 @@ export function createInput({ stage, canvas, stick, knob, bonkBtn, toWorld }) {
       out.mx = touch.x;
       out.my = touch.y;
     }
+    // Keys and the joystick point in screen directions; the view may be turned.
+    const dir = toWorldDir(out.mx, out.my);
+    out.mx = dir.x;
+    out.my = dir.y;
     if (click && g.phase === 'playing') order = resolveClick(g, me);
     click = null;
     if (out.mx || out.my) order = null;

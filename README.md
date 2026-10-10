@@ -1,9 +1,9 @@
-# 🌻 해씨 러시 (Mineral Rush)
+# 🌻 Hash Rush
 
 햄스터가 해바라기씨를 물고 **집에 제일 먼저** 돌아오면 이기는 4인 눈치싸움 웹게임.
 스타크래프트 유즈맵 "8원 캐기"의 규칙을 햄스터 버전으로 옮겼습니다.
 
-**바로 하기 → https://minglelabs.github.io/mineral-rush/**
+**바로 하기 → https://minglelabs.github.io/hash-rush/**
 
 ## 규칙
 

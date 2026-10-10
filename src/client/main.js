@@ -60,6 +60,7 @@ const input = createInput({
   knob: $('knob'),
   bonkBtn: $('bonk'),
   toWorld: renderer.toWorld,
+  toWorldDir: renderer.toWorldDir,
 });
 
 let game = null;

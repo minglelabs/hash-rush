@@ -162,12 +162,12 @@ function drawFlower(ctx, f, t) {
   ctx.restore();
 }
 
-function buildGround(w, h, scale, map) {
+function buildGround(w, h, base, map) {
   const c = document.createElement('canvas');
   c.width = w;
   c.height = h;
   const ctx = c.getContext('2d');
-  ctx.scale(scale, scale);
+  base(ctx);
   const rnd = mulberry32(11);
   const b = map.bounds;
 
@@ -199,12 +199,12 @@ function buildGround(w, h, scale, map) {
   return c;
 }
 
-function buildObstacles(w, h, scale, map) {
+function buildObstacles(w, h, base, map) {
   const c = document.createElement('canvas');
   c.width = w;
   c.height = h;
   const ctx = c.getContext('2d');
-  ctx.scale(scale, scale);
+  base(ctx);
   const rnd = mulberry32(5);
 
   for (const r of map.rects) {
@@ -251,24 +251,53 @@ export function createRenderer(canvas, map) {
   let obstacles = null;
   let shake = 0;
   let clock = 0;
+  // On a tall screen the world is shown turned a quarter: burrow at the bottom,
+  // flower at the top. The simulation never knows; only drawing and input turn.
+  let portrait = false;
+
+  // World-space drawing transform, with an optional offset in world pixels.
+  function base(c, ox = 0, oy = 0) {
+    if (portrait) c.setTransform(0, -scale, scale, 0, ox * scale, (WORLD.w + oy) * scale);
+    else c.setTransform(scale, 0, 0, scale, ox * scale, oy * scale);
+  }
+
+  // Runs `fn` with the origin at a world point but axes aligned to the screen,
+  // for things that must not be drawn sideways: hamsters, labels, text.
+  function upright(x, y, fn) {
+    ctx.save();
+    ctx.translate(x, y);
+    if (portrait) ctx.transform(0, 1, -1, 0, 0, 0);
+    fn();
+    ctx.restore();
+  }
+
+  // A screen-space direction (right, down) as a world direction, and back.
+  const toWorldDir = (sx, sy) => (portrait ? { x: -sy, y: sx } : { x: sx, y: sy });
+  const toScreenDir = (wx, wy) => (portrait ? { x: wy, y: -wx } : { x: wx, y: wy });
 
   function resize() {
     const r = canvas.getBoundingClientRect();
     if (!r.width) return;
+    const tall = r.height > r.width;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const w = Math.round(r.width * dpr);
-    const h = Math.round((r.width * dpr * WORLD.h) / WORLD.w);
-    if (w === canvas.width && ground) return;
+    if (w === canvas.width && tall === portrait && ground) return;
+    portrait = tall;
+    const vw = portrait ? WORLD.h : WORLD.w;
+    const vh = portrait ? WORLD.w : WORLD.h;
+    const h = Math.round((w * vh) / vw);
     canvas.width = w;
     canvas.height = h;
-    scale = w / WORLD.w;
-    ground = buildGround(w, h, scale, map);
-    obstacles = buildObstacles(w, h, scale, map);
+    scale = w / vw;
+    ground = buildGround(w, h, base, map);
+    obstacles = buildObstacles(w, h, base, map);
   }
 
   function toWorld(clientX, clientY) {
     const r = canvas.getBoundingClientRect();
-    return { x: ((clientX - r.left) / r.width) * WORLD.w, y: ((clientY - r.top) / r.height) * WORLD.h };
+    const u = (clientX - r.left) / r.width;
+    const v = (clientY - r.top) / r.height;
+    return portrait ? { x: (1 - v) * WORLD.w, y: u * WORLD.h } : { x: u * WORLD.w, y: v * WORLD.h };
   }
 
   function burst(x, y, count, color, speed) {
@@ -296,11 +325,12 @@ export function createRenderer(canvas, map) {
       fx.push({ type: 'ring', x: p.x, y: p.y, color: '#ffd23f', t: 0, life: 0.5 });
       fx.push({ type: 'text', x: p.x, y: p.y - 30, text: '해씨 획득!', color: color(ev.id), t: 0, life: 0.9 });
     } else if (ev.type === 'win') {
-      const p = game.players[ev.id];
+      // Confetti lives in screen space so it always falls down the screen.
+      const vw = portrait ? WORLD.h : WORLD.w;
       for (let i = 0; i < 110; i++) {
         fx.push({
           type: 'confetti',
-          x: p.x + (Math.random() - 0.3) * 500,
+          x: Math.random() * vw,
           y: -20 - Math.random() * 260,
           vx: (Math.random() - 0.5) * 60,
           vy: 170 + Math.random() * 150,
@@ -367,19 +397,21 @@ export function createRenderer(canvas, map) {
         ctx.textAlign = 'center';
         ctx.lineWidth = 4;
         ctx.strokeStyle = '#ffffff';
-        ctx.strokeText(e.text, e.x, e.y - 22 * k);
-        ctx.fillStyle = e.color;
-        ctx.fillText(e.text, e.x, e.y - 22 * k);
+        upright(e.x, e.y, () => {
+          ctx.strokeText(e.text, 0, -22 * k);
+          ctx.fillStyle = e.color;
+          ctx.fillText(e.text, 0, -22 * k);
+        });
       } else if (e.type === 'seed') {
         ctx.globalAlpha = 1 - k;
-        drawSeed(ctx, e.x + 26 * k, e.y - 46 * Math.sin(k * Math.PI), 1.1, k * 9);
+        upright(e.x, e.y, () => drawSeed(ctx, 26 * k, -46 * Math.sin(k * Math.PI), 1.1, k * 9));
       } else if (e.type === 'confetti') {
         e.x += e.vx * dt;
         e.y += e.vy * dt;
         ctx.globalAlpha = Math.min(1, (1 - k) * 3);
         ctx.fillStyle = e.color;
         ctx.save();
-        ctx.translate(e.x, e.y);
+        ctx.setTransform(scale, 0, 0, scale, e.x * scale, e.y * scale);
         ctx.rotate(e.spin + e.t * 6);
         ctx.fillRect(-5, -3, 10, 6);
         ctx.restore();
@@ -404,7 +436,7 @@ export function createRenderer(canvas, map) {
     const oy = shake ? (Math.random() - 0.5) * shake : 0;
     ctx.setTransform(1, 0, 0, 1, ox * scale, oy * scale);
     ctx.drawImage(ground, 0, 0);
-    ctx.setTransform(scale, 0, 0, scale, ox * scale, oy * scale);
+    base(ctx, ox, oy);
 
     // Burrow floor. In overtime it spreads towards the flower.
     ctx.fillStyle = '#f6e6c2';
@@ -428,21 +460,22 @@ export function createRenderer(canvas, map) {
 
     ctx.setTransform(1, 0, 0, 1, ox * scale, oy * scale);
     ctx.drawImage(obstacles, 0, 0);
-    ctx.setTransform(scale, 0, 0, scale, ox * scale, oy * scale);
+    base(ctx, ox, oy);
 
     ctx.font = `800 20px ${FONT}`;
     ctx.textAlign = 'center';
     ctx.fillStyle = 'rgba(140, 95, 45, 0.55)';
-    ctx.fillText('집', b.x1 + 26, b.y1 + 30);
+    upright(b.x1 + 28, b.y1 + 28, () => ctx.fillText('집', 0, 7));
 
     for (const p of game.players) {
-      const n = p.nest;
-      ctx.fillStyle = '#5b3d22';
-      oval(ctx, n.x, n.y + 6, 19, 11);
-      ctx.fill();
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = LOOKS[p.look].color;
-      ctx.stroke();
+      upright(p.nest.x, p.nest.y, () => {
+        ctx.fillStyle = '#5b3d22';
+        oval(ctx, 0, 6, 19, 11);
+        ctx.fill();
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = LOOKS[p.look].color;
+        ctx.stroke();
+      });
     }
 
     // Nibbling ring around the flower.
@@ -464,83 +497,91 @@ export function createRenderer(canvas, map) {
       ctx.stroke();
     }
 
-    const order = [...game.players].sort((a, c) => a.y - c.y);
+    // Draw back to front as seen on screen.
+    const depth = (p) => (portrait ? -p.x : p.y);
+    const order = [...game.players].sort((a, c) => depth(a) - depth(c));
     for (const p of order) {
       const look = LOOKS[p.look];
-      if (p.carrying) {
-        ctx.strokeStyle = `rgba(255, 200, 40, ${0.6 + 0.3 * Math.sin(t * 9)})`;
-        ctx.lineWidth = 4;
-        oval(ctx, p.x, p.y + 12, 22, 9);
-        ctx.stroke();
-      }
-      drawHamster(ctx, {
-        x: p.x,
-        y: p.y,
-        fx: p.fx,
-        fy: p.fy,
-        moving: Math.hypot(p.vx, p.vy) > 20 && !p.swing,
-        carrying: p.carrying,
-        swing: p.swing,
-        look,
-        t: t + p.id * 1.7,
+      const face = toScreenDir(p.fx, p.fy);
+      upright(p.x, p.y, () => {
+        if (p.carrying) {
+          ctx.strokeStyle = `rgba(255, 200, 40, ${0.6 + 0.3 * Math.sin(t * 9)})`;
+          ctx.lineWidth = 4;
+          oval(ctx, 0, 12, 22, 9);
+          ctx.stroke();
+        }
+        drawHamster(ctx, {
+          x: 0,
+          y: 0,
+          fx: face.x,
+          fy: face.y,
+          moving: Math.hypot(p.vx, p.vy) > 20 && !p.swing,
+          carrying: p.carrying,
+          swing: p.swing,
+          look,
+          t: t + p.id * 1.7,
+        });
+        if (p.gather > 0) {
+          ctx.lineCap = 'round';
+          ctx.lineWidth = 5;
+          ctx.strokeStyle = 'rgba(0, 0, 0, 0.22)';
+          ctx.beginPath();
+          ctx.arc(0, 0, 23, 0, TAU);
+          ctx.stroke();
+          ctx.strokeStyle = '#ffd23f';
+          ctx.beginPath();
+          ctx.arc(0, 0, 23, -Math.PI / 2, -Math.PI / 2 + (p.gather / GATHER_TIME) * TAU);
+          ctx.stroke();
+        }
+        // In the ring but not first in line: waiting for a turn at the flower.
+        if (p.queued >= 0 && game.nibbler >= 0 && game.nibbler !== p.id) {
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+          for (let i = 0; i < 3; i++) circle(ctx, -7 + i * 7, -24 - 2 * Math.max(0, Math.sin(t * 6 - i)), 2.4);
+        }
+        if (p.id === view.meId && p.cooldown > 0) {
+          const half = 0.9 * (p.cooldown / BONK.cooldown);
+          ctx.lineCap = 'round';
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+          ctx.beginPath();
+          ctx.arc(0, 4, 21, Math.PI * 0.5 - half, Math.PI * 0.5 + half);
+          ctx.stroke();
+        }
       });
-      if (p.gather > 0) {
-        ctx.lineCap = 'round';
-        ctx.lineWidth = 5;
-        ctx.strokeStyle = 'rgba(0, 0, 0, 0.22)';
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, 23, 0, TAU);
-        ctx.stroke();
-        ctx.strokeStyle = '#ffd23f';
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, 23, -Math.PI / 2, -Math.PI / 2 + (p.gather / GATHER_TIME) * TAU);
-        ctx.stroke();
-      }
-      // In the ring but not first in line: waiting for a turn at the flower.
-      if (p.queued >= 0 && game.nibbler >= 0 && game.nibbler !== p.id) {
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-        for (let i = 0; i < 3; i++) circle(ctx, p.x - 7 + i * 7, p.y - 24 - 2 * Math.max(0, Math.sin(t * 6 - i)), 2.4);
-      }
-      if (p.id === view.meId && p.cooldown > 0) {
-        ctx.lineCap = 'round';
-        ctx.lineWidth = 3;
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
-        ctx.beginPath();
-        ctx.arc(p.x, p.y + 4, 21, Math.PI * 0.5 - 0.9 * (p.cooldown / BONK.cooldown), Math.PI * 0.5 + 0.9 * (p.cooldown / BONK.cooldown));
-        ctx.stroke();
-      }
     }
 
     for (const p of order) {
       const look = LOOKS[p.look];
       const me = p.id === view.meId;
-      let ly = p.y - 25;
-      if (p.carrying) {
-        drawSeed(ctx, p.x, ly - 6 + Math.sin(t * 6) * 2, 1, 0.3);
-        ly -= 20;
-      }
-      ctx.font = `800 ${me ? 15 : 13}px ${FONT}`;
-      ctx.textAlign = 'center';
-      ctx.lineWidth = 3.5;
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.92)';
-      ctx.strokeText(p.name, p.x, ly);
-      ctx.fillStyle = look.color;
-      ctx.fillText(p.name, p.x, ly);
-      if (me) {
-        const ay = ly - 15 + Math.sin(t * 6) * 2;
-        ctx.beginPath();
-        ctx.moveTo(p.x - 7, ay - 8);
-        ctx.lineTo(p.x + 7, ay - 8);
-        ctx.lineTo(p.x, ay + 2);
-        ctx.closePath();
-        ctx.fill();
-        ctx.lineWidth = 2;
-        ctx.stroke();
-      }
+      upright(p.x, p.y, () => {
+        let ly = -25;
+        if (p.carrying) {
+          drawSeed(ctx, 0, ly - 6 + Math.sin(t * 6) * 2, 1, 0.3);
+          ly -= 20;
+        }
+        ctx.font = `800 ${me ? 15 : 13}px ${FONT}`;
+        ctx.textAlign = 'center';
+        ctx.lineWidth = 3.5;
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.92)';
+        ctx.strokeText(p.name, 0, ly);
+        ctx.fillStyle = look.color;
+        ctx.fillText(p.name, 0, ly);
+        if (me) {
+          const ay = ly - 15 + Math.sin(t * 6) * 2;
+          ctx.beginPath();
+          ctx.moveTo(-7, ay - 8);
+          ctx.lineTo(7, ay - 8);
+          ctx.lineTo(0, ay + 2);
+          ctx.closePath();
+          ctx.fill();
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        }
+      });
     }
 
     drawFx(dt);
   }
 
-  return { resize, draw, onEvent, toWorld, clear: () => (fx.length = 0) };
+  return { resize, draw, onEvent, toWorld, toWorldDir, clear: () => (fx.length = 0) };
 }
