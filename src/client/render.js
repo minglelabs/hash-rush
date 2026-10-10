@@ -4,9 +4,10 @@ import { WORLD } from '../sim/map.js';
 import { BONK, GATHER_TIME } from '../sim/constants.js';
 import { mulberry32 } from '../sim/rng.js';
 import { LOOKS } from './looks.js';
+import { t as tr } from './i18n.js';
 
 const TAU = Math.PI * 2;
-const FONT = '"Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", system-ui, sans-serif';
+const FONT = 'system-ui, "Apple SD Gothic Neo", "Hiragino Sans", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK KR", "Malgun Gothic", sans-serif';
 
 function circle(ctx, x, y, r) {
   ctx.beginPath();
@@ -317,7 +318,7 @@ export function createRenderer(canvas, map) {
     } else if (ev.type === 'bonk') {
       burst(ev.x, ev.y, 9, '#ffe066', 190);
       fx.push({ type: 'poof', x: ev.x, y: ev.y, t: 0, life: 0.4 });
-      fx.push({ type: 'text', x: ev.x, y: ev.y - 26, text: '뿅!', color: color(ev.by), t: 0, life: 0.7 });
+      fx.push({ type: 'text', x: ev.x, y: ev.y - 26, text: tr('bonkWord'), color: color(ev.by), t: 0, life: 0.7 });
       if (ev.seed) fx.push({ type: 'seed', x: ev.x, y: ev.y, t: 0, life: 0.8 });
       if (ev.id === meId || ev.by === meId) shake = 7;
     } else if (ev.type === 'spawn') {
@@ -325,7 +326,7 @@ export function createRenderer(canvas, map) {
     } else if (ev.type === 'seed') {
       const p = game.players[ev.id];
       fx.push({ type: 'ring', x: p.x, y: p.y, color: '#ffd23f', t: 0, life: 0.5 });
-      fx.push({ type: 'text', x: p.x, y: p.y - 30, text: '해씨 획득!', color: color(ev.id), t: 0, life: 0.9 });
+      fx.push({ type: 'text', x: p.x, y: p.y - 30, text: tr('seedGot'), color: color(ev.id), t: 0, life: 0.9 });
     } else if (ev.type === 'win') {
       // Confetti lives in screen space so it always falls down the screen.
       const vw = portrait ? WORLD.h : WORLD.w;
@@ -467,7 +468,7 @@ export function createRenderer(canvas, map) {
     ctx.font = `800 20px ${FONT}`;
     ctx.textAlign = 'center';
     ctx.fillStyle = 'rgba(140, 95, 45, 0.55)';
-    upright(b.x1 + 28, b.y1 + 28, () => ctx.fillText('집', 0, 7));
+    upright(b.x1 + 36, b.y1 + 28, () => ctx.fillText(tr('home'), 0, 7));
 
     for (const p of game.players) {
       upright(p.nest.x, p.nest.y, () => {

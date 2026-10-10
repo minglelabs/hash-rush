@@ -9,30 +9,19 @@ import { createRenderer, drawHamster } from './render.js';
 import { createInput } from './input.js';
 import { createAudio } from './audio.js';
 import { LOOKS } from './looks.js';
+import { lang, t } from './i18n.js';
 
 const $ = (id) => document.getElementById(id);
 const STORE = 'seed-rush-slots';
-const KINDS = [
-  ['human', '사람 (나)'],
-  ['bot:easy', '컴퓨터 · 쉬움'],
-  ['bot:normal', '컴퓨터 · 보통'],
-  ['bot:hard', '컴퓨터 · 어려움'],
-  ['closed', '닫힘'],
-  ['open', '열림 · 온라인 (준비 중)'],
-];
-const DEFAULT_SLOTS = [
-  { kind: 'human', name: '나' },
-  { kind: 'bot:normal', name: '구름' },
-  { kind: 'bot:normal', name: '초코' },
-  { kind: 'bot:normal', name: '먼지' },
-];
+const KINDS = ['human', 'bot:easy', 'bot:normal', 'bot:hard', 'closed', 'open'];
+const DEFAULT_SLOTS = ['human', 'bot:normal', 'bot:normal', 'bot:normal'].map((kind, i) => ({ kind, name: t('names')[i] }));
 
 function loadSlots() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORE));
     if (Array.isArray(saved) && saved.length === DEFAULT_SLOTS.length) {
       return DEFAULT_SLOTS.map((d, i) => ({
-        kind: i === 0 ? 'human' : KINDS.some(([k]) => k === saved[i].kind && k !== 'human' && k !== 'open') ? saved[i].kind : d.kind,
+        kind: i === 0 ? 'human' : KINDS.some((k) => k === saved[i].kind && k !== 'human' && k !== 'open') ? saved[i].kind : d.kind,
         name: String(saved[i].name || d.name).slice(0, 8),
       }));
     }
@@ -42,11 +31,19 @@ function loadSlots() {
   return DEFAULT_SLOTS.map((s) => ({ ...s }));
 }
 
-// Picks the right Korean subject particle for a name: 구름이 / 초코가.
-function subject(name) {
-  const code = name.charCodeAt(name.length - 1);
-  const hangul = code >= 0xac00 && code <= 0xd7a3;
-  return name + (hangul && (code - 0xac00) % 28 ? '이' : '가');
+// Fills in the static page text for the chosen language.
+function localizePage() {
+  document.documentElement.lang = lang;
+  document.querySelector('meta[name="description"]').content = t('description');
+  for (const el of document.querySelectorAll('[data-i18n]')) el.innerHTML = t(el.dataset.i18n);
+  $('mute').title = t('sound');
+  $('how').replaceChildren(
+    ...t('how').map((html) => {
+      const li = document.createElement('li');
+      li.innerHTML = html;
+      return li;
+    }),
+  );
 }
 
 const slots = loadSlots();
@@ -97,19 +94,19 @@ function renderLobby() {
     const name = document.createElement('input');
     name.value = slot.name;
     name.maxLength = 8;
-    name.setAttribute('aria-label', `${i + 1}번 자리 이름`);
+    name.setAttribute('aria-label', t('slotName', i + 1));
     name.addEventListener('input', () => {
       slot.name = name.value;
       saveSlots();
     });
 
     const kind = document.createElement('select');
-    kind.setAttribute('aria-label', `${i + 1}번 자리 종류`);
-    for (const [value, label] of KINDS) {
+    kind.setAttribute('aria-label', t('slotKind', i + 1));
+    for (const value of KINDS) {
       if ((value === 'human') !== (i === 0)) continue;
       const opt = document.createElement('option');
       opt.value = value;
-      opt.textContent = label;
+      opt.textContent = t('kinds')[value];
       opt.disabled = value === 'open';
       kind.append(opt);
     }
@@ -139,7 +136,7 @@ function saveSlots() {
 function updateStart() {
   const playing = slots.filter((s) => s.kind !== 'closed').length;
   $('start').disabled = playing < 2;
-  $('start').textContent = playing < 2 ? '상대가 한 명은 있어야 해요' : '게임 시작';
+  $('start').textContent = t(playing < 2 ? 'needOpponent' : 'start');
 }
 
 function show(screen) {
@@ -153,7 +150,7 @@ function startGame() {
   const active = slots.map((s, i) => ({ ...s, look: i })).filter((s) => s.kind !== 'closed');
   const seed = (Date.now() ^ (Math.random() * 0xffffffff)) >>> 0;
   game = createGame({
-    slots: active.map((s) => ({ name: s.name.trim() || `햄스터${s.look + 1}`, kind: s.kind, look: s.look })),
+    slots: active.map((s) => ({ name: s.name.trim() || t('fallbackName', s.look + 1), kind: s.kind, look: s.look })),
     seed,
   });
   controllers = active.map((s, id) => {
@@ -209,26 +206,26 @@ function onEvent(ev) {
     big(String(ev.n));
     audio.play.count();
   } else if (ev.type === 'go') {
-    big('출발!');
+    big(t('go'));
     audio.play.go();
   } else if (ev.type === 'swing') {
     if (ev.id === meId) audio.play.swing();
   } else if (ev.type === 'bonk') {
     audio.play.bonk();
     const line = document.createElement('div');
-    line.append(nameTag(players[ev.by]), ev.seed ? ' 🌻뿅! ' : ' 뿅! ', nameTag(players[ev.id]));
+    line.append(nameTag(players[ev.by]), ev.seed ? ` 🌻${t('bonkWord')} ` : ` ${t('bonkWord')} `, nameTag(players[ev.id]));
     line.addEventListener('animationend', () => line.remove());
     $('feed').prepend(line);
     while ($('feed').children.length > 4) $('feed').lastChild.remove();
-    if (ev.seed && ev.id === meId) banner('씨를 놓쳤어요! 다시 해바라기로!');
+    if (ev.seed && ev.id === meId) banner(t('lostSeed'));
   } else if (ev.type === 'spawn') {
     if (ev.id === meId) audio.play.spawn();
   } else if (ev.type === 'seed') {
     audio.play.seed();
-    banner(ev.id === meId ? '🌻 해씨 획득! 집으로 달려요!' : `🌻 ${subject(players[ev.id].name)} 씨를 물었어요! 막아요!`);
+    banner(ev.id === meId ? t('gotSeedMe') : t('gotSeedOther', players[ev.id].name));
   } else if (ev.type === 'overtime') {
     audio.play.overtime();
-    banner('⏰ 연장전! 집이 점점 넓어집니다');
+    banner(t('overtime'));
   } else if (ev.type === 'win') {
     const winner = players[ev.id];
     wins[winner.look]++;
@@ -241,11 +238,11 @@ function onEvent(ev) {
 
 function showResult() {
   const winner = game.players[game.winner];
-  $('resultTitle').textContent = game.winner === meId ? '🎉 내가 이겼다!' : `🏆 ${subject(winner.name)} 이겼어요`;
+  $('resultTitle').textContent = game.winner === meId ? t('winMe') : t('winOther', winner.name);
   const table = $('resultTable');
   table.textContent = '';
   const head = table.insertRow();
-  for (const h of ['', '꿀밤', '맞음', '해씨', '누적 승']) {
+  for (const h of ['', ...t('columns')]) {
     const th = document.createElement('th');
     th.textContent = h;
     head.append(th);
@@ -273,7 +270,7 @@ function updateHud() {
         const name = document.createElement('span');
         name.textContent = (p.carrying ? '🌻 ' : '') + p.name;
         const tally = document.createElement('small');
-        tally.textContent = `${wins[p.look]}승`;
+        tally.textContent = t('tally', wins[p.look]);
         chip.append(dot, name, tally);
         return chip;
       }),
@@ -281,7 +278,7 @@ function updateHud() {
   }
   const s = Math.floor(game.time);
   const overtime = game.time > OVERTIME.start;
-  $('clock').textContent = `${overtime ? '연장전 ' : ''}${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  $('clock').textContent = `${overtime ? `${t('overtimeClock')} ` : ''}${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
   $('clock').classList.toggle('overtime', overtime);
 }
 
@@ -330,6 +327,7 @@ document.addEventListener('visibilitychange', () => {
   acc = 0;
 });
 
+localizePage();
 renderLobby();
 show('lobby');
 requestAnimationFrame((t) => {
