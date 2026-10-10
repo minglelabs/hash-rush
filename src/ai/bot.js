@@ -17,15 +17,14 @@ export const DIFFICULTY = {
   // hunt: chance to clear a rival away from the flower instead of waiting in line
   // opportunism: swings per second at bystanders who happen to be in reach
   // caution: how strongly a seed carrier avoids enemies waiting near its route
-  easy: { reaction: 0.3, lead: 0.2, margin: 1, jitter: 4, bait: 0.1, hold: 0.2, deny: 0.5, hunt: 0.5, opportunism: 0.2, caution: 0.5 },
-  normal: { reaction: 0.2, lead: 0.5, margin: 2.5, jitter: 2.5, bait: 0.35, hold: 0.7, deny: 0.8, hunt: 0.85, opportunism: 0.45, caution: 1 },
-  hard: { reaction: 0.12, lead: 0.9, margin: 3, jitter: 1, bait: 0.55, hold: 1, deny: 1, hunt: 1, opportunism: 0.7, caution: 1.2 },
+  easy: { reaction: 0.3, lead: 0.2, margin: 1, jitter: 4, bait: 0.1, hold: 0.2, deny: 0.5, hunt: 0.5, opportunism: 0.5, caution: 0.5 },
+  normal: { reaction: 0.2, lead: 0.5, margin: 2.5, jitter: 2.5, bait: 0.35, hold: 0.7, deny: 0.8, hunt: 0.85, opportunism: 1, caution: 1 },
+  hard: { reaction: 0.12, lead: 0.9, margin: 3, jitter: 1, bait: 0.55, hold: 1, deny: 1, hunt: 1, opportunism: 1.5, caution: 1.2 },
 };
 
 const TOUCH = 2 * HAMSTER_R;
 const DANGER_R = 110;
 const DANGER_K = 300;
-const ENTRY_YS = [180, 270, 360, 450, 540];
 
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 
@@ -95,7 +94,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
     const seen = history[0].filter((s) => s.id !== id);
     const meHome = inHome(g, me);
     // Spots just inside the burrow that a seed carrier can aim for.
-    const entries = ENTRY_YS.map((y) => ({ x: g.homeX - 14, y })).filter((p) => isFree(map, p.x, p.y, HAMSTER_R));
+    const entries = map.rowYs.map((y) => ({ x: g.homeX - 14, y })).filter((p) => isFree(map, p.x, p.y, HAMSTER_R));
     // A lane with someone in it cannot be passed, so paths cost more through it.
     const blocked = blockCost(map, seen);
 

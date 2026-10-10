@@ -213,23 +213,28 @@ export function step(g, inputs) {
   // hamsters that connect on the same tick knock each other out.
   const bonked = new Set();
   for (const a of landing) {
-    let hit = false;
+    // A bonk lands on one hamster only: the nearest one in front.
+    let victim = null;
+    let nearest = BONK.reach;
     if (!inHome(g, a)) {
       for (const v of players) {
         if (v === a || inHome(g, v)) continue;
         const dx = v.x - a.x;
         const dy = v.y - a.y;
         const d = Math.hypot(dx, dy);
-        if (d > BONK.reach) continue;
+        if (d > nearest) continue;
         if (d > HAMSTER_R && (dx * a.swing.dx + dy * a.swing.dy) / d < BONK.arcCos) continue;
         if (!segmentClear(map, a.x, a.y, v.x, v.y, 0)) continue;
-        hit = true;
-        bonked.add(v);
-        a.kills++;
-        g.events.push({ type: 'bonk', by: a.id, id: v.id, x: v.x, y: v.y, seed: v.carrying });
+        victim = v;
+        nearest = d;
       }
     }
-    g.events.push({ type: 'impact', id: a.id, x: a.x, y: a.y, dx: a.swing.dx, dy: a.swing.dy, hit });
+    if (victim) {
+      bonked.add(victim);
+      a.kills++;
+      g.events.push({ type: 'bonk', by: a.id, id: victim.id, x: victim.x, y: victim.y, seed: victim.carrying });
+    }
+    g.events.push({ type: 'impact', id: a.id, x: a.x, y: a.y, dx: a.swing.dx, dy: a.swing.dy, hit: !!victim });
   }
   for (const v of bonked) respawn(g, v);
 
