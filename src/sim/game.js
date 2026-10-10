@@ -3,7 +3,7 @@
 // Human, bot and (later) network players all feed it through the same input shape:
 //   { mx, my, bonk, ax?, ay? }   move vector, bonk button, optional aim direction
 
-import { DT, SPEED, CARRY_SPEED, HAMSTER_R, GATHER_TIME, COUNTDOWN, BONK } from './constants.js';
+import { DT, SPEED, CARRY_SPEED, HAMSTER_R, GATHER_TIME, COUNTDOWN, BONK, OVERTIME } from './constants.js';
 import { MAP, resolveCollisions, segmentClear } from './map.js';
 import { mulberry32 } from './rng.js';
 
@@ -148,6 +148,11 @@ export function step(g, inputs) {
 
   g.time += DT;
   const { map, players } = g;
+  if (g.time > OVERTIME.start) {
+    if (g.homeX === map.home.x2) g.events.push({ type: 'overtime' });
+    const limit = map.flower.x - map.flower.gatherR - 20;
+    g.homeX = Math.min(limit, map.home.x2 + (g.time - OVERTIME.start) * OVERTIME.speed);
+  }
   const landing = [];
 
   for (const p of players) {

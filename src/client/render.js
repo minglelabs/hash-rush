@@ -441,12 +441,17 @@ export function createRenderer(canvas, map) {
     ctx.drawImage(ground, 0, 0);
     base(ctx, ox, oy);
 
-    // Burrow floor.
+    // Burrow floor. In overtime it spreads towards the flower.
     ctx.fillStyle = '#f6e6c2';
     ctx.beginPath();
     ctx.roundRect(b.x1, b.y1, game.homeX - b.x1, b.y2 - b.y1, [14, 0, 0, 14]);
     ctx.fill();
-    ctx.strokeStyle = carrierOut ? `rgba(255, 150, 40, ${0.75 + 0.25 * Math.sin(t * 8)})` : 'rgba(170, 120, 60, 0.7)';
+    const grown = game.homeX > map.home.x2 + 0.5;
+    if (grown) {
+      ctx.fillStyle = `rgba(255, 190, 80, ${0.16 + 0.08 * Math.sin(t * 5)})`;
+      ctx.fillRect(map.home.x2, b.y1, game.homeX - map.home.x2, b.y2 - b.y1);
+    }
+    ctx.strokeStyle = carrierOut || grown ? `rgba(255, 150, 40, ${0.75 + 0.25 * Math.sin(t * 8)})` : 'rgba(170, 120, 60, 0.7)';
     ctx.lineWidth = 4;
     ctx.setLineDash([12, 10]);
     ctx.lineDashOffset = -t * 18;

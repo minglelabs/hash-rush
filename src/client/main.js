@@ -2,7 +2,7 @@
 // simulation: the local human, a bot, or (later) a remote player.
 
 import { createGame, step } from '../sim/game.js';
-import { DT } from '../sim/constants.js';
+import { DT, OVERTIME } from '../sim/constants.js';
 import { MAP } from '../sim/map.js';
 import { createBot } from '../ai/bot.js';
 import { createRenderer, drawHamster } from './render.js';
@@ -164,6 +164,8 @@ function startGame() {
   $('result').hidden = true;
   $('feed').textContent = '';
   $('banner').classList.remove('show');
+  $('hint').classList.remove('gone');
+  setTimeout(() => $('hint').classList.add('gone'), 9000);
   scoreKey = '';
   acc = 0;
   renderer.clear();
@@ -221,6 +223,9 @@ function onEvent(ev) {
   } else if (ev.type === 'seed') {
     audio.play.seed();
     banner(ev.id === meId ? t('gotSeedMe') : t('gotSeedOther', players[ev.id].name));
+  } else if (ev.type === 'overtime') {
+    audio.play.overtime();
+    banner(t('overtime'));
   } else if (ev.type === 'win') {
     const winner = players[ev.id];
     wins[winner.look]++;
@@ -272,7 +277,9 @@ function updateHud() {
     );
   }
   const s = Math.floor(game.time);
-  $('clock').textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  const overtime = game.time > OVERTIME.start;
+  $('clock').textContent = `${overtime ? `${t('overtimeClock')} ` : ''}${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  $('clock').classList.toggle('overtime', overtime);
 }
 
 function frame(now) {
