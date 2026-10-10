@@ -190,8 +190,10 @@ function saveSlots() {
 
 function updateStart() {
   if (net.role === 'guest') {
-    $('start').disabled = true;
-    $('start').textContent = t('waitingHost');
+    // Until the host is actually reached the button says so, and after a failure
+    // it becomes a retry button.
+    $('start').disabled = !net.failed;
+    $('start').textContent = net.failed ? t('retry') : net.host ? t('waitingHost') : t('connecting');
     return;
   }
   const playing = slots.filter(isPlaying).length;
@@ -326,13 +328,15 @@ function snapshot(events) {
 
 async function enterRoom() {
   net.status = t('connecting');
+  net.failed = false;
   renderLobby();
   try {
     net.host = await joinRoom(joinId, { data: hostData, close: hostGone });
     net.host.send({ t: 'hello', name: slots[0].name, watch: watchOnly });
     net.status = '';
-  } catch {
-    net.status = t('joinFail');
+  } catch (err) {
+    net.failed = true;
+    net.status = t(err && err.noRoom ? 'noRoom' : 'joinFail');
   }
   renderLobby();
 }
@@ -340,6 +344,7 @@ async function enterRoom() {
 function hostGone() {
   net.host = null;
   net.lobby = null;
+  net.failed = true;
   net.status = t('hostLeft');
   toLobby();
   renderLobby();
@@ -601,7 +606,8 @@ function toLobby() {
 
 $('start').addEventListener('click', () => {
   audio.unlock();
-  startGame();
+  if (net.role === 'guest') enterRoom();
+  else startGame();
 });
 $('again').addEventListener('click', startGame);
 for (const id of ['back', 'quit']) {
