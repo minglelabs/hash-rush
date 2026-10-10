@@ -7,9 +7,16 @@ const PREFIX = 'hashrush-';
 
 // STUN lets two browsers find a direct route. That fails on some networks, mobile
 // carriers above all, and then only a TURN relay can carry the traffic. PeerJS's
-// own free relays no longer exist, so there is none here yet: add a
-// { urls, username, credential } entry from a TURN provider to TURN_SERVERS.
-const TURN_SERVERS = [];
+// own free relays no longer exist, so this uses a free ExpressTURN account. The
+// login has to ship with the page, so anyone can read it: it is a free-tier
+// account and nothing else. TCP is listed too for networks that block UDP.
+const TURN_SERVERS = [
+  {
+    urls: ['turn:free.expressturn.com:3478', 'turn:free.expressturn.com:3478?transport=tcp'],
+    username: '000000002106995672',
+    credential: '3SnEhz/cael7QWplFsqafCb/Kxc=',
+  },
+];
 const CONFIG = {
   iceServers: [
     { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
