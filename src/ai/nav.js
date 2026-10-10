@@ -1,11 +1,29 @@
 // Path finding over the map's waypoint visibility graph. Used by bots, and by the
 // human controller for click-to-move.
 
-import { HAMSTER_R } from '../sim/constants.js';
-import { segmentClear } from '../sim/map.js';
+import { HAMSTER_R, SPEED } from '../sim/constants.js';
+import { distToSegment, segmentClear } from '../sim/map.js';
 
 const PAD = HAMSTER_R * 0.7;
+const BLOCK_COST = 900;
 const cache = new WeakMap();
+
+// Extra path cost for legs that someone is standing in. A lane is one hamster
+// wide, so whoever is in it cannot be passed and the path should go around.
+// Someone walking the same way ahead of us is barely an obstacle.
+export function blockCost(map, units) {
+  const inLane = units.filter((u) => u.x > map.lanes.x1 - HAMSTER_R && u.x < map.lanes.x2 + HAMSTER_R);
+  return (p, q) => {
+    let c = 0;
+    for (const u of inLane) {
+      if (distToSegment(u.x, u.y, p.x, p.y, q.x, q.y) > 2 * HAMSTER_R) continue;
+      const len = Math.hypot(q.x - p.x, q.y - p.y) || 1;
+      const along = (u.vx * (q.x - p.x) + u.vy * (q.y - p.y)) / len;
+      c += along > 0.6 * SPEED ? BLOCK_COST * 0.15 : BLOCK_COST;
+    }
+    return c;
+  };
+}
 
 export function getNav(map) {
   let nav = cache.get(map);

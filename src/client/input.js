@@ -4,7 +4,7 @@
 
 import { BONK } from '../sim/constants.js';
 import { inHome } from '../sim/game.js';
-import { getNav } from '../ai/nav.js';
+import { getNav, blockCost } from '../ai/nav.js';
 import { predictSwing } from '../ai/bot.js';
 
 const KEYS = {
@@ -130,6 +130,11 @@ export function createInput({ stage, canvas, stick, knob, bonkBtn, toWorld }) {
     if (!order || g.phase !== 'playing') return out;
 
     const nav = getNav(g.map);
+    // Like an RTS unit, walk around a lane that someone is standing in.
+    const blocked = blockCost(
+      g.map,
+      g.players.filter((p) => p !== me),
+    );
     const steer = (pt) => {
       const dx = pt.x - me.x;
       const dy = pt.y - me.y;
@@ -146,7 +151,7 @@ export function createInput({ stage, canvas, stick, knob, bonkBtn, toWorld }) {
       const visible = nav.clear(me, e);
       steer(visible ? e : nav.nextTarget(me, nav.findPath(me, e).points));
       const p = predictSwing(me, { x: e.x, y: e.y, vx: e.vx, vy: e.vy, swing: e.swing }, BONK.windup);
-      const ready = visible && !me.swing && me.cooldown <= 0 && !inHome(g, me) && p.gap <= BONK.reach - 6;
+      const ready = visible && !me.swing && me.cooldown <= 0 && !inHome(g, me) && p.dist <= BONK.reach - 3;
       if (ready && !autoHeld) {
         out.bonk = true;
         out.ax = p.ax;
@@ -158,7 +163,7 @@ export function createInput({ stage, canvas, stick, knob, bonkBtn, toWorld }) {
     } else if (Math.hypot(order.x - me.x, order.y - me.y) < 5) {
       order = null;
     } else {
-      steer(nav.nextTarget(me, nav.findPath(me, order).points));
+      steer(nav.nextTarget(me, nav.findPath(me, order, blocked).points));
     }
     return out;
   }
