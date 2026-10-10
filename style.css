@@ -339,15 +339,6 @@ button.primary:active {
   gap: 0.4em;
 }
 
-#rotate {
-  display: none;
-  margin: 0;
-  padding: 0 16px;
-  color: rgba(255, 255, 255, 0.8);
-  font-size: 14px;
-  text-align: center;
-}
-
 #stick {
   position: fixed;
   width: 110px;
@@ -518,15 +509,27 @@ button.primary:active {
   }
 }
 
+/* Tall screens get the map turned a quarter so it fills the screen. */
 @media (orientation: portrait) {
   #stage {
     align-content: start;
-    gap: 14px;
-    padding-top: max(10px, env(safe-area-inset-top));
   }
 
-  #stage #rotate {
-    display: block;
+  #field {
+    width: min(100vw, calc(100dvh * 9 / 16));
+    aspect-ratio: 9 / 16;
+  }
+
+  #hud {
+    font-size: clamp(11px, 3cqw, 20px);
+  }
+
+  #big {
+    font-size: 22cqw;
+  }
+
+  #banner {
+    top: 12cqw;
   }
 }
 
