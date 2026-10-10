@@ -16,6 +16,8 @@ const KEYS = {
 };
 const HANDLED = new Set(Object.values(KEYS).flat());
 const STICK_RANGE = 46;
+// Top speed comes after a short drag; the knob can still travel the full range.
+const STICK_FULL = 18;
 
 export function createInput({ stage, canvas, stick, knob, bonkBtn, toWorld, toWorldDir }) {
   const down = new Set();
@@ -70,8 +72,9 @@ export function createInput({ stage, canvas, stick, knob, bonkBtn, toWorld, toWo
       dx = (dx / d) * STICK_RANGE;
       dy = (dy / d) * STICK_RANGE;
     }
-    touch.x = d < 8 ? 0 : dx / STICK_RANGE;
-    touch.y = d < 8 ? 0 : dy / STICK_RANGE;
+    const k = d < 6 ? 0 : Math.min(1, d / STICK_FULL) / Math.min(d, STICK_RANGE);
+    touch.x = dx * k;
+    touch.y = dy * k;
     knob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
   });
   const release = (e) => {

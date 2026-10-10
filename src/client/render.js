@@ -491,9 +491,9 @@ export function createRenderer(canvas, map) {
       ctx.stroke();
       ctx.setLineDash([]);
       upright(w.x, w.y, () => {
-        ctx.font = `20px ${FONT}`;
+        ctx.font = `${Math.round(w.r * 0.9)}px ${FONT}`;
         ctx.textAlign = 'center';
-        ctx.fillText('🏠', 0, 7);
+        ctx.fillText('🏠', 0, w.r * 0.32);
       });
     }
 
