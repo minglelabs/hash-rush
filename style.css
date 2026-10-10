@@ -141,6 +141,37 @@ button.primary:active {
   font-weight: 700;
 }
 
+#invite,
+#netStatus {
+  margin: -8px 0 18px;
+  padding: 10px 12px;
+  background: #fff;
+  border: 2px dashed var(--line);
+  border-radius: 14px;
+  font-size: 14px;
+}
+
+#invite .row {
+  margin-top: 6px;
+  justify-content: stretch;
+}
+
+#invite input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  padding: 0.4em 0.6em;
+  border: 2px solid var(--line);
+  border-radius: 10px;
+  background: var(--cream);
+}
+
+#netStatus:empty {
+  display: none;
+}
+
 #start {
   width: 100%;
   font-size: 20px;

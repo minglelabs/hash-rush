@@ -22,6 +22,14 @@
         <section>
           <h2 data-i18n="players"></h2>
           <ul id="slots"></ul>
+          <div id="invite" hidden>
+            <span id="inviteText"></span>
+            <div class="row">
+              <input id="inviteLink" readonly />
+              <button id="copy" data-i18n="copy"></button>
+            </div>
+          </div>
+          <p id="netStatus" hidden></p>
         </section>
 
         <button id="start" class="primary"></button>
