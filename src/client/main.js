@@ -68,9 +68,12 @@ const input = createInput({
   toWorldDir: renderer.toWorldDir,
 });
 
-const joinId = new URLSearchParams(location.search).get('room');
+const query = new URLSearchParams(location.search);
+const joinId = query.get('room');
+// Opening the watch link joins as a spectator instead of taking a slot.
+const watchOnly = query.has('watch');
 // role: null (offline), 'host' or 'guest'.
-const net = { role: joinId ? 'guest' : null, room: null, host: null, status: '', lobby: null, you: -1, pending: [] };
+const net = { role: joinId ? 'guest' : null, room: null, host: null, status: '', lobby: null, you: -1, pending: [], watchers: [] };
 
 let game = null;
 let controllers = [];
@@ -150,9 +153,15 @@ function renderLobby() {
   $('inviteText').textContent = net.room ? t('invite') : net.status || t('roomCreating');
   $('inviteLink').hidden = !net.room;
   $('copy').hidden = !net.room;
-  if (net.room) $('inviteLink').value = `${location.origin}${location.pathname}?room=${net.room}`;
+  $('watchRow').hidden = !net.room;
+  if (net.room) {
+    const link = `${location.origin}${location.pathname}?room=${net.room}`;
+    $('inviteLink').value = link;
+    $('watchLink').value = `${link}&watch`;
+    $('watchText').textContent = `${t('watchLink')} · ${t('spectators', net.watchers.length)}`;
+  }
   $('netStatus').hidden = !guest;
-  $('netStatus').textContent = net.status;
+  $('netStatus').textContent = net.status || (guest && net.lobby && net.you < 0 ? t('spectating') : '');
   updateStart();
 }
 
@@ -209,27 +218,45 @@ async function openRoom() {
   renderLobby();
 }
 
-function guestJoined(conn) {
-  const slot = slots.find((s) => s.kind === 'open');
-  if (!slot) {
-    conn.send({ t: 'full' });
-    setTimeout(() => conn.close(), 500);
-    return;
+// Nothing happens until the newcomer says hello: that message tells us whether
+// they want a slot or only to watch.
+function guestJoined() {}
+
+function welcome(conn, msg) {
+  const slot = msg.watch ? null : slots.find((s) => s.kind === 'open');
+  if (slot) {
+    slot.kind = 'remote';
+    slot.conn = conn;
+    slot.input = IDLE;
+    slot.playerId = -1;
+    slot.name = guestName(slot, msg.name);
+  } else {
+    // No free slot, or they asked to watch: they become a spectator.
+    net.watchers.push(conn);
   }
-  slot.kind = 'remote';
-  slot.conn = conn;
-  slot.input = IDLE;
-  slot.name = t('kinds').remote;
   renderLobby();
   sendLobby();
+  // Arriving mid-round, they watch it; a new player gets a hamster next round.
+  if (game && !$('stage').hidden) conn.send({ t: 'start', players: roster(), you: -1, wins });
 }
 
+function guestName(slot, raw) {
+  const name = String(raw || '').trim().slice(0, 8);
+  return !name || ME_NAMES.has(name) ? DEFAULT_SLOTS[slots.indexOf(slot)].name : name;
+}
+
+const roster = () => game.players.map((p) => ({ name: p.name, look: p.look, nest: p.nest }));
+
 function guestData(conn, msg) {
+  if (!msg) return;
+  if (msg.t === 'hello') {
+    if (!slots.some((s) => s.conn === conn) && !net.watchers.includes(conn)) welcome(conn, msg);
+    return;
+  }
   const slot = slots.find((s) => s.conn === conn);
-  if (!slot || !msg) return;
+  if (!slot) return;
   if (msg.t === 'name') {
-    const name = String(msg.name || '').trim().slice(0, 8);
-    slot.name = !name || ME_NAMES.has(name) ? DEFAULT_SLOTS[slots.indexOf(slot)].name : name;
+    slot.name = guestName(slot, msg.name);
     renderLobby();
     sendLobby();
   } else if (msg.t === 'i') {
@@ -239,6 +266,12 @@ function guestData(conn, msg) {
 }
 
 function guestLeft(conn) {
+  const watching = net.watchers.indexOf(conn);
+  if (watching >= 0) {
+    net.watchers.splice(watching, 1);
+    renderLobby();
+    return;
+  }
   const slot = slots.find((s) => s.conn === conn);
   if (!slot) return;
   slot.conn = null;
@@ -258,6 +291,8 @@ function broadcast(make) {
   slots.forEach((slot, i) => {
     if (slot.conn && slot.conn.open) slot.conn.send(make(slot, i));
   });
+  // Spectators get the same messages, addressed to nobody's slot.
+  for (const conn of net.watchers) if (conn.open) conn.send(make({ playerId: -1 }, -1));
 }
 
 function sendLobby() {
@@ -291,7 +326,7 @@ async function enterRoom() {
   renderLobby();
   try {
     net.host = await joinRoom(joinId, { data: hostData, close: hostGone });
-    net.host.send({ t: 'name', name: slots[0].name });
+    net.host.send({ t: 'hello', name: slots[0].name, watch: watchOnly });
     net.status = '';
   } catch {
     net.status = t('joinFail');
@@ -385,7 +420,7 @@ function startGame() {
   });
   meId = active.findIndex((a) => a.slot.kind === 'human');
   net.pending = [];
-  const players = game.players.map((p) => ({ name: p.name, look: p.look, nest: p.nest }));
+  const players = roster();
   broadcast((slot) => ({ t: 'start', players, you: slot.playerId, wins }));
   enterStage();
 }
@@ -400,7 +435,8 @@ function enterStage() {
   acc = 0;
   renderer.clear();
   input.reset();
-  input.enable(true);
+  input.enable(meId >= 0);
+  $('watching').hidden = meId >= 0;
   show('stage');
   renderer.resize();
   big('3');
@@ -521,10 +557,12 @@ function frame(now) {
 
   if (net.role === 'guest') {
     // Guests do not simulate: send this frame's input, draw the latest snapshot.
-    const i = input.read(game, meId);
-    if (i.bonk && !bonkWas) bonkSeq++;
-    bonkWas = i.bonk;
-    if (net.host) net.host.send({ t: 'i', mx: i.mx, my: i.my, ax: i.ax, ay: i.ay, seq: bonkSeq });
+    if (meId >= 0) {
+      const i = input.read(game, meId);
+      if (i.bonk && !bonkWas) bonkSeq++;
+      bonkWas = i.bonk;
+      if (net.host) net.host.send({ t: 'i', mx: i.mx, my: i.my, ax: i.ax, ay: i.ay, seq: bonkSeq });
+    }
   } else {
     acc += dt;
     let steps = 0;
@@ -575,16 +613,18 @@ for (const id of ['back', 'quit']) {
     renderLobby();
   });
 }
-$('copy').addEventListener('click', async () => {
-  $('inviteLink').select();
-  try {
-    await navigator.clipboard.writeText($('inviteLink').value);
-  } catch {
-    document.execCommand('copy');
-  }
-  $('copy').textContent = t('copied');
-  setTimeout(() => ($('copy').textContent = t('copy')), 1500);
-});
+for (const [button, field] of [['copy', 'inviteLink'], ['copyWatch', 'watchLink']]) {
+  $(button).addEventListener('click', async () => {
+    $(field).select();
+    try {
+      await navigator.clipboard.writeText($(field).value);
+    } catch {
+      document.execCommand('copy');
+    }
+    $(button).textContent = t('copied');
+    setTimeout(() => ($(button).textContent = t('copy')), 1500);
+  });
+}
 $('mute').textContent = audio.isMuted() ? '🔇' : '🔊';
 $('mute').addEventListener('click', () => {
   audio.unlock();
