@@ -1,97 +1,118 @@
-// The one map: burrow (home) on the left, the sunflower on the right, three lanes
-// between them, split by hedges with a crossing in the middle.
+// The one map: burrow (home) on the left, the sunflower on the right, and three
+// lanes between them cut through a hedge. A lane is only one hamster wide, so
+// nobody can squeeze past anybody: a blocked lane means fighting or going around.
+// A cross lane in the middle links all three.
 
 export const WORLD = { w: 1280, h: 720 };
 
-const HEDGES = [
-  { x: 250, y: 178, w: 320, h: 114 },
-  { x: 690, y: 178, w: 300, h: 114 },
-  { x: 250, y: 428, w: 320, h: 114 },
-  { x: 690, y: 428, w: 300, h: 114 },
-];
-const ROCK = { x: 630, y: 360, r: 34 };
-const FLOWER = { x: 1130, y: 360, r: 30, gatherR: 66 };
+const LANE_W = 40;
+const LANE_YS = [180, 360, 540];
+const HEDGE_X1 = 270;
+const HEDGE_X2 = 990;
+const CROSS_X = 630;
+// Hedge corners are rounded, which funnels a hamster into a lane mouth.
+const CORNER = 20;
+
+const BOUNDS = { x1: 24, y1: 24, x2: 1256, y2: 696 };
+const FLOWER = { x: 1135, y: 360, r: 30, gatherR: 66 };
 const HOME = { x1: 24, y1: 24, x2: 190, y2: 696 };
 
 // Nests sit on an arc so every hamster starts the same distance from the middle lane.
 const NEST_ARC = { cx: HOME.x2, cy: 360, r: 125, angles: [-36, -12, 12, 36] };
 
-function ring(c, radius, count, offset = 0) {
+function buildHedges() {
+  const half = LANE_W / 2;
+  const rows = [];
+  let top = BOUNDS.y1;
+  for (const y of LANE_YS) {
+    rows.push([top, y - half]);
+    top = y + half;
+  }
+  rows.push([top, BOUNDS.y2]);
+  const hedges = [];
+  rows.forEach(([y1, y2], i) => {
+    const outer = i === 0 || i === rows.length - 1;
+    const spans = outer
+      ? [[HEDGE_X1, HEDGE_X2]]
+      : [
+          [HEDGE_X1, CROSS_X - half],
+          [CROSS_X + half, HEDGE_X2],
+        ];
+    for (const [x1, x2] of spans) hedges.push({ x: x1, y: y1, w: x2 - x1, h: y2 - y1 });
+  });
+  return hedges;
+}
+
+function ring(c, radius, count) {
   const pts = [];
   for (let i = 0; i < count; i++) {
-    const a = offset + (i / count) * Math.PI * 2;
+    const a = (i / count) * Math.PI * 2;
     pts.push({ x: c.x + Math.cos(a) * radius, y: c.y + Math.sin(a) * radius });
   }
   return pts;
 }
 
-// Navigation waypoints: a visibility graph built from points just off every corner.
+const GATHER_SPOTS = ring(FLOWER, 55, 8);
+
+// Navigation waypoints: lane mouths, the crossings, and a few points in each room.
 function buildWaypoints() {
-  const off = 22;
   const pts = [];
-  for (const h of HEDGES) {
-    pts.push(
-      { x: h.x - off, y: h.y - off },
-      { x: h.x + h.w + off, y: h.y - off },
-      { x: h.x - off, y: h.y + h.h + off },
-      { x: h.x + h.w + off, y: h.y + h.h + off },
-    );
+  for (const y of LANE_YS) {
+    pts.push({ x: HEDGE_X1 - 40, y }, { x: CROSS_X, y }, { x: HEDGE_X2 + 40, y });
+    pts.push({ x: 110, y });
   }
-  pts.push(...ring(ROCK, ROCK.r + 28, 8, Math.PI / 8));
-  pts.push(...ring(FLOWER, 55, 8));
-  pts.push({ x: 110, y: 150 }, { x: 110, y: 360 }, { x: 110, y: 570 });
+  pts.push(...GATHER_SPOTS);
   return pts;
 }
 
 export const MAP = {
   name: '해바라기 밭',
-  bounds: { x1: 24, y1: 24, x2: 1256, y2: 696 },
+  bounds: BOUNDS,
   home: HOME,
   nests: NEST_ARC.angles.map((deg) => {
     const a = (deg * Math.PI) / 180;
     return { x: NEST_ARC.cx - Math.cos(a) * NEST_ARC.r, y: NEST_ARC.cy + Math.sin(a) * NEST_ARC.r };
   }),
   flower: FLOWER,
-  rects: HEDGES,
-  circles: [ROCK],
+  rects: buildHedges(),
+  corner: CORNER,
+  laneYs: LANE_YS,
+  laneWidth: LANE_W,
+  // Anyone standing between these x values is inside a lane.
+  lanes: { x1: HEDGE_X1, x2: HEDGE_X2 },
   waypoints: buildWaypoints(),
-  gatherSpots: ring(FLOWER, 55, 8),
+  gatherSpots: GATHER_SPOTS,
 };
 
-// True when a circle of radius `pad` at (x, y) touches no obstacle.
-export function isFree(map, x, y, pad = 0) {
-  for (const r of map.rects) {
-    if (x > r.x - pad && x < r.x + r.w + pad && y > r.y - pad && y < r.y + r.h + pad) return false;
-  }
-  for (const c of map.circles) if (Math.hypot(x - c.x, y - c.y) < c.r + pad) return false;
-  return Math.hypot(x - map.flower.x, y - map.flower.y) >= map.flower.r + pad;
-}
-
-function pushOutRect(p, r, rect) {
-  const x2 = rect.x + rect.w;
-  const y2 = rect.y + rect.h;
-  const cx = Math.max(rect.x, Math.min(p.x, x2));
-  const cy = Math.max(rect.y, Math.min(p.y, y2));
+// Hedges collide as rounded rectangles: a core rect grown by the corner radius.
+function pushOutHedge(p, r, rect, corner) {
+  const x1 = rect.x + corner;
+  const y1 = rect.y + corner;
+  const x2 = rect.x + rect.w - corner;
+  const y2 = rect.y + rect.h - corner;
+  const cx = Math.max(x1, Math.min(p.x, x2));
+  const cy = Math.max(y1, Math.min(p.y, y2));
   const dx = p.x - cx;
   const dy = p.y - cy;
+  const min = r + corner;
   const d2 = dx * dx + dy * dy;
-  if (d2 >= r * r) return;
+  if (d2 >= min * min) return;
   if (d2 > 1e-9) {
     const d = Math.sqrt(d2);
-    p.x = cx + (dx / d) * r;
-    p.y = cy + (dy / d) * r;
+    p.x = cx + (dx / d) * min;
+    p.y = cy + (dy / d) * min;
     return;
   }
-  // Centre is inside the rect: leave through the nearest side.
+  // Centre is inside the core: leave through the nearest side.
   const left = p.x - rect.x;
-  const right = x2 - p.x;
+  const right = rect.x + rect.w - p.x;
   const top = p.y - rect.y;
-  const bottom = y2 - p.y;
+  const bottom = rect.y + rect.h - p.y;
   const m = Math.min(left, right, top, bottom);
   if (m === left) p.x = rect.x - r;
-  else if (m === right) p.x = x2 + r;
+  else if (m === right) p.x = rect.x + rect.w + r;
   else if (m === top) p.y = rect.y - r;
-  else p.y = y2 + r;
+  else p.y = rect.y + rect.h + r;
 }
 
 function pushOutCircle(p, r, c) {
@@ -112,12 +133,24 @@ function pushOutCircle(p, r, c) {
 export function resolveCollisions(map, p, r) {
   const b = map.bounds;
   for (let pass = 0; pass < 2; pass++) {
-    for (const rect of map.rects) pushOutRect(p, r, rect);
-    for (const c of map.circles) pushOutCircle(p, r, c);
+    for (const rect of map.rects) pushOutHedge(p, r, rect, map.corner);
     pushOutCircle(p, r, map.flower);
     p.x = Math.max(b.x1 + r, Math.min(p.x, b.x2 - r));
     p.y = Math.max(b.y1 + r, Math.min(p.y, b.y2 - r));
   }
+}
+
+function pointRectDistance(px, py, x1, y1, x2, y2) {
+  return Math.hypot(px - Math.max(x1, Math.min(px, x2)), py - Math.max(y1, Math.min(py, y2)));
+}
+
+// True when a circle of radius `pad` at (x, y) touches no obstacle.
+export function isFree(map, x, y, pad = 0) {
+  const c = map.corner;
+  for (const r of map.rects) {
+    if (pointRectDistance(x, y, r.x + c, r.y + c, r.x + r.w - c, r.y + r.h - c) < c + pad) return false;
+  }
+  return Math.hypot(x - map.flower.x, y - map.flower.y) >= map.flower.r + pad;
 }
 
 function segmentHitsRect(ax, ay, bx, by, x1, y1, x2, y2) {
@@ -157,13 +190,23 @@ export function distToSegment(px, py, ax, ay, bx, by) {
   return Math.hypot(px - (ax + dx * t), py - (ay + dy * t));
 }
 
+function segmentRectDistance(ax, ay, bx, by, x1, y1, x2, y2) {
+  if (segmentHitsRect(ax, ay, bx, by, x1, y1, x2, y2)) return 0;
+  return Math.min(
+    pointRectDistance(ax, ay, x1, y1, x2, y2),
+    pointRectDistance(bx, by, x1, y1, x2, y2),
+    distToSegment(x1, y1, ax, ay, bx, by),
+    distToSegment(x2, y1, ax, ay, bx, by),
+    distToSegment(x1, y2, ax, ay, bx, by),
+    distToSegment(x2, y2, ax, ay, bx, by),
+  );
+}
+
 // True when a straight line from a to b stays `pad` away from every obstacle.
 export function segmentClear(map, ax, ay, bx, by, pad = 0) {
+  const c = map.corner;
   for (const r of map.rects) {
-    if (segmentHitsRect(ax, ay, bx, by, r.x - pad, r.y - pad, r.x + r.w + pad, r.y + r.h + pad)) return false;
-  }
-  for (const c of map.circles) {
-    if (distToSegment(c.x, c.y, ax, ay, bx, by) < c.r + pad) return false;
+    if (segmentRectDistance(ax, ay, bx, by, r.x + c, r.y + c, r.x + r.w - c, r.y + r.h - c) < c + pad) return false;
   }
   const f = map.flower;
   return distToSegment(f.x, f.y, ax, ay, bx, by) >= f.r + pad;

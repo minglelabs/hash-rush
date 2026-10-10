@@ -35,6 +35,7 @@ export function createGame({ slots, map = MAP, seed = 1 }) {
     fy: 0,
     carrying: false,
     gather: 0,
+    queued: -1,
     swing: null,
     cooldown: 0,
     bonkHeld: false,
@@ -49,6 +50,7 @@ export function createGame({ slots, map = MAP, seed = 1 }) {
     phase: 'countdown',
     countdown: COUNTDOWN,
     homeX: map.home.x2,
+    nibbler: -1,
     players,
     winner: null,
     events: [],
@@ -75,6 +77,42 @@ function pickAim(g, p, inp, mx, my, moveLen) {
   return { x: p.fx, y: p.fy };
 }
 
+// Hamsters are solid. Whoever walked into the other gives way, so standing still
+// in a lane blocks it and nobody can be shoved along.
+function separate(g) {
+  const { map, players } = g;
+  const min = 2 * HAMSTER_R;
+  for (let pass = 0; pass < 3; pass++) {
+    for (let i = 0; i < players.length; i++) {
+      for (let j = i + 1; j < players.length; j++) {
+        const a = players[i];
+        const b = players[j];
+        let nx = b.x - a.x;
+        let ny = b.y - a.y;
+        const d = Math.hypot(nx, ny);
+        if (d >= min) continue;
+        if (d < 1e-6) {
+          nx = 1;
+          ny = 0;
+        } else {
+          nx /= d;
+          ny /= d;
+        }
+        const pa = Math.max(0, a.vx * nx + a.vy * ny);
+        const pb = Math.max(0, -(b.vx * nx + b.vy * ny));
+        const wa = pa + pb > 1e-6 ? pa / (pa + pb) : 0.5;
+        const overlap = min - d;
+        a.x -= nx * overlap * wa;
+        a.y -= ny * overlap * wa;
+        b.x += nx * overlap * (1 - wa);
+        b.y += ny * overlap * (1 - wa);
+        resolveCollisions(map, a, HAMSTER_R);
+        resolveCollisions(map, b, HAMSTER_R);
+      }
+    }
+  }
+}
+
 function respawn(g, p) {
   p.x = p.nest.x;
   p.y = p.nest.y;
@@ -82,6 +120,7 @@ function respawn(g, p) {
   p.vy = 0;
   p.carrying = false;
   p.gather = 0;
+  p.queued = -1;
   p.swing = null;
   p.cooldown = 0;
   p.deaths++;
@@ -143,8 +182,8 @@ export function step(g, inputs) {
     if (p.swing) {
       p.swing.t += DT;
       if (p.swing.phase === 'windup') {
-        p.vx = p.swing.dx * SPEED * BONK.lunge;
-        p.vy = p.swing.dy * SPEED * BONK.lunge;
+        p.vx = 0;
+        p.vy = 0;
         if (p.swing.t >= BONK.windup - 1e-9) {
           p.swing.phase = 'recovery';
           p.swing.t = 0;
@@ -168,6 +207,7 @@ export function step(g, inputs) {
     p.y += p.vy * DT;
     resolveCollisions(map, p, HAMSTER_R);
   }
+  separate(g);
 
   // Every hit that lands this tick is judged against the same positions, so two
   // hamsters that connect on the same tick knock each other out.
@@ -193,26 +233,44 @@ export function step(g, inputs) {
   }
   for (const v of bonked) respawn(g, v);
 
-  const f = map.flower;
   for (const p of players) {
-    if (p.carrying) {
-      if (inHome(g, p)) {
-        g.phase = 'over';
-        g.winner = p.id;
-        g.events.push({ type: 'win', id: p.id });
-        break;
-      }
+    if (p.carrying && inHome(g, p)) {
+      g.phase = 'over';
+      g.winner = p.id;
+      g.events.push({ type: 'win', id: p.id });
+      return g;
+    }
+  }
+
+  // The flower feeds one hamster at a time, like a single mineral patch. Whoever
+  // has waited in the ring longest nibbles, and has to hold still to do it.
+  // Walking resets the progress; leaving or bonking goes to the back of the line.
+  const f = map.flower;
+  let nibbler = null;
+  for (const p of players) {
+    const inRing = !p.carrying && Math.hypot(p.x - f.x, p.y - f.y) <= f.gatherR;
+    if (!inRing || p.swing) {
+      p.queued = inRing ? g.tick : -1;
+      p.gather = 0;
       continue;
     }
-    if (Math.hypot(p.x - f.x, p.y - f.y) > f.gatherR) {
-      p.gather = 0;
-    } else if (!p.swing) {
-      p.gather += DT;
-      if (p.gather >= GATHER_TIME - 1e-9) {
-        p.gather = 0;
-        p.carrying = true;
-        p.seeds++;
-        g.events.push({ type: 'seed', id: p.id });
+    if (p.queued < 0) p.queued = g.tick;
+    if (!nibbler || p.queued < nibbler.queued) nibbler = p;
+  }
+  g.nibbler = nibbler ? nibbler.id : -1;
+  for (const p of players) if (p !== nibbler) p.gather = 0;
+  if (nibbler) {
+    if (Math.hypot(nibbler.vx, nibbler.vy) > 1) {
+      nibbler.gather = 0;
+    } else {
+      nibbler.gather += DT;
+      if (nibbler.gather >= GATHER_TIME - 1e-9) {
+        nibbler.gather = 0;
+        nibbler.queued = -1;
+        nibbler.carrying = true;
+        nibbler.seeds++;
+        g.nibbler = -1;
+        g.events.push({ type: 'seed', id: nibbler.id });
       }
     }
   }

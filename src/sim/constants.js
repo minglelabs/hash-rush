@@ -15,12 +15,13 @@ export const COUNTDOWN = 3;
 export const OVERTIME = { start: 60, speed: 5 };
 
 export const BONK = {
-  windup: 0.14, // lunge before the hit lands
+  windup: 0.14, // standing still before the hit lands
   recovery: 0.42, // stuck in place after the hit; a whiff is punishable
   cooldown: 0.8, // from swing start until the next swing
-  reach: 46, // centre-to-centre distance that still hits at impact
+  // Centre-to-centre distance that still hits at impact. Two hamsters touch at
+  // 2 * HAMSTER_R, so the target has to be right next to the attacker.
+  reach: 2 * HAMSTER_R + 10,
   arcCos: Math.cos((75 * Math.PI) / 180),
-  lunge: 1.0, // speed multiplier during windup
   recoveryMove: 0.15,
-  assist: 110, // auto-aim picks the nearest enemy inside this radius
+  assist: 80, // auto-aim picks the nearest enemy inside this radius
 };

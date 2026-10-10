@@ -1,42 +1,42 @@
 // Computer-controlled hamster. A bot only reads the public game state and returns
 // the same input object a human does, so any slot can be swapped between the two.
 
-import { DT, SPEED, CARRY_SPEED, BONK } from '../sim/constants.js';
+import { DT, SPEED, CARRY_SPEED, HAMSTER_R, BONK } from '../sim/constants.js';
 import { distToSegment, isFree } from '../sim/map.js';
 import { inHome } from '../sim/game.js';
 import { mulberry32 } from '../sim/rng.js';
-import { getNav } from './nav.js';
+import { getNav, blockCost } from './nav.js';
 
 export const DIFFICULTY = {
   // reaction: how stale the bot's view of others is (seconds)
   // lead: how well it compensates for that delay when timing a swing (0..1)
   // margin/jitter: how far inside its reach it wants a target before swinging
-  // bait: chance to hang back and wait for a whiff instead of rushing in
+  // bait: chance to hover just out of reach, waiting for a whiff, before going in
+  // hold: chance to stand its ground when charged, which is the stronger position
   // deny: chance to go after someone who picked up a seed
+  // hunt: chance to clear a rival away from the flower instead of waiting in line
   // opportunism: swings per second at bystanders who happen to be in reach
-  // caution: how strongly it routes around lanes with enemies in them
-  easy: { reaction: 0.3, lead: 0.2, margin: 12, jitter: 10, bait: 0.1, deny: 0.4, opportunism: 0.2, caution: 0.5, hunt: 0.4 },
-  normal: { reaction: 0.2, lead: 0.6, margin: 8, jitter: 6, bait: 0.3, deny: 0.6, opportunism: 0.45, caution: 1, hunt: 0.7 },
-  hard: { reaction: 0.12, lead: 0.95, margin: 5, jitter: 3, bait: 0.5, deny: 0.8, opportunism: 0.7, caution: 1.2, hunt: 0.9 },
+  // caution: how strongly a seed carrier avoids enemies waiting near its route
+  easy: { reaction: 0.3, lead: 0.2, margin: 1, jitter: 4, bait: 0.1, hold: 0.2, deny: 0.5, hunt: 0.5, opportunism: 0.2, caution: 0.5 },
+  normal: { reaction: 0.2, lead: 0.5, margin: 2.5, jitter: 2.5, bait: 0.35, hold: 0.7, deny: 0.8, hunt: 0.85, opportunism: 0.45, caution: 1 },
+  hard: { reaction: 0.12, lead: 0.9, margin: 3, jitter: 1, bait: 0.55, hold: 1, deny: 1, hunt: 1, opportunism: 0.7, caution: 1.2 },
 };
 
-const LUNGE = SPEED * BONK.lunge * BONK.windup;
-const DANGER_R = 180;
-const DANGER_K = 260;
-const ENTRY_YS = [60, 101, 140, 235, 310, 360, 410, 485, 580, 619, 660];
+const TOUCH = 2 * HAMSTER_R;
+const DANGER_R = 110;
+const DANGER_K = 300;
+const ENTRY_YS = [180, 270, 360, 450, 540];
 
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 
-// If `me` started a swing now, how far outside/inside reach would `e` be at impact?
+// If `me` started a swing now, how far away would `e` be when it lands?
 // `lead` is how far ahead (seconds) to extrapolate the target's movement.
 export function predictSwing(me, e, lead) {
   const drift = e.swing ? 0 : lead;
-  const px = e.x + e.vx * drift;
-  const py = e.y + e.vy * drift;
-  const dx = px - me.x;
-  const dy = py - me.y;
+  const dx = e.x + e.vx * drift - me.x;
+  const dy = e.y + e.vy * drift - me.y;
   const d = Math.hypot(dx, dy) || 1;
-  return { ax: dx / d, ay: dy / d, gap: Math.abs(d - LUNGE) };
+  return { ax: dx / d, ay: dy / d, dist: d };
 }
 
 function snapshot(g, p) {
@@ -48,8 +48,8 @@ function snapshot(g, p) {
     vy: p.vy,
     carrying: p.carrying,
     swing: p.swing ? p.swing.phase : null,
-    gather: p.gather,
     seeds: p.seeds,
+    nibbler: g.nibbler === p.id,
     home: inHome(g, p),
   };
 }
@@ -58,7 +58,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
   const rng = mulberry32(seed);
   // Every bot gets a slightly different temperament so they don't all play alike.
   const cfg = { ...(DIFFICULTY[difficulty] || DIFFICULTY.normal) };
-  for (const k of ['bait', 'deny', 'hunt']) cfg[k] = Math.max(0, Math.min(1, cfg[k] + (rng() - 0.5) * 0.3));
+  for (const k of ['bait', 'hold', 'deny', 'hunt']) cfg[k] = Math.max(0, Math.min(1, cfg[k] + (rng() - 0.5) * 0.3));
   const delayTicks = Math.max(1, Math.round(cfg.reaction / DT));
   const history = [];
   const mem = {
@@ -95,7 +95,9 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
     const seen = history[0].filter((s) => s.id !== id);
     const meHome = inHome(g, me);
     // Spots just inside the burrow that a seed carrier can aim for.
-    const entries = ENTRY_YS.map((y) => ({ x: g.homeX - 14, y })).filter((p) => isFree(map, p.x, p.y, 16));
+    const entries = ENTRY_YS.map((y) => ({ x: g.homeX - 14, y })).filter((p) => isFree(map, p.x, p.y, HAMSTER_R));
+    // A lane with someone in it cannot be passed, so paths cost more through it.
+    const blocked = blockCost(map, seen);
 
     const steerTo = (pt) => {
       const dx = pt.x - me.x;
@@ -108,13 +110,13 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
     const follow = (points) => {
       if (points && points.length) steerTo(nav.nextTarget(me, points));
     };
-    const danger = (weight) => (p, q) => {
+    // Enemies loitering near a leg of the route, e.g. at a lane mouth.
+    const danger = (p, q) => {
       let c = 0;
       for (const e of seen) {
-        const w = weight(e);
-        if (!w) continue;
+        if (e.home) continue;
         const d = distToSegment(e.x, e.y, p.x, p.y, q.x, q.y);
-        if (d < DANGER_R) c += w * (1 - d / DANGER_R) * DANGER_K;
+        if (d < DANGER_R) c += (e.carrying ? 0.35 : 1) * (1 - d / DANGER_R) * DANGER_K;
       }
       return c * cfg.caution;
     };
@@ -152,7 +154,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
     const plan = () => {
       mem.targetId = -1;
       if (me.carrying) {
-        const cost = danger((e) => (e.home ? 0.5 : e.carrying ? 0.35 : 1));
+        const cost = (p, q) => blocked(p, q) + danger(p, q);
         let best = null;
         let kept = null;
         for (const entry of entries) {
@@ -179,9 +181,8 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
         const near = dist(me, c) < 230 && nav.clear(me, c);
         const at = near ? c : intercept(c);
         if (!at) continue;
-        const eta = c.x;
-        if (eta < urgent) {
-          urgent = eta;
+        if (c.x < urgent) {
+          urgent = c.x;
           target = { c, at };
         }
       }
@@ -192,26 +193,28 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
         return;
       }
 
-      // Otherwise go for a seed, clearing out anyone already nibbling on the flower.
+      // Otherwise go for a seed. Only one hamster can nibble at a time and it has
+      // to hold still, so a rival near the flower has to be dealt with first.
       const fd = dist(me, f);
-      let prey = null;
-      let preyD = 300;
-      for (const e of seen) {
-        if (e.carrying || e.home || dist(e, f) > f.gatherR + 12) continue;
-        if (fd <= f.gatherR && e.gather <= me.gather + 0.1) continue;
-        const d = dist(me, e);
-        if (d < preyD) {
-          preyD = d;
-          prey = e;
+      let rival = null;
+      let rivalD = Infinity;
+      if (fd < 330 && g.nibbler !== id) {
+        for (const e of seen) {
+          if (e.carrying || e.home || dist(e, f) > 330) continue;
+          const d = e.nibbler ? 0 : dist(me, e);
+          if (d < rivalD) {
+            rivalD = d;
+            rival = e;
+          }
         }
       }
-      if (prey) {
-        if (mem.huntRoll.id !== prey.id || now > mem.huntRoll.until) {
-          mem.huntRoll = { id: prey.id, until: now + 2.5, yes: rng() < cfg.hunt };
+      if (rival) {
+        if (mem.huntRoll.id !== rival.id || now > mem.huntRoll.until) {
+          mem.huntRoll = { id: rival.id, until: now + 2.5, yes: rng() < cfg.hunt };
         }
         if (mem.huntRoll.yes) {
           mem.mode = 'hunt';
-          mem.targetId = prey.id;
+          mem.targetId = rival.id;
           mem.path = null;
           return;
         }
@@ -221,26 +224,34 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
         mem.path = null;
         return;
       }
-      const cost = danger((e) => (e.home ? 0 : 0.35));
+      // Pick a free spot on the ring, preferably out of everyone's reach.
       let best = null;
       for (const spot of map.gatherSpots) {
-        const r = nav.findPath(me, spot, cost);
-        if (!best || r.cost < best.cost) best = r;
+        let crowd = 0;
+        for (const e of seen) {
+          const d = dist(e, spot);
+          if (d < TOUCH) crowd = Infinity;
+          else if (d < 70) crowd += 400;
+        }
+        if (crowd === Infinity) continue;
+        const r = nav.findPath(me, spot, blocked);
+        if (!best || r.cost + crowd < best.cost) best = { points: r.points, cost: r.cost + crowd };
       }
-      mem.path = best.points;
+      mem.path = best ? best.points : [f];
     };
 
-    // Close-quarters movement against one opponent: rush in, or hang just outside
-    // their reach hoping they swing at air.
+    // Close-quarters movement against one opponent. Whoever walks into a hamster
+    // that is standing ready gets hit first, so: stand firm when charged, and when
+    // attacking, hover just out of reach to draw a swing at thin air before going in.
     const engage = (e) => {
       mem.targetId = e.id;
       if (mem.duel.id !== e.id || now > mem.duel.expires) {
         mem.duel = {
           id: e.id,
-          style: rng() < cfg.bait ? 'bait' : 'rush',
-          until: now + 0.35 + rng() * 0.6,
-          expires: now + 2.2 + rng(),
-          side: rng() < 0.5 ? -1 : 1,
+          bait: rng() < cfg.bait,
+          hold: rng() < cfg.hold,
+          until: now + 0.5 + rng() * 1.1,
+          expires: now + 2.4 + rng(),
         };
       }
       if (!nav.clear(me, e)) {
@@ -250,50 +261,23 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       const dx = e.x - me.x;
       const dy = e.y - me.y;
       const d = Math.hypot(dx, dy) || 1;
-      const ux = dx / d;
-      const uy = dy / d;
-      if (e.swing !== 'recovery' && mem.duel.style === 'bait' && now < mem.duel.until) {
-        if (d < 98) {
-          out.mx = -ux;
-          out.my = -uy;
-        } else if (d > 122) {
-          out.mx = ux;
-          out.my = uy;
-        } else {
-          out.mx = -uy * mem.duel.side;
-          out.my = ux * mem.duel.side;
+      if (e.swing === 'recovery') {
+        steerTo(e);
+        return;
+      }
+      const charging = -(e.vx * dx + e.vy * dy) / d > 0.5 * SPEED;
+      if (mem.duel.hold && charging && d < 150) return;
+      if (mem.duel.bait && now < mem.duel.until) {
+        if (d < 58) {
+          out.mx = -dx / d;
+          out.my = -dy / d;
+        } else if (d > 68) {
+          out.mx = dx / d;
+          out.my = dy / d;
         }
         return;
       }
       steerTo({ x: e.x + e.vx * 0.12, y: e.y + e.vy * 0.12 });
-    };
-
-    // While nibbling, keep the flower between me and whoever is closing in.
-    const hideBehindFlower = () => {
-      let threat = null;
-      let td = 170;
-      for (const e of seen) {
-        if (e.home) continue;
-        const d = dist(me, e);
-        if (d < td) {
-          td = d;
-          threat = e;
-        }
-      }
-      if (!threat) return;
-      const want = Math.atan2(f.y - threat.y, f.x - threat.x);
-      const mine = Math.atan2(me.y - f.y, me.x - f.x);
-      let da = want - mine;
-      while (da > Math.PI) da -= Math.PI * 2;
-      while (da < -Math.PI) da += Math.PI * 2;
-      if (Math.abs(da) < 0.2) return;
-      const r = dist(me, f);
-      const s = Math.sign(da);
-      const tx = -Math.sin(mine) * s + (Math.cos(mine) * (52 - r)) / 20;
-      const ty = Math.cos(mine) * s + (Math.sin(mine) * (52 - r)) / 20;
-      const tl = Math.hypot(tx, ty) || 1;
-      out.mx = tx / tl;
-      out.my = ty / tl;
     };
 
     if (now >= mem.replanAt) {
@@ -308,8 +292,10 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       for (const e of seen) {
         if (e.home) continue;
         const d = dist(me, e);
-        if (d > 170 || !nav.clear(me, e)) continue;
+        if (d > 150 || !nav.clear(me, e)) continue;
         if ((out.mx * (e.x - me.x) + out.my * (e.y - me.y)) / (d || 1) < 0.5) continue;
+        out.mx = 0;
+        out.my = 0;
         engage(e);
         break;
       }
@@ -321,8 +307,6 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       engage(target);
     } else if (mem.path) {
       follow(mem.path);
-    } else {
-      hideBehindFlower();
     }
 
     // Break out of the rare case where steering presses into a corner.
@@ -335,6 +319,8 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       }
       mem.stuck = { x: me.x, y: me.y, at: now };
     }
+    const wantX = out.mx;
+    const wantY = out.my;
     if (now < mem.nudge.until) {
       out.mx = mem.nudge.x;
       out.my = mem.nudge.y;
@@ -352,14 +338,17 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       for (const e of seen) {
         if (e.home) continue;
         const p = predictSwing(me, e, lead);
-        if (p.gap > limit || !nav.clear(me, e)) continue;
-        const d = dist(me, e) || 1;
-        const closing = -((e.vx - me.vx) * (e.x - me.x) + (e.vy - me.vy) * (e.y - me.y)) / d;
+        if (p.dist > limit || !nav.clear(me, e)) continue;
+        const dx = e.x - me.x;
+        const dy = e.y - me.y;
+        const d = Math.hypot(dx, dy) || 1;
+        const closing = -((e.vx - me.vx) * dx + (e.vy - me.vy) * dy) / d;
         const hostile = closing > 0.3 * SPEED || e.swing === 'windup';
-        const wanted =
-          e.carrying || e.id === mem.targetId || e.swing === 'recovery' || (!me.carrying && e.gather > 0);
+        // Standing right where I am trying to go: the only way past is through.
+        const inMyWay = d < BONK.reach && (wantX * dx + wantY * dy) / d > 0.5;
+        const wanted = inMyWay || e.carrying || e.id === mem.targetId || e.swing === 'recovery' || (!me.carrying && e.nibbler);
         if (!hostile && !wanted && rng() >= cfg.opportunism * DT) continue;
-        if (!want || p.gap < want.gap) want = p;
+        if (!want || p.dist < want.dist) want = p;
       }
     }
     if (want && !mem.bonkDown) {

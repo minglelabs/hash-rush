@@ -178,16 +178,13 @@ function buildGround(w, h, scale, map) {
   ctx.roundRect(b.x1, b.y1, b.x2 - b.x1, b.y2 - b.y1, 14);
   ctx.fill();
 
-  // Worn trails that hint at the three lanes and the crossing. One path, filled
-  // once, so overlaps don't get darker.
+  // Sandy floor under the hedge block: only the lanes stay visible once the
+  // hedges are drawn on top.
   const f = map.flower;
+  ctx.fillStyle = '#ecdcae';
+  ctx.fillRect(map.lanes.x1 - 6, b.y1, map.lanes.x2 - map.lanes.x1 + 12, b.y2 - b.y1);
   ctx.fillStyle = 'rgba(255, 244, 200, 0.4)';
-  ctx.beginPath();
-  for (const y of [101, 360, 619]) ctx.roundRect(200, y - 40, 850, 80, 40);
-  for (const x of [222, 630, 1022]) ctx.roundRect(x - 28, 61, 56, 598, 28);
-  ctx.moveTo(f.x + 116, f.y);
-  ctx.arc(f.x, f.y, 116, 0, TAU);
-  ctx.fill();
+  circle(ctx, f.x, f.y, 116);
 
   for (let i = 0; i < 520; i++) {
     const x = b.x1 + rnd() * (b.x2 - b.x1);
@@ -213,11 +210,11 @@ function buildObstacles(w, h, scale, map) {
   for (const r of map.rects) {
     ctx.fillStyle = 'rgba(30, 50, 20, 0.22)';
     ctx.beginPath();
-    ctx.roundRect(r.x + 2, r.y + 8, r.w, r.h, 20);
+    ctx.roundRect(r.x + 1, r.y + 5, r.w, r.h, map.corner);
     ctx.fill();
     ctx.fillStyle = '#3c9449';
     ctx.beginPath();
-    ctx.roundRect(r.x, r.y, r.w, r.h, 20);
+    ctx.roundRect(r.x, r.y, r.w, r.h, map.corner);
     ctx.fill();
     ctx.save();
     ctx.clip();
@@ -239,25 +236,10 @@ function buildObstacles(w, h, scale, map) {
     ctx.lineWidth = 3;
     ctx.strokeStyle = '#2c7438';
     ctx.beginPath();
-    ctx.roundRect(r.x, r.y, r.w, r.h, 20);
+    ctx.roundRect(r.x, r.y, r.w, r.h, map.corner);
     ctx.stroke();
   }
 
-  for (const k of map.circles) {
-    ctx.fillStyle = 'rgba(30, 50, 20, 0.22)';
-    oval(ctx, k.x + 2, k.y + 8, k.r, k.r * 0.9);
-    ctx.fill();
-    const g = ctx.createRadialGradient(k.x - 10, k.y - 12, 4, k.x, k.y, k.r);
-    g.addColorStop(0, '#d7dce2');
-    g.addColorStop(1, '#8c949e');
-    ctx.fillStyle = g;
-    circle(ctx, k.x, k.y, k.r);
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = '#737b85';
-    ctx.beginPath();
-    ctx.arc(k.x, k.y, k.r, 0, TAU);
-    ctx.stroke();
-  }
   return c;
 }
 
@@ -513,6 +495,11 @@ export function createRenderer(canvas, map) {
         ctx.beginPath();
         ctx.arc(p.x, p.y, 23, -Math.PI / 2, -Math.PI / 2 + (p.gather / GATHER_TIME) * TAU);
         ctx.stroke();
+      }
+      // In the ring but not first in line: waiting for a turn at the flower.
+      if (p.queued >= 0 && game.nibbler >= 0 && game.nibbler !== p.id) {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        for (let i = 0; i < 3; i++) circle(ctx, p.x - 7 + i * 7, p.y - 24 - 2 * Math.max(0, Math.sin(t * 6 - i)), 2.4);
       }
       if (p.id === view.meId && p.cooldown > 0) {
         ctx.lineCap = 'round';

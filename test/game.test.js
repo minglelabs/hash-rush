@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createGame, step, inHome } from '../src/sim/game.js';
 import { createBot } from '../src/ai/bot.js';
-import { getNav } from '../src/ai/nav.js';
+import { getNav, blockCost } from '../src/ai/nav.js';
 import { BONK, COUNTDOWN, GATHER_TIME, HAMSTER_R, OVERTIME, TICK_RATE } from '../src/sim/constants.js';
 import { MAP, isFree } from '../src/sim/map.js';
 
@@ -35,18 +35,53 @@ test('nobody moves during the countdown', () => {
 test('hedges and the map edge are solid', () => {
   const g = started(1);
   const p = g.players[0];
-  place(p, 300, 120);
-  run(g, 2, [{ mx: 0, my: 1, bonk: false }]);
-  assert.ok(p.y <= MAP.rects[0].y - HAMSTER_R + 0.01, `stopped by the hedge, y=${p.y}`);
-  run(g, 4, [{ mx: 0, my: -1, bonk: false }]);
+  const lane = MAP.laneYs[0];
+  place(p, 400, lane);
+  run(g, 1, [{ mx: 0, my: 1, bonk: false }]);
+  assert.ok(Math.abs(p.y - lane) <= MAP.laneWidth / 2 - HAMSTER_R + 0.01, `held inside the lane, y=${p.y}`);
+  place(p, 1100, 100);
+  run(g, 2, [{ mx: 0, my: -1, bonk: false }]);
   assert.ok(Math.abs(p.y - (MAP.bounds.y1 + HAMSTER_R)) < 0.01);
+});
+
+test('a rounded lane mouth funnels a hamster in', () => {
+  const g = started(1);
+  const p = g.players[0];
+  place(p, 240, MAP.laneYs[1] - 12);
+  run(g, 2, [{ mx: 1, my: 0, bonk: false }]);
+  assert.ok(p.x > 400, `walked into the lane, x=${p.x}`);
+});
+
+test('nobody can squeeze past a hamster standing in a lane', () => {
+  const g = started();
+  const [a, b] = g.players;
+  const y = MAP.laneYs[1];
+  place(a, 400, y);
+  place(b, 470, y);
+  run(g, 2, [{ mx: 1, my: 0, bonk: false }, IDLE]);
+  assert.ok(Math.abs(b.x - 470) < 0.01, 'the blocker is not shoved along');
+  assert.ok(a.x <= b.x - 2 * HAMSTER_R + 0.01, `stopped behind the blocker, x=${a.x}`);
+});
+
+test('two hamsters meeting head-on in a lane stop each other', () => {
+  const g = started();
+  const [a, b] = g.players;
+  const y = MAP.laneYs[1];
+  place(a, 400, y);
+  place(b, 600, y);
+  run(g, 2, [
+    { mx: 1, my: 0, bonk: false },
+    { mx: -1, my: 0, bonk: false },
+  ]);
+  assert.ok(b.x - a.x >= 2 * HAMSTER_R - 0.01, 'they do not overlap');
+  assert.ok(Math.abs((a.x + b.x) / 2 - 500) < 2, 'neither pushes the other back');
 });
 
 test('one bonk sends the victim back to its nest empty-handed', () => {
   const g = started();
   const [a, b] = g.players;
-  place(a, 400, 100);
-  place(b, 440, 100);
+  place(a, 1050, 100);
+  place(b, 1085, 100);
   b.carrying = true;
   step(g, [{ mx: 0, my: 0, bonk: true }, IDLE]);
   assert.ok(a.swing, 'swing started');
@@ -57,11 +92,22 @@ test('one bonk sends the victim back to its nest empty-handed', () => {
   assert.deepEqual([b.x, b.y], [b.nest.x, b.nest.y]);
 });
 
+test('a bonk only reaches a hamster right next to the attacker', () => {
+  const g = started();
+  const [a, b] = g.players;
+  place(a, 1050, 100);
+  place(b, 1050 + BONK.reach + 4, 100);
+  step(g, [{ mx: 0, my: 0, bonk: true }, IDLE]);
+  run(g, BONK.windup + 0.05);
+  assert.equal(b.deaths, 0);
+  assert.equal(a.x, 1050, 'the attacker does not lunge');
+});
+
 test('two hits landing on the same tick knock out both hamsters', () => {
   const g = started();
   const [a, b] = g.players;
-  place(a, 400, 100);
-  place(b, 450, 100);
+  place(a, 1050, 100);
+  place(b, 1086, 100);
   step(g, [{ mx: 0, my: 0, bonk: true }, { mx: 0, my: 0, bonk: true }]);
   run(g, BONK.windup + 0.05);
   assert.equal(a.deaths, 1);
@@ -71,8 +117,8 @@ test('two hits landing on the same tick knock out both hamsters', () => {
 test('a swing at thin air leaves the attacker stuck in recovery', () => {
   const g = started();
   const [a, b] = g.players;
-  place(a, 400, 100);
-  place(b, 400, 600);
+  place(a, 1050, 100);
+  place(b, 1050, 600);
   step(g, [{ mx: 1, my: 0, bonk: true }, IDLE]);
   run(g, BONK.windup + 0.05, [{ mx: 1, my: 0, bonk: false }, IDLE]);
   assert.equal(a.swing.phase, 'recovery');
@@ -91,23 +137,12 @@ test('the burrow is a safe zone', () => {
   run(g, BONK.windup + 0.05);
   assert.equal(b.deaths, 0, 'cannot be hit inside');
   place(a, 100, 300);
-  place(b, 120, 300);
+  place(b, 135, 300);
   a.cooldown = 0;
   a.swing = null;
   step(g, [IDLE, IDLE]);
   step(g, [{ mx: 0, my: 0, bonk: true }, IDLE]);
   assert.equal(a.swing, null, 'cannot swing inside');
-});
-
-test('hits do not pass through the flower', () => {
-  const g = started();
-  const [a, b] = g.players;
-  const f = MAP.flower;
-  place(a, f.x - 46, f.y);
-  place(b, f.x + 46, f.y);
-  step(g, [{ mx: 0, my: 0, bonk: true, ax: 1, ay: 0 }, IDLE]);
-  run(g, BONK.windup + 0.05);
-  assert.equal(b.deaths, 0);
 });
 
 test('nibbling the flower yields a seed, and bringing it home wins', () => {
@@ -137,6 +172,42 @@ test('leaving the flower resets nibbling progress', () => {
   assert.equal(a.gather, 0);
 });
 
+test('only the first hamster in the ring nibbles; the next waits its turn', () => {
+  const g = started();
+  const [a, b] = g.players;
+  const f = MAP.flower;
+  place(b, f.x, f.y + 50);
+  step(g, []);
+  place(a, f.x - 50, f.y);
+  run(g, 1);
+  assert.equal(g.nibbler, b.id);
+  assert.ok(b.gather > 0.9);
+  assert.equal(a.gather, 0, 'the latecomer makes no progress');
+  run(g, GATHER_TIME);
+  assert.equal(b.carrying, true);
+  assert.equal(g.nibbler, a.id, 'then it is the next one\'s turn');
+});
+
+test('walking or bonking throws away nibbling progress', () => {
+  const g = started();
+  const [a, b] = g.players;
+  const f = MAP.flower;
+  place(a, f.x - 50, f.y);
+  place(b, f.x - 50, 600);
+  run(g, 1);
+  assert.ok(a.gather > 0.9);
+  step(g, [{ mx: 0, my: 1, bonk: false }]);
+  assert.equal(a.gather, 0, 'walking resets it');
+  run(g, 1);
+  assert.ok(a.gather > 0.9);
+  place(b, f.x + 50, f.y);
+  step(g, []);
+  step(g, [{ mx: 0, my: 0, bonk: true }]);
+  assert.equal(a.gather, 0, 'bonking resets it');
+  run(g, BONK.windup + BONK.recovery + 0.1);
+  assert.equal(g.nibbler, b.id, 'and gives up the turn');
+});
+
 test('in overtime the burrow edge creeps towards the flower', () => {
   const g = started(1);
   g.time = OVERTIME.start;
@@ -161,6 +232,18 @@ test('every waypoint is walkable and the graph connects home to the flower', () 
   for (const nest of MAP.nests) {
     for (const spot of MAP.gatherSpots) assert.ok(Number.isFinite(nav.distance(nest, spot)));
   }
+});
+
+test('a path goes around a lane that someone is standing in', () => {
+  const nav = getNav(MAP);
+  const y = MAP.laneYs[1];
+  const from = { x: 230, y };
+  const to = { x: 1030, y };
+  const open = nav.findPath(from, to).points;
+  assert.ok(open.every((p) => Math.abs(p.y - y) < 1), 'straight down the middle when it is free');
+  const blocker = [{ x: 450, y, vx: 0, vy: 0 }];
+  const around = nav.findPath(from, to, blockCost(MAP, blocker)).points;
+  assert.ok(around.some((p) => Math.abs(p.y - y) > 100), 'detours through another lane');
 });
 
 test('bots of every level finish a match', () => {
