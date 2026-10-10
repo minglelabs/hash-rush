@@ -168,6 +168,20 @@ button.primary:active {
   background: var(--cream);
 }
 
+#watchRow {
+  margin-top: 10px;
+}
+
+#watching {
+  position: absolute;
+  top: 6cqw;
+  right: 1.4cqw;
+  padding: 0.25em 0.8em;
+  border-radius: 999px;
+  background: rgba(47, 111, 237, 0.9);
+  color: #fff;
+}
+
 #netStatus:empty {
   display: none;
 }
