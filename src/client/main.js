@@ -114,9 +114,12 @@ function renderLobby() {
 
     const mine = guest ? i === net.you : slot.kind !== 'remote';
     const name = document.createElement('input');
-    name.value = slot.name;
+    // An open slot has nobody in it yet, so it shows no name.
+    const empty = slot.kind === 'open';
+    name.value = empty ? '' : slot.name;
+    name.placeholder = empty ? t('waitingFriend') : '';
     name.maxLength = 8;
-    name.disabled = !mine;
+    name.disabled = !mine || empty;
     name.setAttribute('aria-label', t('slotName', i + 1));
     name.addEventListener('input', () => {
       slot.name = name.value;

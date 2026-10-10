@@ -358,7 +358,8 @@ button.primary:active {
   animation: pop 0.9s ease-out forwards;
 }
 
-#hint {
+#hint,
+#hintTouch {
   position: absolute;
   bottom: 1.4cqw;
   left: 50%;
@@ -372,8 +373,17 @@ button.primary:active {
   transition: opacity 0.6s;
 }
 
-#hint.gone {
-  opacity: 0;
+/* Phones have no keyboard, so they get their own line about the touch controls. */
+#hintTouch {
+  display: none;
+  position: fixed;
+  left: max(14px, env(safe-area-inset-left));
+  bottom: max(26px, env(safe-area-inset-bottom));
+  max-width: calc(100vw - 170px);
+  transform: none;
+  white-space: normal;
+  border-radius: 14px;
+  font-size: 13px;
 }
 
 #tools {
@@ -535,6 +545,10 @@ button.primary:active {
 
   #hint {
     display: none;
+  }
+
+  #hintTouch {
+    display: block;
   }
 
   .touch-only {
