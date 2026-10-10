@@ -164,8 +164,6 @@ function startGame() {
   $('result').hidden = true;
   $('feed').textContent = '';
   $('banner').classList.remove('show');
-  $('hint').classList.remove('gone');
-  setTimeout(() => $('hint').classList.add('gone'), 9000);
   scoreKey = '';
   acc = 0;
   renderer.clear();
@@ -218,7 +216,7 @@ function onEvent(ev) {
     $('feed').prepend(line);
     while ($('feed').children.length > 4) $('feed').lastChild.remove();
     if (ev.seed && ev.id === meId) banner(t('lostSeed'));
-  } else if (ev.type === 'spawn') {
+  } else if (ev.type === 'spawn' || ev.type === 'warp') {
     if (ev.id === meId) audio.play.spawn();
   } else if (ev.type === 'seed') {
     audio.play.seed();

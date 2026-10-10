@@ -16,6 +16,11 @@ const CORNER = 20;
 const BOUNDS = { x1: 24, y1: 20, x2: 1256, y2: 20 + ROWS * CELL };
 const FLOWER = { x: 1135, y: 360, r: 30, gatherR: 66 };
 const HOME = { x1: BOUNDS.x1, y1: BOUNDS.y1, x2: 190, y2: BOUNDS.y2 };
+// Tunnels on either side of the flower that drop a hamster straight back at its nest.
+const WARPS = [
+  { x: FLOWER.x, y: 86, r: 24 },
+  { x: FLOWER.x, y: 634, r: 24 },
+];
 
 // Lanes as runs of grid cells: [col, row, col, row], straight in one direction.
 const LANES = [
@@ -119,6 +124,7 @@ export const MAP = {
     return { x: NEST_ARC.cx - Math.cos(a) * NEST_ARC.r, y: NEST_ARC.cy + Math.sin(a) * NEST_ARC.r };
   }),
   flower: FLOWER,
+  warps: WARPS,
   rects: buildHedges(),
   corner: CORNER,
   // Where the lanes open on the burrow side, top to bottom.

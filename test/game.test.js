@@ -229,6 +229,20 @@ test('in overtime the burrow edge creeps towards the flower', () => {
   assert.ok(inHome(g, { x: MAP.home.x2 + 20 }));
 });
 
+test('a tunnel sends an empty-handed hamster home, but not one carrying a seed', () => {
+  const g = started();
+  const [a, b] = g.players;
+  const w = MAP.warps[0];
+  place(a, w.x, w.y + 5);
+  place(b, w.x, MAP.warps[1].y);
+  b.carrying = true;
+  step(g, []);
+  assert.deepEqual([a.x, a.y], [a.nest.x, a.nest.y]);
+  assert.equal(a.deaths, 0, 'it is not a knock-out');
+  assert.equal(b.y, MAP.warps[1].y, 'the carrier stays put');
+  assert.equal(g.phase, 'playing');
+});
+
 test('the simulation is deterministic', () => {
   const play = () => {
     const g = createGame({ slots: [0, 1, 2, 3].map((i) => ({ name: `b${i}`, kind: 'bot' })), seed: 42 });

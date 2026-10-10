@@ -114,7 +114,7 @@ function separate(g) {
   }
 }
 
-function respawn(g, p) {
+function sendHome(p) {
   p.x = p.nest.x;
   p.y = p.nest.y;
   p.vx = 0;
@@ -124,6 +124,10 @@ function respawn(g, p) {
   p.queued = -1;
   p.swing = null;
   p.cooldown = 0;
+}
+
+function respawn(g, p) {
+  sendHome(p);
   p.deaths++;
   g.events.push({ type: 'spawn', id: p.id, x: p.x, y: p.y });
 }
@@ -244,6 +248,19 @@ export function step(g, inputs) {
     g.events.push({ type: 'impact', id: a.id, x: a.x, y: a.y, dx: a.swing.dx, dy: a.swing.dy, hit: !!victim });
   }
   for (const v of bonked) respawn(g, v);
+
+  // A tunnel takes an empty-handed hamster straight back to its nest, which is the
+  // quick way to get in front of someone already running home with a seed.
+  for (const p of players) {
+    if (p.carrying) continue;
+    for (const w of map.warps) {
+      if (Math.hypot(p.x - w.x, p.y - w.y) > w.r) continue;
+      const from = { x: p.x, y: p.y };
+      sendHome(p);
+      g.events.push({ type: 'warp', id: p.id, fromX: from.x, fromY: from.y, x: p.x, y: p.y });
+      break;
+    }
+  }
 
   for (const p of players) {
     if (p.carrying && inHome(g, p)) {
