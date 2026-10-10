@@ -1,0 +1,12 @@
+{
+  "name": "mineral-rush",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "햄스터가 해바라기씨를 물고 집에 먼저 돌아오면 이기는 눈치싸움 웹게임",
+  "scripts": {
+    "dev": "python3 -m http.server 5173",
+    "test": "node --test",
+    "sim": "node tools/simulate.js"
+  }
+}
