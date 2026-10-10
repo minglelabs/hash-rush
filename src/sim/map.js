@@ -20,8 +20,8 @@ const FLOWER = { x: 790, y: 280, r: 30, gatherR: 66 };
 const HOME = { x1: BOUNDS.x1, y1: BOUNDS.y1, x2: 150, y2: BOUNDS.y2 };
 // Tunnels on either side of the flower that drop a hamster straight back at its nest.
 const WARPS = [
-  { x: FLOWER.x, y: 64, r: 24 },
-  { x: FLOWER.x, y: 496, r: 24 },
+  { x: FLOWER.x, y: 64, r: 34 },
+  { x: FLOWER.x, y: 496, r: 34 },
 ];
 
 // Lanes as runs of grid cells: [col, row, col, row], straight in one direction.

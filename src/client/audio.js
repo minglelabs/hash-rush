@@ -12,11 +12,25 @@ export function createAudio() {
   }
 
   // Browsers only allow audio after a user gesture, so call this from a click.
+  // Safe to call on every tap until the context is running.
   function unlock() {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
+    // iPhones mute web audio with the silent switch unless the page asks for playback.
+    try {
+      if (navigator.audioSession) navigator.audioSession.type = 'playback';
+    } catch {
+      // not supported
+    }
     if (!ctx) ctx = new AC();
-    if (ctx.state === 'suspended') ctx.resume();
+    if (ctx.state !== 'running') {
+      ctx.resume().catch(() => {});
+      // Older WebKit only wakes up once something actually plays inside the gesture.
+      const src = ctx.createBufferSource();
+      src.buffer = ctx.createBuffer(1, 1, 22050);
+      src.connect(ctx.destination);
+      src.start(0);
+    }
   }
 
   function tone({ f, to = f, dur = 0.12, type = 'sine', vol = 0.12, at = 0 }) {
@@ -79,5 +93,5 @@ export function createAudio() {
     return muted;
   }
 
-  return { unlock, play, toggle, isMuted: () => muted };
+  return { unlock, play, toggle, isMuted: () => muted, ready: () => ctx?.state === 'running' };
 }

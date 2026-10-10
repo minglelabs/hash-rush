@@ -491,9 +491,9 @@ export function createRenderer(canvas, map) {
       ctx.stroke();
       ctx.setLineDash([]);
       upright(w.x, w.y, () => {
-        ctx.font = `20px ${FONT}`;
+        ctx.font = `${Math.round(w.r * 0.9)}px ${FONT}`;
         ctx.textAlign = 'center';
-        ctx.fillText('🏠', 0, 7);
+        ctx.fillText('🏠', 0, w.r * 0.32);
       });
     }
 
@@ -595,7 +595,7 @@ export function createRenderer(canvas, map) {
           ly -= 20;
         }
         // A phone shows the map small, so its labels are drawn a size up.
-        ctx.font = `800 ${(me ? 15 : 13) * (portrait ? 1.3 : 1)}px ${FONT}`;
+        ctx.font = `800 ${(me ? 15 : 13) * (portrait ? 1.55 : 1)}px ${FONT}`;
         ctx.textAlign = 'center';
         ctx.lineWidth = 3.5;
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.92)';
