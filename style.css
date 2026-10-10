@@ -259,6 +259,11 @@ button.primary:active {
   font-variant-numeric: tabular-nums;
 }
 
+#clock.overtime {
+  background: #e5484d;
+  animation: pulse 0.5s ease-in-out infinite alternate;
+}
+
 #feed {
   display: grid;
   justify-items: end;

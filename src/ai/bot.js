@@ -146,7 +146,13 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
         walked += seg;
       }
       const door = { x: g.homeX + 26, y: entry.y };
-      if (nav.distance(me, door) / SPEED <= home / (SPEED * CARRY_SPEED) + 0.25) return door;
+      const deadline = home / (SPEED * CARRY_SPEED) + 0.25;
+      if (nav.distance(me, door) / SPEED <= deadline) return door;
+      // Too far to run: a tunnel by the flower drops me at my nest, ahead of them.
+      const fromNest = nav.distance(me.nest, door) / SPEED;
+      for (const w of map.warps) {
+        if (nav.distance(me, w) / SPEED + fromNest <= deadline) return w;
+      }
       return null;
     };
 

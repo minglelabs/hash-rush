@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createGame, step, inHome } from '../src/sim/game.js';
 import { createBot } from '../src/ai/bot.js';
 import { getNav, blockCost } from '../src/ai/nav.js';
-import { BONK, COUNTDOWN, GATHER_TIME, HAMSTER_R, TICK_RATE } from '../src/sim/constants.js';
+import { BONK, COUNTDOWN, GATHER_TIME, HAMSTER_R, OVERTIME, TICK_RATE } from '../src/sim/constants.js';
 import { MAP, isFree } from '../src/sim/map.js';
 
 const IDLE = { mx: 0, my: 0, bonk: false };
@@ -219,6 +219,28 @@ test('walking or bonking throws away nibbling progress', () => {
   assert.equal(a.gather, 0, 'bonking resets it');
   run(g, BONK.windup + BONK.recovery + 0.1);
   assert.equal(g.nibbler, b.id, 'and gives up the turn');
+});
+
+test('in overtime the burrow edge creeps towards the flower', () => {
+  const g = started(1);
+  g.time = OVERTIME.start;
+  run(g, 10);
+  assert.ok(Math.abs(g.homeX - (MAP.home.x2 + 10 * OVERTIME.speed)) < 1);
+  assert.ok(inHome(g, { x: MAP.home.x2 + 20 }));
+});
+
+test('a tunnel sends an empty-handed hamster home, but not one carrying a seed', () => {
+  const g = started();
+  const [a, b] = g.players;
+  const w = MAP.warps[0];
+  place(a, w.x, w.y + 5);
+  place(b, w.x, MAP.warps[1].y);
+  b.carrying = true;
+  step(g, []);
+  assert.deepEqual([a.x, a.y], [a.nest.x, a.nest.y]);
+  assert.equal(a.deaths, 0, 'it is not a knock-out');
+  assert.equal(b.y, MAP.warps[1].y, 'the carrier stays put');
+  assert.equal(g.phase, 'playing');
 });
 
 test('the simulation is deterministic', () => {

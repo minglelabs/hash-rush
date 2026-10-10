@@ -321,6 +321,9 @@ export function createRenderer(canvas, map) {
       fx.push({ type: 'text', x: ev.x, y: ev.y - 26, text: tr('bonkWord'), color: color(ev.by), t: 0, life: 0.7 });
       if (ev.seed) fx.push({ type: 'seed', x: ev.x, y: ev.y, t: 0, life: 0.8 });
       if (ev.id === meId || ev.by === meId) shake = 7;
+    } else if (ev.type === 'warp') {
+      fx.push({ type: 'ring', x: ev.fromX, y: ev.fromY, color: '#ffdc96', t: 0, life: 0.45 });
+      fx.push({ type: 'ring', x: ev.x, y: ev.y, color: color(ev.id), t: 0, life: 0.45 });
     } else if (ev.type === 'spawn') {
       fx.push({ type: 'ring', x: ev.x, y: ev.y, color: color(ev.id), t: 0, life: 0.45 });
     } else if (ev.type === 'seed') {
@@ -441,13 +444,27 @@ export function createRenderer(canvas, map) {
     ctx.drawImage(ground, 0, 0);
     base(ctx, ox, oy);
 
-    // Burrow floor.
+    // Burrow floor. In overtime it spreads towards the flower.
     ctx.fillStyle = '#f6e6c2';
     ctx.beginPath();
     ctx.roundRect(b.x1, b.y1, game.homeX - b.x1, b.y2 - b.y1, [14, 0, 0, 14]);
     ctx.fill();
-    ctx.strokeStyle = carrierOut ? `rgba(255, 150, 40, ${0.75 + 0.25 * Math.sin(t * 8)})` : 'rgba(170, 120, 60, 0.7)';
-    ctx.lineWidth = 4;
+    const grown = game.homeX > map.home.x2 + 0.5;
+
+    ctx.setTransform(1, 0, 0, 1, ox * scale, oy * scale);
+    ctx.drawImage(obstacles, 0, 0);
+    base(ctx, ox, oy);
+
+    // In overtime everything that now counts as home, hedges included, is washed
+    // in a warm colour so the moved finish line is impossible to miss.
+    if (grown) {
+      ctx.fillStyle = `rgba(255, 150, 40, ${0.34 + 0.08 * Math.sin(t * 4)})`;
+      ctx.beginPath();
+      ctx.roundRect(b.x1, b.y1, game.homeX - b.x1, b.y2 - b.y1, [14, 0, 0, 14]);
+      ctx.fill();
+    }
+    ctx.strokeStyle = carrierOut || grown ? `rgba(255, 120, 20, ${0.8 + 0.2 * Math.sin(t * 8)})` : 'rgba(170, 120, 60, 0.7)';
+    ctx.lineWidth = grown ? 6 : 4;
     ctx.setLineDash([12, 10]);
     ctx.lineDashOffset = -t * 18;
     ctx.beginPath();
@@ -456,9 +473,29 @@ export function createRenderer(canvas, map) {
     ctx.stroke();
     ctx.setLineDash([]);
 
-    ctx.setTransform(1, 0, 0, 1, ox * scale, oy * scale);
-    ctx.drawImage(obstacles, 0, 0);
-    base(ctx, ox, oy);
+    // Tunnels back to the nest.
+    for (const w of map.warps) {
+      ctx.fillStyle = '#4a2f1a';
+      circle(ctx, w.x, w.y, w.r);
+      ctx.strokeStyle = '#8a5a2b';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(w.x, w.y, w.r, 0, TAU);
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(255, 220, 150, 0.8)';
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([8, 9]);
+      ctx.lineDashOffset = t * 22;
+      ctx.beginPath();
+      ctx.arc(w.x, w.y, w.r + 7 + 2 * Math.sin(t * 3), 0, TAU);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      upright(w.x, w.y, () => {
+        ctx.font = `20px ${FONT}`;
+        ctx.textAlign = 'center';
+        ctx.fillText('🏠', 0, 7);
+      });
+    }
 
     ctx.font = `800 20px ${FONT}`;
     ctx.textAlign = 'center';
