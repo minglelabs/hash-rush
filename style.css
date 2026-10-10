@@ -218,8 +218,8 @@ button.primary:active {
 
 #field {
   position: relative;
-  width: min(100vw, calc(100dvh * 16 / 9));
-  aspect-ratio: 16 / 9;
+  width: min(100vw, calc(100dvh * 914 / 560));
+  aspect-ratio: 914 / 560;
   container-type: inline-size;
   overflow: hidden;
 }
@@ -576,8 +576,9 @@ button.primary:active {
   }
 
   #field {
-    width: min(100vw, calc(100dvh * 9 / 16));
-    aspect-ratio: 9 / 16;
+    /* Leave a strip under the map for the controls so nothing covers the burrow. */
+    width: min(100vw, calc((100dvh - 128px) * 560 / 914));
+    aspect-ratio: 560 / 914;
   }
 
   #hud {
@@ -604,5 +605,34 @@ button.primary:active {
 
   #slots li {
     grid-template-columns: 46px 1fr 118px;
+  }
+}
+
+/* On a tall screen the buttons and hints live in the strip under the map. */
+@media (orientation: portrait) {
+  #tools {
+    position: fixed;
+    left: max(12px, env(safe-area-inset-left));
+    bottom: max(70px, calc(env(safe-area-inset-bottom) + 58px));
+    font-size: 14px;
+  }
+
+  #hint,
+  #hintTouch {
+    position: fixed;
+    left: max(12px, env(safe-area-inset-left));
+    bottom: max(14px, env(safe-area-inset-bottom));
+    max-width: calc(100vw - 132px);
+    transform: none;
+    white-space: normal;
+    border-radius: 14px;
+    font-size: 13px;
+  }
+
+  #bonk {
+    right: max(14px, env(safe-area-inset-right));
+    bottom: max(14px, env(safe-area-inset-bottom));
+    width: 100px;
+    height: 100px;
   }
 }

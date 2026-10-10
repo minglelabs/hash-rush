@@ -3,39 +3,41 @@
 // links. A lane is only one hamster wide, so nobody can squeeze past anybody: a
 // blocked lane means fighting or going around.
 
-export const WORLD = { w: 1280, h: 720 };
+// Kept small on purpose: the whole map is always on screen, so fewer world pixels
+// means bigger hamsters, which matters most on a phone.
+export const WORLD = { w: 914, h: 560 };
 
 const CELL = 40;
-const COLS = 18;
-const ROWS = 17;
-const HEDGE_X1 = 270;
+const COLS = 12;
+const ROWS = 13;
+const HEDGE_X1 = 210;
 const HEDGE_X2 = HEDGE_X1 + COLS * CELL;
 // Hedge corners are rounded, which funnels a hamster into a lane mouth.
 const CORNER = 20;
 
-const BOUNDS = { x1: 24, y1: 20, x2: 1256, y2: 20 + ROWS * CELL };
-const FLOWER = { x: 1135, y: 360, r: 30, gatherR: 66 };
-const HOME = { x1: BOUNDS.x1, y1: BOUNDS.y1, x2: 190, y2: BOUNDS.y2 };
+const BOUNDS = { x1: 24, y1: 20, x2: 890, y2: 20 + ROWS * CELL };
+const FLOWER = { x: 790, y: 280, r: 30, gatherR: 66 };
+const HOME = { x1: BOUNDS.x1, y1: BOUNDS.y1, x2: 150, y2: BOUNDS.y2 };
 // Tunnels on either side of the flower that drop a hamster straight back at its nest.
 const WARPS = [
-  { x: FLOWER.x, y: 86, r: 24 },
-  { x: FLOWER.x, y: 634, r: 24 },
+  { x: FLOWER.x, y: 64, r: 24 },
+  { x: FLOWER.x, y: 496, r: 24 },
 ];
 
 // Lanes as runs of grid cells: [col, row, col, row], straight in one direction.
 const LANES = [
   // top
-  [0, 2, 3, 2], [3, 2, 3, 5], [3, 5, 8, 5], [8, 5, 8, 2], [8, 2, 12, 2], [12, 2, 12, 5], [12, 5, 17, 5],
+  [0, 1, 2, 1], [2, 1, 2, 3], [2, 3, 5, 3], [5, 3, 5, 1], [5, 1, 8, 1], [8, 1, 8, 3], [8, 3, 11, 3],
   // middle
-  [0, 7, 4, 7], [4, 7, 4, 9], [4, 9, 9, 9], [9, 9, 9, 7], [9, 7, 13, 7], [13, 7, 13, 9], [13, 9, 17, 9],
+  [0, 5, 3, 5], [3, 5, 3, 7], [3, 7, 6, 7], [6, 7, 6, 5], [6, 5, 9, 5], [9, 5, 9, 7], [9, 7, 11, 7],
   // bottom
-  [0, 14, 3, 14], [3, 14, 3, 11], [3, 11, 8, 11], [8, 11, 8, 14], [8, 14, 12, 14], [12, 14, 12, 11], [12, 11, 17, 11],
+  [0, 11, 2, 11], [2, 11, 2, 9], [2, 9, 5, 9], [5, 9, 5, 11], [5, 11, 8, 11], [8, 11, 8, 9], [8, 9, 11, 9],
   // cross links
-  [6, 5, 6, 9], [7, 9, 7, 11], [12, 5, 12, 7], [15, 9, 15, 11],
+  [3, 3, 3, 5], [4, 7, 4, 9], [8, 3, 8, 5], [10, 7, 10, 9],
 ];
 
 // Nests sit on an arc so every hamster starts the same distance from the middle lane.
-const NEST_ARC = { cx: HOME.x2, cy: 360, r: 125, angles: [-36, -12, 12, 36] };
+const NEST_ARC = { cx: HOME.x2, cy: FLOWER.y, r: 100, angles: [-36, -12, 12, 36] };
 
 const cellX = (c) => HEDGE_X1 + c * CELL + CELL / 2;
 const cellY = (r) => BOUNDS.y1 + r * CELL + CELL / 2;
@@ -109,7 +111,7 @@ function buildWaypoints() {
       if (!straight) pts.push({ x: cellX(c), y: cellY(r) });
     }
   }
-  for (const y of HOME_MOUTHS) pts.push({ x: HEDGE_X1 - 40, y }, { x: 110, y });
+  for (const y of HOME_MOUTHS) pts.push({ x: HEDGE_X1 - 30, y }, { x: 80, y });
   for (const y of FLOWER_MOUTHS) pts.push({ x: HEDGE_X2 + 40, y });
   pts.push(...GATHER_SPOTS);
   return pts;
