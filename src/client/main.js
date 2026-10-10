@@ -19,7 +19,7 @@ const $ = (id) => document.getElementById(id);
 const STORE = 'seed-rush-slots';
 // What the host can set a slot to. 'remote' is an open slot a friend has taken.
 const KINDS = ['human', 'bot:easy', 'bot:normal', 'bot:hard', 'closed', 'open'];
-const DEFAULT_SLOTS = ['human', 'bot:normal', 'bot:normal', 'bot:normal'].map((kind, i) => ({ kind, name: t('names')[i] }));
+const DEFAULT_SLOTS = ['human', 'bot:hard', 'bot:hard', 'bot:hard'].map((kind, i) => ({ kind, name: t('names')[i] }));
 const IDLE = { mx: 0, my: 0, ax: 0, ay: 0, seq: 0 };
 // A guest who never renamed itself is still called "Me" in its own language.
 const ME_NAMES = new Set(LANGUAGES.map((code) => stringsFor(code).names[0]));
