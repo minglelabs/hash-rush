@@ -43,7 +43,9 @@ function loadSlots() {
 function localizePage() {
   document.documentElement.lang = lang;
   document.querySelector('meta[name="description"]').content = t('description');
-  for (const el of document.querySelectorAll('[data-i18n]')) el.innerHTML = t(el.dataset.i18n);
+  // A browser can briefly hold a newer page with an older, cached script that
+  // lacks a key. Show nothing rather than the word "undefined".
+  for (const el of document.querySelectorAll('[data-i18n]')) el.innerHTML = t(el.dataset.i18n) ?? '';
   $('mute').title = t('sound');
   $('how').replaceChildren(
     ...t('how').map((html) => {

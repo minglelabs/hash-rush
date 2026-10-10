@@ -547,8 +547,9 @@ button.primary:active {
     display: none;
   }
 
+  /* Hidden inline in the page so a stale stylesheet cannot show it unstyled. */
   #hintTouch {
-    display: block;
+    display: block !important;
   }
 
   .touch-only {
