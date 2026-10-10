@@ -595,7 +595,7 @@ export function createRenderer(canvas, map) {
           ly -= 20;
         }
         // A phone shows the map small, so its labels are drawn a size up.
-        ctx.font = `800 ${(me ? 15 : 13) * (portrait ? 1.3 : 1)}px ${FONT}`;
+        ctx.font = `800 ${(me ? 15 : 13) * (portrait ? 1.55 : 1)}px ${FONT}`;
         ctx.textAlign = 'center';
         ctx.lineWidth = 3.5;
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.92)';

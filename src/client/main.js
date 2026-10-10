@@ -641,8 +641,44 @@ $('mute').addEventListener('click', () => {
   audio.unlock();
   $('mute').textContent = audio.toggle() ? '🔇' : '🔊';
 });
-// Browsers only allow sound after a tap, and a guest never presses Start.
-window.addEventListener('pointerdown', () => audio.unlock(), { once: true });
+// Browsers only allow sound after a tap, and a guest never presses Start. Mobile
+// browsers accept different events as the tap, so keep trying until sound is on.
+const tapEvents = ['pointerdown', 'touchend', 'click', 'keydown'];
+const tryUnlock = () => {
+  audio.unlock();
+  if (audio.ready()) for (const type of tapEvents) window.removeEventListener(type, tryUnlock, true);
+};
+for (const type of tapEvents) window.addEventListener(type, tryUnlock, true);
+// The context is suspended again when the tab comes back on some phones.
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && !audio.ready()) for (const type of tapEvents) window.addEventListener(type, tryUnlock, true);
+});
+
+// iOS ignores user-scalable=no, so stop pinch and double-tap zoom by hand: a zoomed-in
+// page cannot be zoomed back out mid-game.
+for (const type of ['gesturestart', 'gesturechange', 'gestureend']) {
+  document.addEventListener(type, (e) => e.preventDefault(), { passive: false });
+}
+document.addEventListener(
+  'touchmove',
+  (e) => {
+    if (e.touches.length > 1) e.preventDefault();
+  },
+  { passive: false },
+);
+let lastTouchEnd = 0;
+document.addEventListener(
+  'touchend',
+  (e) => {
+    const now = Date.now();
+    if (now - lastTouchEnd < 350 && !e.target.closest('input, select')) e.preventDefault();
+    lastTouchEnd = now;
+  },
+  { passive: false },
+);
+document.addEventListener('dblclick', (e) => e.preventDefault(), { passive: false });
+// Mashing the bonk button must never count as a double tap.
+$('bonk').addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
 window.addEventListener('resize', () => renderer.resize());
 document.addEventListener('visibilitychange', () => {
   acc = 0;
