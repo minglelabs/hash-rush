@@ -207,38 +207,40 @@ function buildObstacles(w, h, base, map) {
   base(ctx);
   const rnd = mulberry32(5);
 
-  for (const r of map.rects) {
-    ctx.fillStyle = 'rgba(30, 50, 20, 0.22)';
+  // The hedge rects overlap, so everything is drawn as one union: shadow, a dark
+  // rim, the fill on top of it, then leaves and blossoms clipped to the shape.
+  const all = (dx, dy) => {
     ctx.beginPath();
-    ctx.roundRect(r.x + 1, r.y + 5, r.w, r.h, map.corner);
-    ctx.fill();
-    ctx.fillStyle = '#3c9449';
-    ctx.beginPath();
-    ctx.roundRect(r.x, r.y, r.w, r.h, map.corner);
-    ctx.fill();
-    ctx.save();
-    ctx.clip();
-    for (let i = 0; i < (r.w * r.h) / 520; i++) {
-      const x = r.x + rnd() * r.w;
-      const y = r.y + rnd() * r.h;
-      ctx.fillStyle = rnd() < 0.5 ? '#4fb05a' : '#348540';
-      circle(ctx, x, y, 9 + rnd() * 9);
-    }
-    for (let i = 0; i < (r.w * r.h) / 4200; i++) {
-      const x = r.x + 12 + rnd() * (r.w - 24);
-      const y = r.y + 12 + rnd() * (r.h - 24);
-      ctx.fillStyle = rnd() < 0.5 ? '#ffe3ee' : '#fff6c9';
-      for (let k = 0; k < 5; k++) circle(ctx, x + Math.cos((k / 5) * TAU) * 3, y + Math.sin((k / 5) * TAU) * 3, 2.2);
-      ctx.fillStyle = '#f7b500';
-      circle(ctx, x, y, 1.6);
-    }
-    ctx.restore();
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = '#2c7438';
-    ctx.beginPath();
-    ctx.roundRect(r.x, r.y, r.w, r.h, map.corner);
-    ctx.stroke();
+    for (const r of map.rects) ctx.roundRect(r.x + dx, r.y + dy, r.w, r.h, map.corner);
+  };
+  ctx.fillStyle = 'rgba(30, 50, 20, 0.22)';
+  all(1, 5);
+  ctx.fill();
+  ctx.lineWidth = 6;
+  ctx.strokeStyle = '#2c7438';
+  all(0, 0);
+  ctx.stroke();
+  ctx.fillStyle = '#3c9449';
+  ctx.fill();
+  ctx.save();
+  ctx.clip();
+  const x1 = map.lanes.x1;
+  const bw = map.lanes.x2 - x1;
+  const y1 = map.bounds.y1;
+  const bh = map.bounds.y2 - y1;
+  for (let i = 0; i < (bw * bh) / 520; i++) {
+    ctx.fillStyle = rnd() < 0.5 ? '#4fb05a' : '#348540';
+    circle(ctx, x1 + rnd() * bw, y1 + rnd() * bh, 9 + rnd() * 9);
   }
+  for (let i = 0; i < (bw * bh) / 4200; i++) {
+    const x = x1 + rnd() * bw;
+    const y = y1 + rnd() * bh;
+    ctx.fillStyle = rnd() < 0.5 ? '#ffe3ee' : '#fff6c9';
+    for (let k = 0; k < 5; k++) circle(ctx, x + Math.cos((k / 5) * TAU) * 3, y + Math.sin((k / 5) * TAU) * 3, 2.2);
+    ctx.fillStyle = '#f7b500';
+    circle(ctx, x, y, 1.6);
+  }
+  ctx.restore();
 
   return c;
 }
