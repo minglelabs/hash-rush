@@ -116,15 +116,15 @@ test('a bonk lands on one hamster only, the nearest', () => {
   assert.equal(c.deaths, 0);
 });
 
-test('two hits landing on the same tick knock out both hamsters', () => {
+test('two hits landing on the same tick knock out only one hamster', () => {
   const g = started();
   const [a, b] = g.players;
   place(a, 1050, 100);
   place(b, 1086, 100);
   step(g, [{ mx: 0, my: 0, bonk: true }, { mx: 0, my: 0, bonk: true }]);
   run(g, BONK.windup + 0.05);
-  assert.equal(a.deaths, 1);
-  assert.equal(b.deaths, 1);
+  assert.equal(a.deaths + b.deaths, 1);
+  assert.equal(a.kills + b.kills, 1);
 });
 
 test('a swing at thin air leaves the attacker stuck in recovery', () => {

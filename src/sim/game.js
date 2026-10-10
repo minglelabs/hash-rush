@@ -51,6 +51,7 @@ export function createGame({ slots, map = MAP, seed = 1 }) {
     countdown: COUNTDOWN,
     homeX: map.home.x2,
     nibbler: -1,
+    rng,
     players,
     winner: null,
     events: [],
@@ -209,16 +210,22 @@ export function step(g, inputs) {
   }
   separate(g);
 
-  // Every hit that lands this tick is judged against the same positions, so two
-  // hamsters that connect on the same tick knock each other out.
+  // There is never a double knock-out. When several hits land on the same tick
+  // they resolve one at a time in a random order, and a hamster that has already
+  // been bonked loses its own hit.
+  for (let i = landing.length - 1; i > 0; i--) {
+    const j = Math.floor(g.rng() * (i + 1));
+    [landing[i], landing[j]] = [landing[j], landing[i]];
+  }
   const bonked = new Set();
   for (const a of landing) {
+    if (bonked.has(a)) continue;
     // A bonk lands on one hamster only: the nearest one in front.
     let victim = null;
     let nearest = BONK.reach;
     if (!inHome(g, a)) {
       for (const v of players) {
-        if (v === a || inHome(g, v)) continue;
+        if (v === a || bonked.has(v) || inHome(g, v)) continue;
         const dx = v.x - a.x;
         const dy = v.y - a.y;
         const d = Math.hypot(dx, dy);
