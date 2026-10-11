@@ -1093,6 +1093,14 @@ function fillScores(table) {
     row.classList.toggle('winner', won(p));
     const who = row.insertCell();
     who.append(nameTag(p));
+    // Two badges, for two different things: the goal of this round, and the best
+    // record of the room so far.
+    if (goal(p)) {
+      const scored = document.createElement('span');
+      scored.className = 'goalBadge';
+      scored.textContent = t('goalBadge');
+      who.append(scored);
+    }
     if (mvps.includes(p.id)) {
       const badge = document.createElement('span');
       badge.className = 'mvp';
@@ -1114,7 +1122,7 @@ function fillScores(table) {
   rule.className = 'rule';
   const cell = rule.insertCell();
   cell.colSpan = 2 * cols.length + 3;
-  cell.textContent = `MVP ${t('colScore')} = ${cols.map((name, k) => (MVP_POINTS[k] ? `${name} ×${MVP_POINTS[k]}` : '')).filter(Boolean).join(' + ')}`;
+  cell.textContent = `${t('mvpRule')} = ${cols.map((name, k) => (MVP_POINTS[k] ? `${name} ×${MVP_POINTS[k]}` : '')).filter(Boolean).join(' + ')}`;
 }
 
 let boardKey = '';
