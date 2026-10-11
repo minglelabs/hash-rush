@@ -3,7 +3,7 @@
 // Human, bot and (later) network players all feed it through the same input shape:
 //   { mx, my, bonk, ax?, ay? }   move vector, bonk button, optional aim direction
 
-import { DT, SPEED, CARRY_SPEED, HAMSTER_R, gatherTime, COUNTDOWN, BONK, OVERTIME, ALARM_RANGE } from './constants.js';
+import { DT, SPEED, CARRY_SPEED, LAST_STRETCH, HAMSTER_R, gatherTime, COUNTDOWN, BONK, OVERTIME, ALARM_RANGE } from './constants.js';
 import { MAP, resolveCollisions, segmentClear } from './map.js';
 import { mulberry32 } from './rng.js';
 
@@ -12,6 +12,13 @@ export const EMPTY_INPUT = Object.freeze({ mx: 0, my: 0, bonk: false });
 // Inside the burrow nobody can bonk or be bonked, and a carrier who gets here wins.
 export function inHome(g, p) {
   return p.x < g.homeX;
+}
+
+// A seed carrier's share of full speed: slower with the seed, slowest right before home.
+export const lastStretch = (g, p) => p.carrying && p.x - g.homeX < LAST_STRETCH.range;
+export function carrySpeed(g, p) {
+  if (!p.carrying) return 1;
+  return lastStretch(g, p) ? LAST_STRETCH.speed : CARRY_SPEED;
 }
 
 // Team-mates cannot bonk each other and walk straight through one another. A slot
@@ -227,7 +234,7 @@ export function step(g, inputs) {
       g.events.push({ type: 'swing', id: p.id });
     }
 
-    const speed = SPEED * (p.carrying ? CARRY_SPEED : 1);
+    const speed = SPEED * carrySpeed(g, p);
     if (p.swing) {
       p.swing.t += DT;
       if (p.swing.phase === 'windup') {
