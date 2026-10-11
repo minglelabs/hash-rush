@@ -180,6 +180,7 @@ function readRoom(room, text) {
     bots: count(info.bots, 8),
     open: count(info.open, 8),
     playing: info.state === 'playing',
+    locked: !!info.locked,
     at: Number(info.at) || 0,
   };
 }
