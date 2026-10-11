@@ -540,6 +540,17 @@ button.primary:active {
   transform: scale(0.92);
 }
 
+.bonk-left #bonk {
+  right: auto;
+  left: max(22px, env(safe-area-inset-left));
+}
+
+.bonk-left #tools,
+.bonk-left #gameChat {
+  left: auto;
+  right: 1.4cqw;
+}
+
 #result {
   position: absolute;
   inset: 0;
@@ -759,6 +770,17 @@ button.primary:active {
     width: 100px;
     height: 100px;
     font-size: 22px;
+  }
+
+  .bonk-left #bonk {
+    left: max(14px, env(safe-area-inset-left));
+  }
+
+  .bonk-left #tools,
+  .bonk-left #hint,
+  .bonk-left #hintTouch {
+    left: auto;
+    right: max(12px, env(safe-area-inset-right));
   }
 }
 

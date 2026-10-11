@@ -17,6 +17,7 @@ import { hostRoom, joinRoom, announceRoom, watchRooms } from './net.js';
 
 const $ = (id) => document.getElementById(id);
 const STORE = 'seed-rush-slots';
+const SIDE_STORE = 'hash-rush-bonk-left';
 // What the host can set a slot to. 'remote' is an open slot a friend has taken.
 const KINDS = ['human', 'bot:easy', 'bot:normal', 'bot:hard', 'closed', 'open'];
 const DEFAULT_SLOTS = ['human', 'bot:hard', 'bot:hard', 'bot:hard'].map((kind, i) => ({ kind, name: t('names')[i] }));
@@ -50,6 +51,7 @@ function localizePage() {
   // lacks a key. Show nothing rather than the word "undefined".
   for (const el of document.querySelectorAll('[data-i18n]')) el.innerHTML = t(el.dataset.i18n) ?? '';
   $('mute').title = t('sound');
+  $('swap').title = t('swapSides');
   // For a guest these buttons do not go to a lobby of their own: they leave the room.
   if (joinId) for (const id of ['quit', 'back']) $(id).textContent = t('leaveRoom');
   $('how').replaceChildren(
@@ -908,6 +910,22 @@ $('mute').textContent = audio.isMuted() ? '🔇' : '🔊';
 $('mute').addEventListener('click', () => {
   audio.unlock();
   $('mute').textContent = audio.toggle() ? '🔇' : '🔊';
+});
+// Which thumb bonks is a matter of habit, so the phone remembers the chosen side.
+const setBonkSide = (left) => document.body.classList.toggle('bonk-left', left);
+try {
+  setBonkSide(localStorage.getItem(SIDE_STORE) === '1');
+} catch {
+  // storage is blocked: the button stays on the right
+}
+$('swap').addEventListener('click', () => {
+  const left = !document.body.classList.contains('bonk-left');
+  setBonkSide(left);
+  try {
+    localStorage.setItem(SIDE_STORE, left ? '1' : '0');
+  } catch {
+    // not remembered, still swapped for this visit
+  }
 });
 // Browsers only allow sound after a tap, and a guest never presses Start. Mobile
 // browsers accept different events as the tap, so keep trying until sound is on.
