@@ -88,7 +88,9 @@ try {
 }
 const wins = slots.map(() => 0);
 // Bonks, times bonked and seeds added up over every round in this room.
-const career = slots.map(() => [0, 0, 0]);
+const career = slots.map(() => [0, 0, 0, 0]);
+// Rounds finished in this room.
+let rounds = 0;
 const audio = createAudio();
 const renderer = createRenderer($('canvas'), MAP);
 const input = createInput({
@@ -488,7 +490,7 @@ function welcome(conn, msg) {
   renderLobby();
   sendLobby();
   // Arriving mid-round, they watch it; a new player gets a hamster next round.
-  if (game && !$('stage').hidden) conn.send({ t: 'start', players: roster(), you: -1, wins, tot: career });
+  if (game && !$('stage').hidden) conn.send({ t: 'start', players: roster(), you: -1, wins, tot: career, rd: rounds });
 }
 
 function guestName(slot, raw) {
@@ -565,7 +567,7 @@ function broadcast(make) {
 function sendLobby() {
   if (net.role !== 'host') return;
   const view = slots.map((s) => ({ kind: s.kind, name: s.name, team: s.team }));
-  broadcast((slot, i) => ({ t: 'lobby', slots: view, teams: teamMode, pw: roomPw, you: i, wins, tot: career }));
+  broadcast((slot, i) => ({ t: 'lobby', slots: view, teams: teamMode, pw: roomPw, you: i, wins, tot: career, rd: rounds }));
   announce();
 }
 
@@ -633,6 +635,7 @@ function hostData(msg) {
     net.you = msg.you;
     msg.wins.forEach((n, i) => (wins[i] = n));
     (msg.tot || []).forEach((v, i) => (career[i] = v));
+    if (msg.rd >= 0) rounds = msg.rd;
     if ($('stage').hidden) renderLobby();
   } else if (msg.t === 'kicked') {
     net.kicked = true;
@@ -650,6 +653,7 @@ function hostData(msg) {
   } else if (msg.t === 'start') {
     msg.wins.forEach((n, i) => (wins[i] = n));
     (msg.tot || []).forEach((v, i) => (career[i] = v));
+    if (msg.rd >= 0) rounds = msg.rd;
     game = {
       map: MAP,
       phase: 'countdown',
@@ -891,7 +895,7 @@ function startGame() {
   meId = active.findIndex((a) => a.slot.kind === 'human');
   net.pending = [];
   const players = roster();
-  broadcast((slot) => ({ t: 'start', players, you: slot.playerId, wins, tot: career }));
+  broadcast((slot) => ({ t: 'start', players, you: slot.playerId, wins, tot: career, rd: rounds }));
   enterStage();
   announce();
 }
@@ -1022,40 +1026,59 @@ function onEvent(ev) {
 }
 
 // A finished round goes into the running totals once.
+// A goal is a seed brought home: one hamster's, in a round that did not run out of time.
+const goal = (p) => (game.phase === 'over' && !game.timeout && game.winner === p.id ? 1 : 0);
+const roundOf = (p) => [p.kills, p.deaths, p.seeds, goal(p)];
+
 function addCareer() {
   if (game.counted) return;
   game.counted = true;
+  rounds++;
   for (const p of game.players) {
-    const c = career[p.look] || (career[p.look] = [0, 0, 0]);
-    c[0] += p.kills;
-    c[1] += p.deaths;
-    c[2] += p.seeds;
+    const c = career[p.look] || (career[p.look] = [0, 0, 0, 0]);
+    roundOf(p).forEach((v, k) => (c[k] = (c[k] || 0) + v));
   }
 }
 
-// The score table: this round's numbers, then the running totals for the room.
+// The score table: this round's numbers, then the running totals for the room,
+// each under its own heading. The corner says which game of the room this is.
 // It is the result screen's table and the one Tab brings up mid-round.
 function fillScores(table) {
   table.textContent = '';
+  const th = (row, text, span = 1) => {
+    const cell = document.createElement('th');
+    cell.textContent = text;
+    cell.colSpan = span;
+    row.append(cell);
+    return cell;
+  };
+  const cols = t('columns');
+  const groups = table.insertRow();
+  groups.className = 'groups';
+  th(groups, t('gameNo', rounds + (game.counted ? 0 : 1)));
+  th(groups, t('thisRound'), cols.length);
+  th(groups, t('totals'), cols.length + 1).classList.add('total', 'split');
   const head = table.insertRow();
-  for (const h of ['', ...t('columns')]) {
-    const th = document.createElement('th');
-    th.textContent = h;
-    head.append(th);
-  }
-  [...head.cells].forEach((th, i) => th.classList.toggle('total', i > 3));
+  th(head, '');
+  cols.forEach((h) => th(head, h));
+  [...cols, t('colWins')].forEach((h, k) => {
+    const cell = th(head, h);
+    cell.classList.add('total');
+    cell.classList.toggle('split', k === 0);
+  });
   for (const p of lineUp()) {
     const row = table.insertRow();
     row.classList.toggle('winner', won(p));
     row.insertCell().append(nameTag(p));
-    const c = career[p.look] || [0, 0, 0];
-    const round = [p.kills, p.deaths, p.seeds];
+    const c = career[p.look] || [];
+    const round = roundOf(p);
     // Until the round is added to the totals, they include it as it stands.
-    const total = round.map((v, i) => c[i] + (game.counted ? 0 : v));
-    [...round, ...total, wins[p.look]].forEach((v, i) => {
+    const total = round.map((v, k) => (c[k] || 0) + (game.counted ? 0 : v));
+    [...round, ...total, wins[p.look]].forEach((v, k) => {
       const cell = row.insertCell();
       cell.textContent = v;
-      cell.classList.toggle('total', i >= round.length);
+      cell.classList.toggle('total', k >= round.length);
+      cell.classList.toggle('split', k === round.length);
     });
   }
 }

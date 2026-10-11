@@ -1155,9 +1155,20 @@ button.primary:active {
   white-space: nowrap;
 }
 
-.scoreTable td:nth-child(5),
-.scoreTable th:nth-child(5) {
+.scoreTable .split {
   border-left: 2px solid var(--line);
+}
+
+.scoreTable .groups th {
+  padding-bottom: 0;
+  font-size: 0.85em;
+  font-weight: 700;
+  text-align: center;
+}
+
+.scoreTable .groups th:first-child {
+  text-align: left;
+  white-space: nowrap;
 }
 
 @media (max-width: 640px), (orientation: portrait) {
