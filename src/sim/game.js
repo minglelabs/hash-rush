@@ -36,14 +36,7 @@ export function createGame({ slots, map = MAP, seed = 1 }) {
     const j = Math.floor(rng() * (i + 1));
     [nests[i], nests[j]] = [nests[j], nests[i]];
   }
-  if (slots.some((s) => s.team >= 0)) {
-    // Team-mates start side by side. Which team gets which stretch of the arc is random.
-    const rank = new Map();
-    for (const s of slots) if (!rank.has(s.team)) rank.set(s.team, rng());
-    const order = slots.map((_, id) => id).sort((a, b) => rank.get(slots[a].team) - rank.get(slots[b].team) || a - b);
-    const byY = nests.slice(0, slots.length).sort((a, b) => a.y - b.y);
-    order.forEach((id, i) => (nests[id] = byY[i]));
-  }
+  // Everyone gets a nest at random, team-mates included.
   const players = slots.map((slot, id) => ({
     id,
     name: slot.name,
