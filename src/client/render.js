@@ -1,7 +1,7 @@
 // Canvas drawing. Reads game state, never changes it.
 
 import { WORLD } from '../sim/map.js';
-import { BONK, gatherTime, ALARM_RANGE, THROW } from '../sim/constants.js';
+import { BONK, gatherTime, ALARM_RANGE, THROW, throwRange } from '../sim/constants.js';
 import { lastStretch } from '../sim/game.js';
 import { mulberry32 } from '../sim/rng.js';
 import { colorOf, lookOf } from './looks.js';
@@ -332,7 +332,7 @@ export function createRenderer(canvas, map) {
       fx.push({ type: 'ring', x: ev.fromX, y: ev.fromY, color: '#ffdc96', t: 0, life: 0.45 });
       fx.push({ type: 'ring', x: ev.x, y: ev.y, color: color(ev.id), t: 0, life: 0.45 });
     } else if (ev.type === 'throw') {
-      fx.push({ type: 'toss', x: ev.x, y: ev.y, dx: ev.dx, dy: ev.dy, t: 0, life: 0.22 });
+      fx.push({ type: 'toss', x: ev.x, y: ev.y, dx: ev.dx, dy: ev.dy, reach: ev.reach || THROW.range, t: 0, life: 0.22 });
     } else if (ev.type === 'spawn') {
       fx.push({ type: 'ring', x: ev.x, y: ev.y, color: color(ev.id), t: 0, life: 0.45 });
     } else if (ev.type === 'seed') {
@@ -400,7 +400,7 @@ export function createRenderer(canvas, map) {
         ctx.stroke();
       } else if (e.type === 'toss') {
         // The thrown seed streaks along its path.
-        const at = THROW.range * Math.min(1, k * 1.3);
+        const at = e.reach * Math.min(1, k * 1.3);
         ctx.globalAlpha = 1 - k;
         ctx.strokeStyle = '#fff3b0';
         ctx.lineCap = 'round';
@@ -547,7 +547,9 @@ export function createRenderer(canvas, map) {
       ctx.lineWidth = 2 * THROW.width * (k < 1 ? 0.35 : 0.5);
       ctx.beginPath();
       ctx.moveTo(p.x + p.fx * 18, p.y + p.fy * 18);
-      ctx.lineTo(p.x + p.fx * THROW.range * k, p.y + p.fy * THROW.range * k);
+      // The line is as long as the throw would reach if it left right now.
+      const reach = Math.max(20, throwRange(p.charge));
+      ctx.lineTo(p.x + p.fx * reach, p.y + p.fy * reach);
       ctx.stroke();
     }
 

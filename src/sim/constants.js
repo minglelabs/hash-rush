@@ -41,4 +41,13 @@ export const BONK = {
 // up, and a wind-up held for `max` seconds lets go by itself. It knocks out every rival along
 // its path, four hamsters long. `friendlyFire` decides whether team-mates in the
 // way go down too.
-export const THROW = { charge: 0.4, max: 1.6, range: 8 * HAMSTER_R, width: HAMSTER_R + 6, friendlyFire: false };
+export const THROW = { charge: 0.4, max: 1.6, near: 4 * HAMSTER_R, range: 8 * HAMSTER_R, width: HAMSTER_R + 6, friendlyFire: false };
+
+// How far a throw reaches after winding up for `charge` seconds. The longer the
+// hold, the further it goes: two hamsters as soon as it can be thrown, the full
+// four when it is wound all the way up. Before that it is only the line growing.
+export function throwRange(charge) {
+  if (charge < THROW.charge) return (THROW.near * Math.max(0, charge)) / THROW.charge;
+  const k = Math.min(1, (charge - THROW.charge) / (THROW.max - THROW.charge));
+  return THROW.near + (THROW.range - THROW.near) * k;
+}

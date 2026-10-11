@@ -4,7 +4,7 @@
 //   { mx, my, bonk, ax?, ay?, throw? }   move vector, bonk button, optional aim
 //   direction, and whether the throw button is held
 
-import { DT, SPEED, CARRY_SPEED, LAST_STRETCH, HAMSTER_R, gatherTime, COUNTDOWN, BONK, OVERTIME, ALARM_RANGE, THROW } from './constants.js';
+import { DT, SPEED, CARRY_SPEED, LAST_STRETCH, HAMSTER_R, gatherTime, COUNTDOWN, BONK, OVERTIME, ALARM_RANGE, THROW, throwRange } from './constants.js';
 import { MAP, resolveCollisions, segmentClear } from './map.js';
 import { mulberry32 } from './rng.js';
 
@@ -265,12 +265,16 @@ export function step(g, inputs) {
       p.charge += DT;
       // Fully wound up: it goes by itself.
       if (p.charge >= THROW.max - 1e-9 && landed) {
+        p.reach = throwRange(p.charge);
         throwing.push(p);
         p.charge = 0;
       }
     } else {
       const ready = p.charge >= THROW.charge - 1e-9 && p.carrying && !inHome(g, p);
-      if (ready && landed) throwing.push(p);
+      if (ready && landed) {
+        p.reach = throwRange(p.charge);
+        throwing.push(p);
+      }
       p.charge = 0;
     }
 
@@ -337,11 +341,11 @@ export function step(g, inputs) {
       const dx = v.x - a.x;
       const dy = v.y - a.y;
       const along = dx * a.fx + dy * a.fy;
-      if (along < 0 || along > THROW.range || Math.abs(dx * a.fy - dy * a.fx) > THROW.width) continue;
+      if (along < 0 || along > a.reach || Math.abs(dx * a.fy - dy * a.fx) > THROW.width) continue;
       if (!segmentClear(map, a.x, a.y, v.x, v.y, 0)) continue;
       victims.push(v);
     }
-    g.events.push({ type: 'throw', id: a.id, x: a.x, y: a.y, dx: a.fx, dy: a.fy, hit: victims.length });
+    g.events.push({ type: 'throw', id: a.id, x: a.x, y: a.y, dx: a.fx, dy: a.fy, reach: a.reach, hit: victims.length });
     strike(g, a, victims, bonked);
   }
   for (const a of landing) {
