@@ -60,6 +60,7 @@ export function createGame({ slots, map = MAP, seed = 1 }) {
     kills: 0,
     deaths: 0,
     seeds: 0,
+    supers: 0,
   }));
   return {
     map,
@@ -305,6 +306,9 @@ export function step(g, inputs) {
       a.chain = (g.time <= a.chainUntil ? a.chain : 0) + clump.length;
       a.chainUntil = g.time + BONK.chain;
       if (a.chain > 1) g.events.push({ type: 'multi', by: a.id, n: a.chain });
+      // A super play: three or more in a chain, or a seed stopped at the door.
+      // One swing counts once, whichever way it earned it.
+      if (a.chain >= 3 || clump.some((v) => v.carrying && v.x - g.homeX < ALARM_RANGE)) a.supers++;
     }
     g.events.push({ type: 'impact', id: a.id, x: a.x, y: a.y, dx: a.swing.dx, dy: a.swing.dy, hit: !!victim });
   }
