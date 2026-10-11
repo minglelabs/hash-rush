@@ -6,6 +6,7 @@ import { distToSegment, isFree, segmentClear } from '../sim/map.js';
 import { inHome, allied } from '../sim/game.js';
 import { mulberry32 } from '../sim/rng.js';
 import { getNav, blockCost } from './nav.js';
+import { HAZARD, hazardCost, inCannonLine } from '../sim/hazards.js';
 
 export const DIFFICULTY = {
   // reaction: how stale the bot's view of others is (seconds)
@@ -127,7 +128,10 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
     // Spots just inside the burrow that a seed carrier can aim for.
     const entries = map.rowYs.map((y) => ({ x: g.homeX - 14, y })).filter((p) => isFree(map, p.x, p.y, HAMSTER_R));
     // A lane with someone in it cannot be passed, so paths cost more through it.
-    const blocked = blockCost(map, seen);
+    const inLane = blockCost(map, seen);
+    // Pits, cannons about to fire and shut gates are as good as blocked too.
+    const trouble = hazardCost(g);
+    const blocked = (p, q) => inLane(p, q) + trouble(p, q);
 
     const steerTo = (pt) => {
       const dx = pt.x - me.x;
@@ -417,6 +421,21 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       engage(target);
     } else if (mem.path) {
       follow(mem.path);
+    }
+
+    // Do not walk into a pit, and do not step into a line a cannon is about to
+    // fire down. Waiting a moment is cheaper than a trip home.
+    if (g.hazards.length && (out.mx || out.my)) {
+      const ahead = { x: me.x + out.mx * 26, y: me.y + out.my * 26 };
+      for (const h of g.hazards) {
+        const pit = h.kind === 'trap' && Math.hypot(ahead.x - h.x, ahead.y - h.y) < HAZARD.trap.r + 8 && Math.hypot(me.x - h.x, me.y - h.y) >= HAZARD.trap.r;
+        const shot = h.kind === 'cannon' && h.age < HAZARD.cannon.warn && inCannonLine(map, h, ahead) && !inCannonLine(map, h, me);
+        if (pit || shot) {
+          out.mx = 0;
+          out.my = 0;
+          break;
+        }
+      }
     }
 
     // Break out of the rare case where steering presses into a corner.

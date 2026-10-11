@@ -42,3 +42,7 @@ export const BONK = {
 // its path, four hamsters long. `friendlyFire` decides whether team-mates in the
 // way go down too.
 export const THROW = { charge: 0.4, max: 1.6, range: 8 * HAMSTER_R, width: HAMSTER_R + 6, friendlyFire: false };
+
+// On ice a hamster cannot change its speed at once: it takes this long to get up
+// to full speed from standing, and as long again to stop.
+export const ICE = { ramp: 0.55 };

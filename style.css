@@ -132,6 +132,29 @@ button.primary:active {
   align-items: center;
   gap: 6px;
   margin: 0 0 10px;
+  flex-wrap: wrap;
+}
+
+#mapPick {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+#mapPick select {
+  font: inherit;
+  font-weight: 700;
+  color: var(--ink);
+  padding: 0.3em 0.5em;
+  border: 2px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+
+#mapPick select:disabled {
+  opacity: 1;
 }
 
 #mode button {
@@ -162,7 +185,7 @@ button.primary:active {
 }
 
 #teamInfo {
-  margin-left: auto;
+  margin-left: 6px;
   font-weight: 700;
 }
 

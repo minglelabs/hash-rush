@@ -79,6 +79,15 @@ export function createAudio() {
       tone({ f: 190, to: 70, dur: 0.09, vol: 0.12 });
       noise({ dur: 0.025, vol: 0.06, cutoff: 2500 });
     },
+    // The map got somebody: a low thud and a rattle.
+    zap: () => {
+      tone({ f: 260, to: 60, dur: 0.22, type: 'square', vol: 0.07 });
+      noise({ dur: 0.12, vol: 0.07, cutoff: 900 });
+    },
+    // Something is about to happen on the map: two soft pips.
+    omen: () => [990, 1320].forEach((f, i) => tone({ f, dur: 0.06, type: 'triangle', vol: 0.035, at: i * 0.08 })),
+    // A wave breaking.
+    splash: () => noise({ dur: 0.45, vol: 0.05, cutoff: 1200 }),
     // A seed thrown: a quick whistle through the air.
     toss: () => {
       tone({ f: 1400, to: 500, dur: 0.16, type: 'triangle', vol: 0.07 });

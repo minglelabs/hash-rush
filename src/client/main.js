@@ -6,7 +6,7 @@
 
 import { createGame, step, allied } from '../sim/game.js';
 import { DT, OVERTIME, COUNTDOWN } from '../sim/constants.js';
-import { MAP } from '../sim/map.js';
+import { MAP, MAPS, MAP_IDS } from '../sim/map.js';
 import { createBot } from '../ai/bot.js';
 import { createRenderer, drawHamster, drawSeed, nearHome } from './render.js';
 import { createInput } from './input.js';
@@ -20,6 +20,7 @@ const $ = (id) => document.getElementById(id);
 const STORE = 'seed-rush-slots';
 const SIDE_STORE = 'hash-rush-bonk-left';
 const MODE_STORE = 'seed-rush-teams';
+const MAP_STORE = 'seed-rush-map';
 // What the host can set a slot to. 'open' is an empty seat anyone with the link
 // can take, and 'remote' is one a friend has taken.
 const KINDS = ['human', 'open', 'bot:easy', 'bot:normal', 'bot:hard', 'closed'];
@@ -97,6 +98,14 @@ const TITLE_WINS = 20;
 // Championships already decided in this room, newest last. Gone with the room.
 let seasons = [];
 const audio = createAudio();
+// The host picks the map in the lobby; the meadow is the default.
+let mapId = 'meadow';
+try {
+  const saved = localStorage.getItem(MAP_STORE);
+  if (MAP_IDS.includes(saved)) mapId = saved;
+} catch {
+  // stays on the meadow
+}
 const renderer = createRenderer($('canvas'), MAP);
 const input = createInput({
   stage: $('stage'),
@@ -118,7 +127,7 @@ const watchOnly = query.has('watch');
 const cleanPw = (raw) => String(raw ?? '').trim().slice(0, 12);
 let roomPw = '';
 // role: null (offline), 'host' or 'guest'.
-const net = { role: joinId ? 'guest' : null, room: null, host: null, status: '', lobby: null, teams: false, pw: cleanPw(query.get('pw')), needPw: false, you: -1, pending: [], watchers: [] };
+const net = { role: joinId ? 'guest' : null, room: null, host: null, status: '', lobby: null, teams: false, map: 'meadow', pw: cleanPw(query.get('pw')), needPw: false, you: -1, pending: [], watchers: [] };
 
 let game = null;
 let controllers = [];
@@ -157,6 +166,18 @@ function renderLobby() {
   $('modeNow').hidden = !guest;
   $('modeNow').textContent = t('modeNow', t(teams ? 'modeTeam' : 'modeSolo'));
   $('modeNow').classList.toggle('team', teams);
+  // The host chooses the map; a guest sees which one it is.
+  const sel = $('mapSel');
+  if (!sel.options.length) {
+    for (const id of MAP_IDS) {
+      const opt = document.createElement('option');
+      opt.value = id;
+      opt.textContent = t('mapNames')[id];
+      sel.append(opt);
+    }
+  }
+  sel.value = guest ? net.map : mapId;
+  sel.disabled = guest;
   // The line-up at a glance, e.g. "Red 3 : Blue 2".
   const sizes = TEAMS.map((_, k) => rows.filter((s) => s.kind !== 'closed' && s.kind !== 'open' && s.team === k).length);
   $('teamInfo').replaceChildren(
@@ -512,7 +533,7 @@ function welcome(conn, msg) {
   renderLobby();
   sendLobby();
   // Arriving mid-round, they watch it; a new player gets a hamster next round.
-  if (game && !$('stage').hidden) conn.send({ t: 'start', players: roster(), you: -1, wins, tot: career, rd: rounds, hist: seasons });
+  if (game && !$('stage').hidden) conn.send({ t: 'start', map: game.map.id, players: roster(), you: -1, wins, tot: career, rd: rounds, hist: seasons });
 }
 
 function guestName(slot, raw) {
@@ -589,7 +610,7 @@ function broadcast(make) {
 function sendLobby() {
   if (net.role !== 'host') return;
   const view = slots.map((s) => ({ kind: s.kind, name: s.name, team: s.team }));
-  broadcast((slot, i) => ({ t: 'lobby', slots: view, teams: teamMode, pw: roomPw, you: i, wins, tot: career, rd: rounds, hist: seasons }));
+  broadcast((slot, i) => ({ t: 'lobby', slots: view, teams: teamMode, map: mapId, pw: roomPw, you: i, wins, tot: career, rd: rounds, hist: seasons }));
   announce();
 }
 
@@ -607,8 +628,10 @@ function snapshot(events) {
     to: game.timeout,
     p: game.players.map((p) => [
       r(p.x), r(p.y), r(p.vx), r(p.vy), p.fx, p.fy, p.carrying ? 1 : 0, p.gather, p.queued,
-      p.swing ? [p.swing.phase, p.swing.t, p.swing.dx, p.swing.dy] : 0, p.cooldown, p.kills, p.deaths, p.seeds, p.supers, p.charge, p.throws,
+      p.swing ? [p.swing.phase, p.swing.t, p.swing.dx, p.swing.dy] : 0, p.cooldown, p.kills, p.deaths, p.seeds, p.supers, p.charge, p.throws, r(p.wet),
     ]),
+    // What the map is up to: [kind, x, y, dx, dy, age].
+    hz: game.hazards.map((h) => [h.kind, r(h.x), r(h.y), h.dx || 0, h.dy || 0, Math.round(h.age * 100) / 100]),
     ev: events,
   };
 }
@@ -651,6 +674,7 @@ function hostData(msg) {
   if (msg.t === 'lobby') {
     net.lobby = msg.slots;
     net.teams = !!msg.teams;
+    net.map = MAP_IDS.includes(msg.map) ? msg.map : 'meadow';
     net.pw = cleanPw(msg.pw);
     if (net.needPw) net.status = '';
     net.needPw = false;
@@ -679,11 +703,12 @@ function hostData(msg) {
     if (msg.rd >= 0) rounds = msg.rd;
     if (Array.isArray(msg.hist)) seasons = msg.hist;
     game = {
-      map: MAP,
+      map: MAPS[msg.map] || MAP,
+      hazards: [],
       phase: 'countdown',
       countdown: COUNTDOWN,
       time: 0,
-      homeX: MAP.home.x2,
+      homeX: (MAPS[msg.map] || MAP).home.x2,
       nibbler: -1,
       winner: null,
       winners: [],
@@ -693,6 +718,7 @@ function hostData(msg) {
         carrying: false, gather: 0, queued: -1, swing: null, cooldown: 0, kills: 0, deaths: 0, seeds: 0, supers: 0, charge: 0, throws: 0,
       })),
     };
+    renderer.setMap(game.map);
     meId = msg.you;
     enterStage();
   } else if (msg.t === 's' && game) {
@@ -702,6 +728,7 @@ function hostData(msg) {
     game.homeX = msg.hx;
     game.nibbler = msg.nb;
     game.winner = msg.w;
+    game.hazards = (msg.hz || []).map(([kind, x, y, dx, dy, age]) => ({ kind, x, y, dx, dy, age }));
     game.winners = msg.ws || [];
     game.timeout = !!msg.to;
     msg.p.forEach((s, i) => {
@@ -711,7 +738,7 @@ function hostData(msg) {
       p.gather = s[7];
       p.queued = s[8];
       p.swing = s[9] ? { phase: s[9][0], t: s[9][1], dx: s[9][2], dy: s[9][3] } : null;
-      [p.cooldown, p.kills, p.deaths, p.seeds, p.supers = 0, p.charge = 0, p.throws = 0] = s.slice(10);
+      [p.cooldown, p.kills, p.deaths, p.seeds, p.supers = 0, p.charge = 0, p.throws = 0, p.wet = 0] = s.slice(10);
     });
     for (const ev of msg.ev) onEvent(ev);
   } else if (msg.t === 'lobbyscreen') {
@@ -891,7 +918,9 @@ function startGame() {
   const active = slots.map((s, i) => ({ slot: s, look: i })).filter((a) => isPlaying(a.slot));
   const seed = (Date.now() ^ (Math.random() * 0xffffffff)) >>> 0;
   for (const s of slots) s.playerId = -1;
+  renderer.setMap(MAPS[mapId]);
   game = createGame({
+    map: MAPS[mapId],
     slots: active.map(({ slot, look }) => ({
       name: slot.name.trim() || t('fallbackName', look + 1),
       kind: slot.kind,
@@ -919,7 +948,7 @@ function startGame() {
   meId = active.findIndex((a) => a.slot.kind === 'human');
   net.pending = [];
   const players = roster();
-  broadcast((slot) => ({ t: 'start', players, you: slot.playerId, wins, tot: career, rd: rounds, hist: seasons }));
+  broadcast((slot) => ({ t: 'start', map: mapId, players, you: slot.playerId, wins, tot: career, rd: rounds, hist: seasons }));
   enterStage();
   announce();
 }
@@ -1023,6 +1052,21 @@ function onEvent(ev) {
       callout(players[ev.by], [t('superPlay')]);
       audio.play.superplay();
     }
+  } else if (ev.type === 'zap') {
+    // The map got somebody: a pit or a cannon.
+    audio.play.zap();
+    const line = document.createElement('div');
+    line.append(ev.kind === 'trap' ? '🕳️ ' : '💥 ', nameTag(players[ev.id]));
+    line.addEventListener('animationend', () => line.remove());
+    $('feed').prepend(line);
+    while ($('feed').children.length > 4) $('feed').lastChild.remove();
+    if (ev.seed && ev.id === meId) banner(t('lostSeed'));
+  } else if (ev.type === 'omen') {
+    audio.play.omen();
+  } else if (ev.type === 'cannon') {
+    audio.play.toss();
+  } else if (ev.type === 'splash') {
+    audio.play.splash();
   } else if (ev.type === 'throw') {
     audio.play.toss();
   } else if (ev.type === 'multi') {
@@ -1502,6 +1546,16 @@ $('start').addEventListener('click', () => {
 });
 $('again').addEventListener('click', startGame);
 $('modeSolo').addEventListener('click', () => setTeamMode(false));
+$('mapSel').addEventListener('change', () => {
+  if (net.role === 'guest' || !MAP_IDS.includes($('mapSel').value)) return;
+  mapId = $('mapSel').value;
+  try {
+    localStorage.setItem(MAP_STORE, mapId);
+  } catch {
+    // not persisted
+  }
+  sendLobby();
+});
 $('modeTeam').addEventListener('click', () => setTeamMode(true));
 $('roomListBtn').addEventListener('click', toggleRoomList);
 $('listed').addEventListener('change', announce);

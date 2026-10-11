@@ -4,8 +4,9 @@
 //   { mx, my, bonk, ax?, ay?, throw? }   move vector, bonk button, optional aim
 //   direction, and whether the throw button is held
 
-import { DT, SPEED, CARRY_SPEED, LAST_STRETCH, HAMSTER_R, gatherTime, COUNTDOWN, BONK, OVERTIME, ALARM_RANGE, THROW } from './constants.js';
-import { MAP, resolveCollisions, segmentClear } from './map.js';
+import { DT, SPEED, CARRY_SPEED, LAST_STRETCH, HAMSTER_R, gatherTime, COUNTDOWN, BONK, OVERTIME, ALARM_RANGE, THROW, ICE } from './constants.js';
+import { MAP, resolveCollisions, segmentClear, segmentHitsRect, gatesAt, pushOutRect } from './map.js';
+import { HAZARD, stepHazards } from './hazards.js';
 import { mulberry32 } from './rng.js';
 
 export const EMPTY_INPUT = Object.freeze({ mx: 0, my: 0, bonk: false });
@@ -21,6 +22,23 @@ export function carrySpeed(g, p) {
   if (!p.carrying) return 1;
   return lastStretch(g, p) ? LAST_STRETCH.speed : CARRY_SPEED;
 }
+
+// Walls, the flower, the map edge and any gate in the way.
+function collide(g, p) {
+  resolveCollisions(g.map, p, HAMSTER_R);
+  if (!g.gates.length) return;
+  for (const r of g.gates) pushOutRect(p, HAMSTER_R, r);
+  resolveCollisions(g.map, p, HAMSTER_R);
+}
+
+// A clear line from a to b: no wall, and no gate, in between.
+function sight(g, a, b) {
+  if (!segmentClear(g.map, a.x, a.y, b.x, b.y, 0)) return false;
+  return !g.gates.some((r) => segmentHitsRect(a.x, a.y, b.x, b.y, r.x, r.y, r.x + r.w, r.y + r.h));
+}
+
+const onIce = (map, p) => map.ice.some((r) => p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h);
+
 
 // Team-mates cannot bonk each other and walk straight through one another. A slot
 // without a team (-1) is on its own side, so a game with no teams is everyone
@@ -64,6 +82,7 @@ export function createGame({ slots, map = MAP, seed = 1 }) {
     supers: 0,
     throws: 0,
     charge: 0,
+    wet: 0,
   }));
   return {
     map,
@@ -72,6 +91,10 @@ export function createGame({ slots, map = MAP, seed = 1 }) {
     phase: 'countdown',
     countdown: COUNTDOWN,
     homeX: map.home.x2,
+    // Trouble on the map right now, and when the next lot is due.
+    hazards: [],
+    hazardAt: 2,
+    gates: gatesAt(map, 0),
     nibbler: -1,
     rng,
     players,
@@ -132,8 +155,8 @@ function separate(g) {
         a.y -= ny * overlap * wa;
         b.x += nx * overlap * (1 - wa);
         b.y += ny * overlap * (1 - wa);
-        resolveCollisions(map, a, HAMSTER_R);
-        resolveCollisions(map, b, HAMSTER_R);
+        collide(g, a);
+        collide(g, b);
       }
     }
   }
@@ -150,6 +173,7 @@ function sendHome(p) {
   p.swing = null;
   p.cooldown = 0;
   p.charge = 0;
+  p.wet = 0;
 }
 
 function respawn(g, p) {
@@ -219,6 +243,7 @@ export function step(g, inputs) {
   }
 
   g.time += DT;
+  if (g.map.gates.length) g.gates = gatesAt(g.map, g.time);
   const { map, players } = g;
   if (g.time > OVERTIME.start) {
     if (g.homeX === map.home.x2) g.events.push({ type: 'overtime' });
@@ -270,25 +295,26 @@ export function step(g, inputs) {
       p.charge = 0;
     }
 
-    const speed = SPEED * carrySpeed(g, p);
+    const speed = SPEED * carrySpeed(g, p) * (p.wet > 0 ? HAZARD.wave.slow : 1);
+    // Where the hamster is trying to go; on ice it only gets there gradually.
+    let tx = 0;
+    let ty = 0;
     if (p.swing) {
       p.swing.t += DT;
       if (p.swing.phase === 'windup') {
-        p.vx = 0;
-        p.vy = 0;
         if (p.swing.t >= BONK.windup - 1e-9) {
           p.swing.phase = 'recovery';
           p.swing.t = 0;
           landing.push(p);
         }
       } else {
-        p.vx = mx * speed * BONK.recoveryMove;
-        p.vy = my * speed * BONK.recoveryMove;
+        tx = mx * speed * BONK.recoveryMove;
+        ty = my * speed * BONK.recoveryMove;
         if (p.swing.t >= BONK.recovery - 1e-9) p.swing = null;
       }
     } else {
-      p.vx = mx * speed;
-      p.vy = my * speed;
+      tx = mx * speed;
+      ty = my * speed;
       if (len > 0.05) {
         p.fx = mx / len;
         p.fy = my / len;
@@ -302,9 +328,32 @@ export function step(g, inputs) {
       p.fy = my / len;
     }
 
+    const slippery = map.ice.length > 0 && onIce(map, p);
+    if (slippery) {
+      // Inertia: the speed creeps towards what is asked for, so starting, stopping
+      // and turning round all take time.
+      const dvx = tx - p.vx;
+      const dvy = ty - p.vy;
+      const dv = Math.hypot(dvx, dvy);
+      const most = (SPEED / ICE.ramp) * DT;
+      const k = dv > most ? most / dv : 1;
+      p.vx += dvx * k;
+      p.vy += dvy * k;
+    } else {
+      p.vx = tx;
+      p.vy = ty;
+    }
+
+    const fromX = p.x;
+    const fromY = p.y;
     p.x += p.vx * DT;
     p.y += p.vy * DT;
-    resolveCollisions(map, p, HAMSTER_R);
+    collide(g, p);
+    // Sliding into a wall kills the speed in that direction.
+    if (slippery) {
+      p.vx = (p.x - fromX) / DT;
+      p.vy = (p.y - fromY) / DT;
+    }
   }
   separate(g);
 
@@ -334,7 +383,7 @@ export function step(g, inputs) {
       const dy = v.y - a.y;
       const along = dx * a.fx + dy * a.fy;
       if (along < 0 || along > THROW.range || Math.abs(dx * a.fy - dy * a.fx) > THROW.width) continue;
-      if (!segmentClear(map, a.x, a.y, v.x, v.y, 0)) continue;
+      if (!sight(g, a, v)) continue;
       victims.push(v);
     }
     g.events.push({ type: 'throw', id: a.id, x: a.x, y: a.y, dx: a.fx, dy: a.fy, hit: victims.length });
@@ -353,7 +402,7 @@ export function step(g, inputs) {
         const d = Math.hypot(dx, dy);
         if (d > nearest) continue;
         if (d > HAMSTER_R && (dx * a.swing.dx + dy * a.swing.dy) / d < BONK.arcCos) continue;
-        if (!segmentClear(map, a.x, a.y, v.x, v.y, 0)) continue;
+        if (!sight(g, a, v)) continue;
         victim = v;
         nearest = d;
       }
@@ -373,6 +422,8 @@ export function step(g, inputs) {
     g.events.push({ type: 'impact', id: a.id, x: a.x, y: a.y, dx: a.swing.dx, dy: a.swing.dy, hit: !!victim });
   }
   for (const v of bonked) respawn(g, v);
+  // Whatever the map itself does to them.
+  for (const v of stepHazards(g)) if (!bonked.has(v)) respawn(g, v);
 
   // A tunnel takes an empty-handed hamster straight back to its nest, which is the
   // quick way to get in front of someone already running home with a seed.
