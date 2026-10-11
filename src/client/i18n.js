@@ -120,8 +120,7 @@ const STRINGS = {
     winMe: '🎉 내가 이겼다!',
     winShared: (names) => `🤝 공동 승리: ${names}`,
     winOther: (name) => `🏆 ${koSubject(name)} 이겼어요`,
-    columns: ['꿀밤', '맞음', '해씨', '승'],
-    scoreNote: '이번 판 (누적)',
+    columns: ['꿀밤', '맞음', '해씨', '누적 꿀밤', '누적 맞음', '누적 해씨', '누적 승'],
     tally: (n) => `${n}승`,
   },
 
@@ -233,8 +232,7 @@ const STRINGS = {
     winMe: '🎉 You win!',
     winShared: (names) => `🤝 Shared win: ${names}`,
     winOther: (name) => `🏆 ${name} wins`,
-    columns: ['Bonks', 'Bonked', 'Seeds', 'Wins'],
-    scoreNote: 'Round (total)',
+    columns: ['Bonks', 'Bonked', 'Seeds', 'Total bonks', 'Total bonked', 'Total seeds', 'Total wins'],
     tally: (n) => `${n} W`,
   },
 
@@ -346,8 +344,7 @@ const STRINGS = {
     winMe: '🎉 あなたの勝ち！',
     winShared: (names) => `🤝 同点勝利: ${names}`,
     winOther: (name) => `🏆 ${name}の勝ち`,
-    columns: ['ゲンコツ', 'くらった', '種', '勝利'],
-    scoreNote: '今回 (通算)',
+    columns: ['ゲンコツ', 'くらった', '種', '通算ゲンコツ', '通算くらった', '通算の種', '通算勝利'],
     tally: (n) => `${n}勝`,
   },
 
@@ -459,8 +456,7 @@ const STRINGS = {
     winMe: '🎉 我赢了！',
     winShared: (names) => `🤝 并列获胜: ${names}`,
     winOther: (name) => `🏆 ${name}赢了`,
-    columns: ['敲头', '被敲', '瓜子', '胜场'],
-    scoreNote: '本局 (累计)',
+    columns: ['敲头', '被敲', '瓜子', '累计敲头', '累计被敲', '累计瓜子', '累计胜场'],
     tally: (n) => `${n}胜`,
   },
 
@@ -572,8 +568,7 @@ const STRINGS = {
     winMe: '🎉 我贏了！',
     winShared: (names) => `🤝 並列獲勝: ${names}`,
     winOther: (name) => `🏆 ${name}贏了`,
-    columns: ['敲頭', '被敲', '瓜子', '勝場'],
-    scoreNote: '本局 (累計)',
+    columns: ['敲頭', '被敲', '瓜子', '累計敲頭', '累計被敲', '累計瓜子', '累計勝場'],
     tally: (n) => `${n}勝`,
   },
 };
