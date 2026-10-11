@@ -17,9 +17,13 @@ export const DIFFICULTY = {
   // hunt: chance to clear a rival away from the flower instead of waiting in line
   // opportunism: swings per second at bystanders who happen to be in reach
   // caution: how strongly a seed carrier avoids enemies waiting near its route
-  easy: { reaction: 0.3, lead: 0.2, margin: 1, jitter: 4, bait: 0.1, hold: 0.2, deny: 0.5, hunt: 0.5, opportunism: 0.5, caution: 0.5 },
-  normal: { reaction: 0.2, lead: 0.5, margin: 2.5, jitter: 2.5, bait: 0.35, hold: 0.7, deny: 0.8, hunt: 0.85, opportunism: 1, caution: 1 },
-  hard: { reaction: 0.12, lead: 0.9, margin: 3, jitter: 1, bait: 0.55, hold: 1, deny: 1, hunt: 1, opportunism: 1.5, caution: 1.2 },
+  // freeze: how long it dithers before a swing it has decided on (seconds)
+  // rally: whether it joins the chase after a seed it cannot head off in time
+  // daze: how long it stands gathering its wits after a respawn, on picking up a
+  //   seed, and every few seconds for no reason at all (seconds)
+  easy: { reaction: 0.45, lead: 0, margin: 0, jitter: 9, bait: 0, hold: 0.1, deny: 0.5, hunt: 0.5, opportunism: 0.3, caution: 0.2, freeze: 0.3, rally: false, daze: 1.2 },
+  normal: { reaction: 0.24, lead: 0.4, margin: 2, jitter: 4, bait: 0.25, hold: 0.5, deny: 0.7, hunt: 0.7, opportunism: 0.8, caution: 0.8, freeze: 0.09, rally: true, daze: 0.15 },
+  hard: { reaction: 0.12, lead: 0.9, margin: 3, jitter: 1, bait: 0.55, hold: 1, deny: 1, hunt: 1, opportunism: 1.5, caution: 1.2, freeze: 0, rally: true, daze: 0 },
 };
 
 const TOUCH = 2 * HAMSTER_R;
@@ -89,6 +93,10 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
     noise: 0,
     noiseAt: 0,
     bonkDown: false,
+    swingAt: -1,
+    dazeUntil: 0,
+    deaths: 0,
+    carrying: false,
     stuck: { x: 0, y: 0, at: 0 },
     nudge: { until: 0, x: 0, y: 0 },
   };
@@ -240,7 +248,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       for (const c of seen) {
         if (!c.carrying || c.home) continue;
         // A seed about to reach home is everybody's problem, whatever was rolled.
-        const lastStand = c.x - g.homeX < LAST_STAND;
+        const lastStand = cfg.rally && c.x - g.homeX < LAST_STAND;
         const key = c.id * 1000 + c.seeds;
         if (!mem.denyRolls.has(key)) mem.denyRolls.set(key, rng() < cfg.deny);
         if (!mem.denyRolls.get(key) && !lastStand) continue;
@@ -250,7 +258,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
         // on it, ready to nibble the moment the seed is knocked loose.
         const chasers = [me, ...mates, ...seen.filter((e) => e.id !== c.id && !allied(e, c))].filter((e) => !e.carrying);
         const stays = chasers.length >= 3 && chasers.every((e) => e === me || dist(e, f) > dist(me, f));
-        const at = near ? c : intercept(c, lastStand || !stays);
+        const at = near ? c : intercept(c, cfg.rally && (lastStand || !stays));
         if (!at) continue;
         if (c.x < urgent) {
           urgent = c.x;
@@ -470,6 +478,20 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
         if (!want || p.dist < want.dist) want = p;
       }
     }
+    // A weaker bot loses its thread now and then and just stands there.
+    const jolt = me.deaths !== mem.deaths || me.carrying !== mem.carrying;
+    mem.deaths = me.deaths;
+    mem.carrying = me.carrying;
+    if (cfg.daze && (jolt || rng() < 0.3 * DT)) mem.dazeUntil = Math.max(mem.dazeUntil, now + cfg.daze * (0.5 + rng()));
+    if (now < mem.dazeUntil) {
+      out.mx = 0;
+      out.my = 0;
+    }
+
+    // A weaker bot dithers: the chance has to stay open for a moment before it swings.
+    if (!want) mem.swingAt = -1;
+    else if (mem.swingAt < 0) mem.swingAt = now + cfg.freeze * (0.5 + rng());
+    if (want && now < mem.swingAt) want = null;
     if (want && !mem.bonkDown) {
       out.bonk = true;
       out.ax = want.ax;
