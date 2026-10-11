@@ -17,7 +17,7 @@
       import { LOOKS } from '../src/client/looks.js';
 
       await document.fonts.load('700 150px Fredoka');
-      await document.fonts.load('44px Jua', '해바라기씨 물고 집까지 달려라!');
+      await document.fonts.load('56px Jua', '해바라기씨 물고 집까지 달려라!');
       const W = 1200;
       const H = 630;
       const ctx = document.getElementById('og').getContext('2d');
@@ -84,10 +84,14 @@
       hill(520, 10, '#6fbd4e', 2.1);
 
       // Title.
-      ctx.save();
-      ctx.translate(70, 250);
-      ctx.rotate(-0.05);
+      // Title and tagline share a centre line, nudged in from the left edge.
       ctx.font = '700 168px Fredoka';
+      const titleW = ctx.measureText('Hash Rush').width;
+      const left = 115;
+      const mid = left + titleW / 2;
+      ctx.save();
+      ctx.translate(left, 250);
+      ctx.rotate(-0.05);
       ctx.textBaseline = 'alphabetic';
       ctx.lineJoin = 'round';
       const title = 'Hash Rush';
@@ -108,17 +112,18 @@
 
       // Tagline on a little sign.
       ctx.save();
-      ctx.translate(92, 300);
+      ctx.translate(mid, 340);
       ctx.rotate(-0.05);
-      ctx.font = '44px Jua';
+      ctx.font = '56px Jua';
+      ctx.textAlign = 'center';
       const tag = '해바라기씨 물고 집까지 달려라!';
       const tw = ctx.measureText(tag).width;
       ctx.fillStyle = '#5b3416';
       ctx.beginPath();
-      ctx.roundRect(-4, 6, tw + 48, 70, 35);
+      ctx.roundRect(-tw / 2 - 30, -46, tw + 60, 84, 42);
       ctx.fill();
       ctx.fillStyle = '#fff8e7';
-      ctx.fillText(tag, 20, 56);
+      ctx.fillText(tag, 0, 16);
       ctx.restore();
 
       // Seeds scattered in the grass.
