@@ -527,6 +527,18 @@ button.primary:active {
   opacity: 1;
 }
 
+#banner.alarm {
+  background: rgba(214, 30, 30, 0.94);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.85);
+  animation: alarm 0.35s ease-in-out infinite alternate;
+}
+
+@keyframes alarm {
+  to {
+    transform: translateX(-50%) scale(1.07);
+  }
+}
+
 #big {
   position: absolute;
   inset: 0;

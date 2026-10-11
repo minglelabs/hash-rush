@@ -129,6 +129,10 @@ export function drawHamster(ctx, o) {
   ctx.restore();
 }
 
+// A seed carrier this close to the home edge sets off the alarm.
+const ALARM = 190;
+export const nearHome = (game, p) => p.carrying && p.x - game.homeX < ALARM;
+
 export function drawFlower(ctx, f, t) {
   ctx.save();
   ctx.translate(f.x, f.y);
@@ -540,10 +544,40 @@ export function createRenderer(canvas, map) {
       const face = toScreenDir(p.fx, p.fy);
       upright(p.x, p.y, () => {
         if (p.carrying) {
-          ctx.strokeStyle = `rgba(255, 200, 40, ${0.6 + 0.3 * Math.sin(t * 9)})`;
-          ctx.lineWidth = 4;
-          oval(ctx, 0, 12, 22, 9);
+          // The seed carrier is the one everybody needs to find: a glow and a
+          // turning ring mark it, and close to home they turn into a red alarm.
+          const near = nearHome(game, p);
+          const beat = 0.5 + 0.5 * Math.sin(t * (near ? 14 : 7));
+          const glow = ctx.createRadialGradient(0, 0, 6, 0, 0, 46);
+          glow.addColorStop(0, near ? 'rgba(255, 60, 40, 0.5)' : 'rgba(255, 215, 60, 0.5)');
+          glow.addColorStop(1, near ? 'rgba(255, 60, 40, 0)' : 'rgba(255, 215, 60, 0)');
+          ctx.fillStyle = glow;
+          ctx.beginPath();
+          ctx.arc(0, 0, 46, 0, TAU);
+          ctx.fill();
+          ctx.save();
+          ctx.rotate(t * 2.2);
+          ctx.setLineDash([12, 8]);
+          ctx.lineWidth = 3.5;
+          ctx.strokeStyle = near ? `rgba(240, 40, 30, ${0.75 + 0.25 * beat})` : `rgba(255, 190, 30, ${0.65 + 0.3 * beat})`;
+          ctx.beginPath();
+          ctx.arc(0, 0, 27 + 2 * beat, 0, TAU);
           ctx.stroke();
+          ctx.restore();
+          if (near) {
+            // A red circle that keeps closing in on the carrier.
+            const k = (t * 1.4) % 1;
+            ctx.lineWidth = 5;
+            ctx.strokeStyle = `rgba(235, 30, 30, ${0.9 - 0.5 * k})`;
+            ctx.beginPath();
+            ctx.arc(0, 0, 62 - 26 * k, 0, TAU);
+            ctx.stroke();
+            ctx.lineWidth = 4;
+            ctx.strokeStyle = 'rgba(235, 30, 30, 0.95)';
+            ctx.beginPath();
+            ctx.arc(0, 0, 36, 0, TAU);
+            ctx.stroke();
+          }
         }
         drawHamster(ctx, {
           x: 0,

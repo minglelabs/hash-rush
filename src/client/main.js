@@ -8,7 +8,7 @@ import { createGame, step, allied } from '../sim/game.js';
 import { DT, OVERTIME, COUNTDOWN } from '../sim/constants.js';
 import { MAP } from '../sim/map.js';
 import { createBot } from '../ai/bot.js';
-import { createRenderer, drawHamster } from './render.js';
+import { createRenderer, drawHamster, nearHome } from './render.js';
 import { createInput } from './input.js';
 import { createAudio } from './audio.js';
 import { LOOKS, TEAMS, colorOf } from './looks.js';
@@ -862,6 +862,7 @@ function enterStage() {
   $('resultWait').hidden = net.role !== 'guest';
   scoreKey = '';
   showBoard(false);
+  alarmKey = '';
   acc = 0;
   renderer.clear();
   input.reset();
@@ -880,10 +881,11 @@ function big(text) {
   el.addEventListener('animationend', () => el.remove());
 }
 
-function banner(text) {
+function banner(text, alarm = false) {
   const el = $('banner');
   el.textContent = text;
   el.classList.add('show');
+  el.classList.toggle('alarm', alarm);
   clearTimeout(bannerTimer);
   bannerTimer = setTimeout(() => el.classList.remove('show'), 2200);
 }
@@ -1000,7 +1002,22 @@ function showResult() {
   if (net.role !== 'guest') $('again').focus();
 }
 
+// Tell everyone, once per carry, when a seed is about to reach home.
+let alarmKey = '';
+function watchCarrier() {
+  const p = game.phase === 'playing' && game.players.find((c) => nearHome(game, c));
+  const key = p ? `${p.id}:${p.seeds}` : '';
+  if (key && key !== alarmKey) {
+    const mate = meId >= 0 && allied(game.players[meId], p);
+    banner(p.id === meId ? t('alarmMe') : t(mate ? 'alarmMate' : 'alarmOther', p.name), true);
+    audio.play.overtime();
+  }
+  // Stepping back out and in again does not repeat it; a new seed does.
+  if (key || !game.players.some((c) => c.carrying)) alarmKey = key || '';
+}
+
 function updateHud() {
+  watchCarrier();
   if (!$('board').hidden) {
     const now = game.players.map((p) => `${p.kills},${p.deaths},${p.seeds}`).join();
     if (now !== boardKey) {
