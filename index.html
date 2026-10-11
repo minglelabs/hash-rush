@@ -38,6 +38,13 @@
             </div>
           </div>
           <p id="netStatus" hidden></p>
+          <div id="lobbyChat" class="chat" hidden>
+            <div class="chatLog"></div>
+            <form class="chatForm">
+              <input maxlength="80" autocomplete="off" />
+              <button data-i18n="chatSend"></button>
+            </form>
+          </div>
         </section>
 
         <button id="start" class="primary"></button>
@@ -64,8 +71,16 @@
           <div id="watching" data-i18n="spectating" hidden></div>
           <div id="hint" data-i18n="hint"></div>
           <div id="hintTouch" data-i18n="hintTouch" style="display: none"></div>
+          <div id="gameChat" class="chat" hidden>
+            <div class="chatLog"></div>
+            <form class="chatForm" hidden>
+              <input maxlength="80" autocomplete="off" />
+              <button data-i18n="chatSend"></button>
+            </form>
+          </div>
           <div id="tools">
             <button id="mute">🔊</button>
+            <button id="chatBtn" hidden>💬</button>
             <button id="quit" data-i18n="lobby"></button>
           </div>
         </div>

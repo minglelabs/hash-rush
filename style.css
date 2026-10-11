@@ -675,3 +675,79 @@ button.primary:active {
     font-size: 22px;
   }
 }
+
+/* ---------- chat ---------- */
+
+.chat .chatLog div {
+  overflow-wrap: anywhere;
+}
+
+.chatForm {
+  display: flex;
+  gap: 6px;
+}
+
+.chatForm input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 14px;
+  color: var(--ink);
+  padding: 0.4em 0.7em;
+  border: 2px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.chatForm button {
+  font-size: 14px;
+  padding: 0.3em 0.9em;
+}
+
+#lobbyChat {
+  margin: -8px 0 18px;
+  padding: 10px 12px;
+  background: #fff;
+  border: 2px solid var(--line);
+  border-radius: 14px;
+  font-size: 14px;
+}
+
+#lobbyChat .chatLog {
+  height: 96px;
+  overflow-y: auto;
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+
+#gameChat {
+  position: absolute;
+  left: 1.4cqw;
+  bottom: 6cqw;
+  width: min(46cqw, 340px);
+  font-size: clamp(12px, 1.4cqw, 16px);
+  font-weight: 600;
+}
+
+#gameChat .chatLog div {
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 0.25em;
+  padding: 0.15em 0.7em;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.88);
+  animation: fade 8s forwards;
+}
+
+#gameChat .chatForm {
+  margin-top: 0.4em;
+  pointer-events: auto;
+}
+
+@media (orientation: portrait) {
+  #gameChat {
+    bottom: 3cqw;
+    width: 70cqw;
+    font-size: 13px;
+  }
+}

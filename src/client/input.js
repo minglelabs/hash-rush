@@ -43,6 +43,8 @@ export function createInput({ stage, canvas, stick, knob, bonkBtn, toWorld, toWo
 
   window.addEventListener('keydown', (e) => {
     if (!enabled || !HANDLED.has(e.code) || e.metaKey || e.ctrlKey || e.altKey) return;
+    // Typing a chat message must not steer the hamster.
+    if (e.target instanceof HTMLInputElement) return;
     down.add(e.code);
     e.preventDefault();
   });
