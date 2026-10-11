@@ -1226,6 +1226,86 @@ button.primary:active {
   white-space: nowrap;
 }
 
+.scoreTable .score {
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.scoreTable .rule td {
+  padding-top: 10px;
+  color: #a07a45;
+  font-size: 0.85em;
+  font-weight: 600;
+  text-align: center;
+}
+
+/* The MVP badge is meant to be loud: gold that shimmers, wobbles and sparkles. */
+.mvp {
+  position: relative;
+  display: inline-block;
+  margin-left: 0.45em;
+  padding: 0.08em 0.55em;
+  border-radius: 999px;
+  border: 2px solid #fff;
+  background: linear-gradient(110deg, #ff7a00, #ffd23f 25%, #fff6c2 40%, #ffd23f 55%, #ff3d81 80%, #7b5cff);
+  background-size: 250% 100%;
+  color: #5b2a00;
+  font-size: 0.82em;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.7);
+  box-shadow: 0 0 0 2px #ffb300, 0 0 12px 3px rgba(255, 190, 0, 0.75);
+  animation: mvpShine 1.4s linear infinite, mvpWobble 0.9s ease-in-out infinite alternate;
+}
+
+.mvp::before,
+.mvp::after {
+  content: '✦';
+  position: absolute;
+  color: #fff;
+  font-size: 0.9em;
+  text-shadow: 0 0 6px #ffd23f, 0 0 2px #ff7a00;
+  animation: mvpSpark 1.1s ease-in-out infinite;
+}
+
+.mvp::before {
+  top: -0.75em;
+  left: -0.35em;
+}
+
+.mvp::after {
+  right: -0.4em;
+  bottom: -0.7em;
+  animation-delay: 0.55s;
+}
+
+@keyframes mvpShine {
+  to {
+    background-position: -250% 0;
+  }
+}
+
+@keyframes mvpWobble {
+  from {
+    transform: rotate(-5deg) scale(1);
+  }
+  to {
+    transform: rotate(4deg) scale(1.12);
+  }
+}
+
+@keyframes mvpSpark {
+  0%,
+  100% {
+    transform: scale(0.3) rotate(0deg);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(1.2) rotate(90deg);
+    opacity: 1;
+  }
+}
+
 .scoreTable .split {
   border-left: 2px solid var(--line);
 }

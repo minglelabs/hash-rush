@@ -10,6 +10,7 @@ import { MAP } from '../sim/map.js';
 import { createBot } from '../ai/bot.js';
 import { createRenderer, drawHamster, nearHome } from './render.js';
 import { createInput } from './input.js';
+import { MVP_POINTS, mvpScore, pickMvp } from './mvp.js';
 import { createAudio } from './audio.js';
 import { LOOKS, TEAMS, colorOf } from './looks.js';
 import { lang, t, LANGUAGES, stringsFor } from './i18n.js';
@@ -1075,30 +1076,45 @@ function fillScores(table) {
   groups.className = 'groups';
   th(groups, t('gameNo', rounds + (game.counted ? 0 : 1)));
   th(groups, t('thisRound'), cols.length);
-  th(groups, t('totals'), cols.length + 1).classList.add('total', 'split');
+  th(groups, t('totals'), cols.length + 2).classList.add('total', 'split');
   const head = table.insertRow();
   th(head, '');
   cols.forEach((h) => th(head, h));
-  [...cols, t('colWins')].forEach((h, k) => {
+  [...cols, t('colWins'), t('colScore')].forEach((h, k) => {
     const cell = th(head, h);
     cell.classList.add('total');
     cell.classList.toggle('split', k === 0);
   });
+  // Until the round is added to the totals, they include it as it stands.
+  const totalOf = (p) => roundOf(p).map((v, k) => ((career[p.look] || [])[k] || 0) + (game.counted ? 0 : v));
+  const mvps = pickMvp(game.players.map((p) => [p.id, totalOf(p)]));
   for (const p of lineUp()) {
     const row = table.insertRow();
     row.classList.toggle('winner', won(p));
-    row.insertCell().append(nameTag(p));
-    const c = career[p.look] || [];
+    const who = row.insertCell();
+    who.append(nameTag(p));
+    if (mvps.includes(p.id)) {
+      const badge = document.createElement('span');
+      badge.className = 'mvp';
+      badge.textContent = 'MVP';
+      who.append(badge);
+    }
     const round = roundOf(p);
-    // Until the round is added to the totals, they include it as it stands.
-    const total = round.map((v, k) => (c[k] || 0) + (game.counted ? 0 : v));
-    [...round, ...total, wins[p.look]].forEach((v, k) => {
+    const total = totalOf(p);
+    [...round, ...total, wins[p.look], mvpScore(total)].forEach((v, k) => {
       const cell = row.insertCell();
       cell.textContent = v;
       cell.classList.toggle('total', k >= round.length);
       cell.classList.toggle('split', k === round.length);
     });
+    row.lastChild.classList.add('score');
   }
+  // How the score that decides the MVP adds up.
+  const rule = table.insertRow();
+  rule.className = 'rule';
+  const cell = rule.insertCell();
+  cell.colSpan = 2 * cols.length + 3;
+  cell.textContent = `MVP ${t('colScore')} = ${cols.map((name, k) => (MVP_POINTS[k] ? `${name} ×${MVP_POINTS[k]}` : '')).filter(Boolean).join(' + ')}`;
 }
 
 let boardKey = '';
@@ -1158,7 +1174,7 @@ function updateHud() {
   // The throw button is only there while this player has a seed to throw.
   $('throw').hidden = !(meId >= 0 && game.phase === 'playing' && game.players[meId].carrying);
   if (!$('board').hidden) {
-    const now = game.players.map((p) => `${p.kills},${p.deaths},${p.seeds}`).join();
+    const now = game.players.map((p) => `${p.kills},${p.deaths},${p.seeds},${p.supers}`).join();
     if (now !== boardKey) {
       boardKey = now;
       fillScores($('boardTable'));
