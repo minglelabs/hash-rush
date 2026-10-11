@@ -37,7 +37,8 @@ export const BONK = {
 };
 
 // A seed carrier can give the seed up as a weapon: hold the bonk button to wind up,
-// let go to throw it the way the hamster faces. It knocks out every rival along
+// let go to throw it the way the hamster faces. It can turn freely while winding
+// up, and a wind-up held for `max` seconds lets go by itself. It knocks out every rival along
 // its path, four hamsters long. `friendlyFire` decides whether team-mates in the
 // way go down too.
-export const THROW = { charge: 0.4, range: 8 * HAMSTER_R, width: HAMSTER_R + 6, friendlyFire: false };
+export const THROW = { charge: 0.4, max: 1.6, range: 8 * HAMSTER_R, width: HAMSTER_R + 6, friendlyFire: false };

@@ -600,3 +600,46 @@ test('a throw does not reach into the burrow', () => {
   assert.equal(a.carrying, false);
   assert.equal(b.deaths, 0, 'safe inside the burrow');
 });
+
+test('a hamster winding up a throw turns freely, and the seed goes the way it faces when it leaves', () => {
+  const thrown = (g) => {
+    for (let i = 0; i < 3 * TICK_RATE; i++) {
+      const ev = g.events.find((e) => e.type === 'throw');
+      if (ev) return ev;
+      step(g, []);
+    }
+    return g.events.find((e) => e.type === 'throw');
+  };
+  const carrier = () => {
+    const g = started(1);
+    const a = g.players[0];
+    place(a, 760, 120);
+    a.fx = 1;
+    a.fy = 0;
+    a.carrying = true;
+    return g;
+  };
+
+  // The press swings first, as the keyboard does, and the hamster still turns during it.
+  let g = carrier();
+  run(g, 0.2, [{ mx: 0, my: 0, bonk: true, throw: true }]);
+  run(g, 0.3, [{ mx: 0, my: -1, bonk: true, throw: true }]);
+  assert.ok(g.players[0].swing, 'still inside the swing');
+  run(g, 0.1, [{ mx: -1, my: 0, bonk: true, throw: true }]);
+  const ev = thrown(g);
+  assert.deepEqual([ev.dx, ev.dy], [-1, 0], 'thrown the last way it turned');
+
+  // Held all the way, it lets go by itself, facing wherever it faces then.
+  g = carrier();
+  run(g, THROW.max - 0.2, [{ mx: 0, my: 0, bonk: false, throw: true }]);
+  assert.equal(g.players[0].carrying, true);
+  let auto = null;
+  for (let i = 0; i < 0.3 * TICK_RATE && !auto; i++) {
+    step(g, [{ mx: 0, my: 1, bonk: false, throw: true }]);
+    auto = g.events.find((e) => e.type === 'throw');
+  }
+  assert.deepEqual([auto.dx, auto.dy], [0, 1]);
+  assert.equal(g.players[0].carrying, false);
+  run(g, 0.5, [{ mx: 0, my: 1, bonk: false, throw: true }]);
+  assert.equal(g.players[0].charge, 0, 'nothing left to wind up');
+});
