@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createGame, step, inHome } from '../src/sim/game.js';
 import { createBot, predictSwing } from '../src/ai/bot.js';
 import { getNav, blockCost } from '../src/ai/nav.js';
-import { BONK, CARRY_SPEED, COUNTDOWN, GATHER_TIME, gatherTime, HAMSTER_R, LAST_STRETCH, OVERTIME, SPEED, TICK_RATE } from '../src/sim/constants.js';
+import { THROW, BONK, CARRY_SPEED, COUNTDOWN, GATHER_TIME, gatherTime, HAMSTER_R, LAST_STRETCH, OVERTIME, SPEED, TICK_RATE } from '../src/sim/constants.js';
 import { MAP, isFree } from '../src/sim/map.js';
 
 const IDLE = { mx: 0, my: 0, bonk: false };
@@ -543,4 +543,60 @@ test('bonks in quick succession chain into a double and a triple, and a pause or
   assert.deepEqual(multis, [2, 3], 'too late to carry on the chain');
   bonk(c, BONK.cooldown - 0.25);
   assert.deepEqual(multis, [2, 3, 2]);
+});
+
+test('a held and released throw sends the seed along the way the hamster faces, taking every rival in its path', () => {
+  const HOLD = { mx: 0, my: 0, bonk: false, throw: true };
+  const setup = (teams) => {
+    const g = teamGame(teams);
+    const [a, b, c, d, e] = g.players;
+    place(a, 720, 200);
+    a.fx = 1;
+    a.fy = 0;
+    a.carrying = true;
+    place(b, 720 + 2 * HAMSTER_R + 4, 200);
+    place(c, 720 + THROW.range - 4, 204);
+    place(d, 720 + THROW.range + 2 * HAMSTER_R, 200);
+    place(e, 780, 200 + THROW.width + 2 * HAMSTER_R);
+    return g;
+  };
+
+  // Let go too early and nothing happens.
+  let g = setup([-1, -1, -1, -1, -1]);
+  run(g, THROW.charge - 0.1, [HOLD]);
+  run(g, 0.1);
+  assert.equal(g.players[0].carrying, true);
+  assert.equal(g.players[1].deaths, 0);
+
+  g = setup([-1, -1, -1, -1, -1]);
+  run(g, THROW.charge + 0.05, [HOLD]);
+  assert.ok(g.players[0].charge >= THROW.charge, 'wound up while held');
+  step(g, []);
+  assert.deepEqual(g.events.find((ev) => ev.type === 'throw'), { type: 'throw', id: 0, x: 720, y: 200, dx: 1, dy: 0, hit: 2 });
+  assert.deepEqual(g.events.filter((ev) => ev.type === 'multi'), [{ type: 'multi', by: 0, n: 2 }]);
+  assert.equal(g.players[0].carrying, false, 'the seed is gone');
+  assert.deepEqual(g.players.map((p) => p.deaths), [0, 1, 1, 0, 0], 'out of range and off to the side are safe');
+  assert.equal(g.players[0].kills, 2);
+
+  // A team-mate standing in the path is not hurt.
+  g = setup([0, 0, 1, 1, 1]);
+  run(g, THROW.charge + 0.05, [HOLD]);
+  step(g, []);
+  assert.deepEqual(g.players.map((p) => p.deaths), [0, 0, 1, 0, 0]);
+});
+
+test('a throw does not reach into the burrow', () => {
+  const g = started(3);
+  const [a, b, c] = g.players;
+  const y = MAP.laneYs[1];
+  place(a, MAP.home.x2 + 40, y);
+  a.fx = -1;
+  a.fy = 0;
+  a.carrying = true;
+  place(b, MAP.home.x2 - 30, y);
+  place(c, 700, 200);
+  run(g, THROW.charge + 0.05, [{ mx: 0, my: 0, bonk: false, throw: true }]);
+  step(g, []);
+  assert.equal(a.carrying, false);
+  assert.equal(b.deaths, 0, 'safe inside the burrow');
 });

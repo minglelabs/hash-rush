@@ -35,3 +35,9 @@ export const BONK = {
   chain: 2, // a bonk this soon after the last one makes it a double, then a triple
   assist: 80, // auto-aim picks the nearest enemy inside this radius
 };
+
+// A seed carrier can give the seed up as a weapon: hold the bonk button to wind up,
+// let go to throw it the way the hamster faces. It knocks out every rival along
+// its path, four hamsters long. `friendlyFire` decides whether team-mates in the
+// way go down too.
+export const THROW = { charge: 0.4, range: 8 * HAMSTER_R, width: HAMSTER_R + 6, friendlyFire: false };

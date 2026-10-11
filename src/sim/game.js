@@ -1,9 +1,10 @@
 // Deterministic game simulation. It knows nothing about the DOM, input devices or
 // who is a bot: every tick it takes one input per player and advances the world.
 // Human, bot and (later) network players all feed it through the same input shape:
-//   { mx, my, bonk, ax?, ay? }   move vector, bonk button, optional aim direction
+//   { mx, my, bonk, ax?, ay?, throw? }   move vector, bonk button, optional aim
+//   direction, and whether the throw button is held
 
-import { DT, SPEED, CARRY_SPEED, LAST_STRETCH, HAMSTER_R, gatherTime, COUNTDOWN, BONK, OVERTIME, ALARM_RANGE } from './constants.js';
+import { DT, SPEED, CARRY_SPEED, LAST_STRETCH, HAMSTER_R, gatherTime, COUNTDOWN, BONK, OVERTIME, ALARM_RANGE, THROW } from './constants.js';
 import { MAP, resolveCollisions, segmentClear } from './map.js';
 import { mulberry32 } from './rng.js';
 
@@ -68,6 +69,7 @@ export function createGame({ slots, map = MAP, seed = 1 }) {
     deaths: 0,
     seeds: 0,
     supers: 0,
+    charge: 0,
   }));
   return {
     map,
@@ -153,6 +155,7 @@ function sendHome(p) {
   p.queued = -1;
   p.swing = null;
   p.cooldown = 0;
+  p.charge = 0;
 }
 
 function respawn(g, p) {
@@ -180,6 +183,25 @@ function timeoutWinners(players) {
   const rank = (a, b) => b.kills - a.kills || a.deaths - b.deaths || b.seeds - a.seeds;
   const sorted = [...sides.values()].sort(rank);
   return sorted.filter((s) => rank(s, sorted[0]) === 0).flatMap((s) => s.ids);
+}
+
+// Credits `a` with knocking out `victims`, by a bonk or a thrown seed.
+function strike(g, a, victims, bonked) {
+  if (!victims.length) return;
+  for (const v of victims) {
+    bonked.add(v);
+    a.kills++;
+    // `close` marks a seed stopped just short of home.
+    const close = v.carrying && v.x - g.homeX < ALARM_RANGE;
+    g.events.push({ type: 'bonk', by: a.id, id: v.id, x: v.x, y: v.y, seed: v.carrying, close });
+  }
+  // Several down at once, or one after another in quick succession.
+  a.chain = (g.time <= a.chainUntil ? a.chain : 0) + victims.length;
+  a.chainUntil = g.time + BONK.chain;
+  if (a.chain > 1) g.events.push({ type: 'multi', by: a.id, n: a.chain });
+  // A super play: three or more in a chain, or a seed stopped at the door.
+  // One swing counts once, whichever way it earned it.
+  if (a.chain >= 3 || victims.some((v) => v.carrying && v.x - g.homeX < ALARM_RANGE)) a.supers++;
 }
 
 export function step(g, inputs) {
@@ -210,6 +232,7 @@ export function step(g, inputs) {
     g.homeX = Math.min(limit, map.home.x2 + (g.time - OVERTIME.start) * OVERTIME.speed);
   }
   const landing = [];
+  const throwing = [];
 
   for (const p of players) {
     const inp = inputs[p.id] || EMPTY_INPUT;
@@ -233,6 +256,16 @@ export function step(g, inputs) {
       p.fy = aim.y;
       p.cooldown = BONK.cooldown;
       g.events.push({ type: 'swing', id: p.id });
+    }
+
+    // Holding the button with a seed winds up a throw, and letting go throws it.
+    // The swing the press started can be cut short, but not before it lands.
+    if (inp.throw && p.carrying && !inHome(g, p)) {
+      p.charge += DT;
+    } else {
+      const ready = p.charge >= THROW.charge - 1e-9 && p.carrying && !inHome(g, p);
+      if (ready && !(p.swing && p.swing.phase === 'windup')) throwing.push(p);
+      p.charge = 0;
     }
 
     const speed = SPEED * carrySpeed(g, p);
@@ -274,6 +307,30 @@ export function step(g, inputs) {
     [landing[i], landing[j]] = [landing[j], landing[i]];
   }
   const bonked = new Set();
+  // Thrown seeds go first, in a random order when two fly on the same tick.
+  for (let i = throwing.length - 1; i > 0; i--) {
+    const j = Math.floor(g.rng() * (i + 1));
+    [throwing[i], throwing[j]] = [throwing[j], throwing[i]];
+  }
+  for (const a of throwing) {
+    if (bonked.has(a)) continue;
+    a.carrying = false;
+    a.swing = null;
+    a.cooldown = BONK.cooldown;
+    const victims = [];
+    for (const v of players) {
+      if (v === a || bonked.has(v) || inHome(g, v)) continue;
+      if (allied(a, v) && !THROW.friendlyFire) continue;
+      const dx = v.x - a.x;
+      const dy = v.y - a.y;
+      const along = dx * a.fx + dy * a.fy;
+      if (along < 0 || along > THROW.range || Math.abs(dx * a.fy - dy * a.fx) > THROW.width) continue;
+      if (!segmentClear(map, a.x, a.y, v.x, v.y, 0)) continue;
+      victims.push(v);
+    }
+    g.events.push({ type: 'throw', id: a.id, x: a.x, y: a.y, dx: a.fx, dy: a.fy, hit: victims.length });
+    strike(g, a, victims, bonked);
+  }
   for (const a of landing) {
     if (bonked.has(a)) continue;
     // A bonk lands on one hamster only: the nearest one in front.
@@ -302,20 +359,7 @@ export function step(g, inputs) {
           if (Math.hypot(v.x - c.x, v.y - c.y) < 2 * HAMSTER_R) clump.push(v);
         }
       }
-      for (const v of clump) {
-        bonked.add(v);
-        a.kills++;
-        // `close` marks a seed stopped just short of home.
-        const close = v.carrying && v.x - g.homeX < ALARM_RANGE;
-        g.events.push({ type: 'bonk', by: a.id, id: v.id, x: v.x, y: v.y, seed: v.carrying, close });
-      }
-      // Several down in one swing, or one after another in quick succession.
-      a.chain = (g.time <= a.chainUntil ? a.chain : 0) + clump.length;
-      a.chainUntil = g.time + BONK.chain;
-      if (a.chain > 1) g.events.push({ type: 'multi', by: a.id, n: a.chain });
-      // A super play: three or more in a chain, or a seed stopped at the door.
-      // One swing counts once, whichever way it earned it.
-      if (a.chain >= 3 || clump.some((v) => v.carrying && v.x - g.homeX < ALARM_RANGE)) a.supers++;
+      strike(g, a, clump, bonked);
     }
     g.events.push({ type: 'impact', id: a.id, x: a.x, y: a.y, dx: a.swing.dx, dy: a.swing.dy, hit: !!victim });
   }

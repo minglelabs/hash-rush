@@ -723,6 +723,25 @@ button.primary:active {
   touch-action: none;
 }
 
+/* Sits above the bonk button while this player carries a seed. */
+#throw {
+  display: none;
+  position: fixed;
+  right: max(22px, env(safe-area-inset-right));
+  bottom: calc(max(22px, env(safe-area-inset-bottom)) + clamp(84px, 20vmin, 128px) + 12px);
+  width: clamp(84px, 20vmin, 128px);
+  padding: 0.5em 0;
+  font-size: clamp(14px, 3.6vmin, 20px);
+  background: rgba(255, 226, 122, 0.95);
+  border: 3px solid #fff;
+  touch-action: none;
+}
+
+.bonk-left #throw {
+  right: auto;
+  left: max(22px, env(safe-area-inset-left));
+}
+
 #bonk:active {
   transform: scale(0.92);
 }
@@ -871,6 +890,10 @@ button.primary:active {
 
 @media (pointer: coarse) {
   #bonk {
+    display: block;
+  }
+
+  #throw:not([hidden]) {
     display: block;
   }
 
