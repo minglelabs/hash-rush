@@ -177,8 +177,6 @@ function renderLobby() {
     list.append(li);
   });
   $('addSlot').hidden = guest || slots.length >= MAX_SLOTS;
-  $('roomListBtn').hidden = guest;
-  if (guest) $('rooms').hidden = true;
 
   const inviting = net.role === 'host' || slots.some((s) => s.kind === 'open');
   $('invite').hidden = guest || !inviting;
@@ -283,7 +281,7 @@ function toggleRoomList() {
 }
 
 function renderRooms(rooms) {
-  const others = rooms.filter((r) => r.room !== net.room);
+  const others = rooms.filter((r) => r.room !== (net.room || joinId));
   $('roomsStatus').textContent = others.length ? '' : t('roomsEmpty');
   $('roomItems').replaceChildren(
     ...others.map((r) => {
