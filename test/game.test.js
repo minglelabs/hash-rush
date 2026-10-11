@@ -365,3 +365,21 @@ test('more hamsters nibble a seed loose faster', () => {
   assert.ok(Math.abs(gatherTime(6) - (GATHER_TIME * 2) / 3) < 1e-9);
   assert.equal(gatherTime(8), GATHER_TIME / 2);
 });
+
+test('when time runs out the most bonks win, then fewest deaths, then seeds, then a shared win', () => {
+  const end = (edit) => {
+    const g = createGame({ slots: Array.from({ length: 4 }, (_, i) => ({ name: `p${i}`, kind: 'bot' })), seed: 3 });
+    run(g, COUNTDOWN + 0.1);
+    edit(g.players);
+    g.time = OVERTIME.end;
+    step(g, g.players.map(() => ({ mx: 0, my: 0, bonk: false })));
+    assert.equal(g.phase, 'over');
+    assert.equal(g.timeout, true);
+    return g.winners;
+  };
+  assert.deepEqual(end((p) => { p[2].kills = 3; p[1].kills = 2; }), [2]);
+  assert.deepEqual(end((p) => { p[2].kills = 3; p[1].kills = 3; p[2].deaths = 1; }), [1]);
+  assert.deepEqual(end((p) => { p[0].seeds = 1; p[3].seeds = 2; }), [3]);
+  assert.deepEqual(end(() => {}), [0, 1, 2, 3]);
+  assert.deepEqual(end((p) => { p[0].kills = 1; p[3].kills = 1; }), [0, 3]);
+});

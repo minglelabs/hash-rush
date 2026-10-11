@@ -70,6 +70,8 @@ export function createGame({ slots, map = MAP, seed = 1 }) {
     rng,
     players,
     winner: null,
+    winners: [],
+    timeout: false,
     events: [],
   };
 }
@@ -147,6 +149,25 @@ function respawn(g, p) {
   sendHome(p);
   p.deaths++;
   g.events.push({ type: 'spawn', id: p.id, x: p.x, y: p.y });
+}
+
+// Nobody brought a seed home in time: the side with the most bonks takes the
+// round, then the fewest times bonked, then the most seeds picked. Sides still
+// level after that share the win. A team counts as one side.
+function timeoutWinners(players) {
+  const sides = new Map();
+  for (const p of players) {
+    const key = p.team >= 0 ? `t${p.team}` : `p${p.id}`;
+    const side = sides.get(key) || { ids: [], kills: 0, deaths: 0, seeds: 0 };
+    side.ids.push(p.id);
+    side.kills += p.kills;
+    side.deaths += p.deaths;
+    side.seeds += p.seeds;
+    sides.set(key, side);
+  }
+  const rank = (a, b) => b.kills - a.kills || a.deaths - b.deaths || b.seeds - a.seeds;
+  const sorted = [...sides.values()].sort(rank);
+  return sorted.filter((s) => rank(s, sorted[0]) === 0).flatMap((s) => s.ids);
 }
 
 export function step(g, inputs) {
@@ -285,9 +306,19 @@ export function step(g, inputs) {
     if (p.carrying && inHome(g, p)) {
       g.phase = 'over';
       g.winner = p.id;
+      g.winners = players.filter((o) => o === p || allied(o, p)).map((o) => o.id);
       g.events.push({ type: 'win', id: p.id, team: p.team });
       return g;
     }
+  }
+
+  if (g.time >= OVERTIME.end) {
+    g.phase = 'over';
+    g.timeout = true;
+    g.winners = timeoutWinners(players);
+    g.winner = g.winners[0];
+    g.events.push({ type: 'win', id: g.winner, team: players[g.winner].team, timeout: true });
+    return g;
   }
 
   // The flower feeds one hamster at a time, like a single mineral patch. Whoever

@@ -532,6 +532,8 @@ function snapshot(events) {
     hx: game.homeX,
     nb: game.nibbler,
     w: game.winner,
+    ws: game.winners,
+    to: game.timeout,
     p: game.players.map((p) => [
       r(p.x), r(p.y), r(p.vx), r(p.vy), p.fx, p.fy, p.carrying ? 1 : 0, p.gather, p.queued,
       p.swing ? [p.swing.phase, p.swing.t, p.swing.dx, p.swing.dy] : 0, p.cooldown, p.kills, p.deaths, p.seeds,
@@ -587,6 +589,8 @@ function hostData(msg) {
       homeX: MAP.home.x2,
       nibbler: -1,
       winner: null,
+      winners: [],
+      timeout: false,
       players: msg.players.map((p, id) => ({
         id, name: p.name, look: p.look, team: p.team ?? -1, nest: p.nest, x: p.nest.x, y: p.nest.y, vx: 0, vy: 0, fx: 1, fy: 0,
         carrying: false, gather: 0, queued: -1, swing: null, cooldown: 0, kills: 0, deaths: 0, seeds: 0,
@@ -601,6 +605,8 @@ function hostData(msg) {
     game.homeX = msg.hx;
     game.nibbler = msg.nb;
     game.winner = msg.w;
+    game.winners = msg.ws || [];
+    game.timeout = !!msg.to;
     msg.p.forEach((s, i) => {
       const p = game.players[i];
       [p.x, p.y, p.vx, p.vy, p.fx, p.fy] = s;
@@ -831,7 +837,7 @@ function nameTag(p) {
 }
 
 // Whether this hamster is the winner or on the winner's team.
-const won = (p) => game.winner != null && (p.id === game.winner || allied(p, game.players[game.winner]));
+const won = (p) => game.winners.includes(p.id);
 // A team game lists team-mates together.
 const lineUp = () => [...game.players].sort((a, b) => a.team - b.team);
 
@@ -876,7 +882,11 @@ function onEvent(ev) {
 function showResult() {
   if (!game) return;
   const winner = game.players[game.winner];
-  if (winner.team >= 0) {
+  const winners = game.winners.map((id) => game.players[id]);
+  if (winners.some((p) => !allied(p, winner) && p !== winner)) {
+    // Time ran out with the top sides level: they share the round.
+    $('resultTitle').textContent = t('winShared', winners.map((p) => p.name).join(', '));
+  } else if (winner.team >= 0) {
     $('resultTitle').textContent = meId >= 0 && won(game.players[meId]) ? t('winTeamMe') : t('winTeam', t('teamNames')[winner.team]);
   } else {
     $('resultTitle').textContent = game.winner === meId ? t('winMe') : t('winOther', winner.name);
@@ -895,6 +905,7 @@ function showResult() {
     row.insertCell().append(nameTag(p));
     for (const v of [p.kills, p.deaths, p.seeds, wins[p.look]]) row.insertCell().textContent = v;
   }
+  if (game.timeout) $('resultTitle').textContent = `⏰ ${$('resultTitle').textContent}`;
   $('result').hidden = false;
   syncChat();
   if (net.role !== 'guest') $('again').focus();

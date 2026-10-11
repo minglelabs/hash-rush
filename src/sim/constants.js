@@ -15,7 +15,8 @@ export const gatherTime = (players) => (GATHER_TIME * 4) / Math.max(4, players);
 export const COUNTDOWN = 3;
 
 // Stalemate breaker: after `start` seconds the burrow's edge creeps towards the flower.
-export const OVERTIME = { start: 60, speed: 5 };
+// At `end` the round is called on bonks instead.
+export const OVERTIME = { start: 60, speed: 5, end: 150 };
 
 export const BONK = {
   windup: 0.14, // standing still before the hit lands
