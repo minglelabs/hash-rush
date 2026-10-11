@@ -122,8 +122,37 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       out.mx = dx / d;
       out.my = dy / d;
     };
+    // Only a deliberate shortcut home may step into a tunnel.
+    let tunnelling = false;
     const follow = (points) => {
-      if (points && points.length) steerTo(nav.nextTarget(me, points));
+      if (!points || !points.length) return;
+      if (map.warps.includes(points[points.length - 1])) tunnelling = true;
+      steerTo(nav.nextTarget(me, points));
+    };
+    // A tunnel is part of the map like any lane: for a hamster without a seed it
+    // is a one-way hop from the flower's side to its own nest. Routes and travel
+    // distances count it whenever going in and walking on from the nest is shorter.
+    const tunnels = me.carrying ? [] : map.warps;
+    const travel = (to) => {
+      let best = nav.distance(me, to);
+      for (const w of tunnels) {
+        // As the crow flies is the least it could be: most targets are ruled out here.
+        if (dist(me, w) + dist(me.nest, to) >= best) continue;
+        best = Math.min(best, nav.distance(me, w) + nav.distance(me.nest, to));
+      }
+      return best;
+    };
+    const route = (to, extra) => {
+      let best = nav.findPath(me, to, extra);
+      for (const w of tunnels) {
+        // The least the tunnel way can cost; skip the search unless it could win.
+        if (dist(me, w) + dist(me.nest, to) >= best.cost) continue;
+        if (nav.distance(me, w) + nav.distance(me.nest, to) >= best.cost) continue;
+        const leg = nav.findPath(me, w, extra);
+        const after = nav.findPath(me.nest, to, extra);
+        if (leg.cost + after.cost < best.cost) best = { points: leg.points, cost: leg.cost + after.cost };
+      }
+      return best;
     };
     // Enemies loitering near a leg of the route, e.g. at a lane mouth.
     const danger = (p, q) => {
@@ -157,7 +186,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
         for (let s = i === 1 ? 40 : 0; s <= seg; s += 50) {
           const P = { x: a.x + ((b.x - a.x) * s) / seg, y: a.y + ((b.y - a.y) * s) / seg };
           if (P.x < g.homeX + 20) break;
-          if (nav.distance(me, P) / SPEED <= (walked + s) / (SPEED * CARRY_SPEED)) return P;
+          if (travel(P) / SPEED <= (walked + s) / (SPEED * CARRY_SPEED)) return P;
         }
         walked += seg;
       }
@@ -228,7 +257,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       if (target) {
         mem.mode = 'deny';
         mem.targetId = target.c.id;
-        mem.path = target.at === target.c ? null : nav.findPath(me, target.at).points;
+        mem.path = target.at === target.c ? null : route(target.at).points;
         return;
       }
 
@@ -294,7 +323,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
           else if (d < 70) crowd += 400;
         }
         if (crowd === Infinity) continue;
-        const r = nav.findPath(me, spot, blocked);
+        const r = route(spot, blocked);
         if (!best || r.cost + crowd < best.cost) best = { points: r.points, cost: r.cost + crowd };
       }
       mem.path = best ? best.points : [f];
@@ -315,7 +344,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
         };
       }
       if (!nav.clear(me, e)) {
-        follow(nav.findPath(me, e).points);
+        follow(route(e).points);
         return;
       }
       const dx = e.x - me.x;
@@ -346,8 +375,6 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
     }
 
     const target = mem.targetId >= 0 ? seen.find((e) => e.id === mem.targetId) : null;
-    // Only a deliberate shortcut home may step into a tunnel.
-    let tunnelling = false;
     if (mem.mode === 'home') {
       follow(mem.path);
       // Someone standing in the way: fight through rather than walk into a bonk.
@@ -365,7 +392,6 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       if (dist(me, target) < 230 && nav.clear(me, target)) engage(target);
       else if (mem.path) {
         follow(mem.path);
-        tunnelling = map.warps.includes(mem.path[mem.path.length - 1]);
       } else engage(target);
     } else if (mem.mode === 'hunt' && target) {
       engage(target);
