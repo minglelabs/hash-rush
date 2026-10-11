@@ -72,13 +72,37 @@ export function createAudio() {
       noise({ dur: 0.06, vol: 0.14, cutoff: 400 });
     },
     spawn: () => tone({ f: 300, to: 640, dur: 0.1, vol: 0.05 }),
+    // A bright run up the scale: somebody got a seed.
     seed: () => {
-      tone({ f: 880, dur: 0.09 });
-      tone({ f: 1320, dur: 0.16, at: 0.09 });
+      [784, 1047, 1319, 1568].forEach((f, i) => tone({ f, dur: 0.14, type: 'triangle', vol: 0.09, at: i * 0.065 }));
+      tone({ f: 2093, dur: 0.4, vol: 0.06, at: 0.26 });
     },
-    count: () => tone({ f: 520, dur: 0.1, type: 'triangle' }),
-    go: () => tone({ f: 1040, dur: 0.3, type: 'triangle' }),
-    overtime: () => [660, 880, 660, 880].forEach((f, i) => tone({ f, dur: 0.12, type: 'triangle', at: i * 0.13 })),
+    // A two-note siren, kept quiet: a seed is almost home.
+    siren: () => {
+      for (let i = 0; i < 3; i++) {
+        tone({ f: 740, to: 760, dur: 0.17, type: 'square', vol: 0.035, at: i * 0.36 });
+        tone({ f: 560, to: 550, dur: 0.17, type: 'square', vol: 0.035, at: i * 0.36 + 0.18 });
+      }
+    },
+    // A clock's tick and tock, through overtime.
+    tick: (tock) => tone({ f: tock ? 1500 : 2100, dur: 0.035, type: 'square', vol: 0.03 }),
+    // The start lights of a kart race: three flat beeps, then a long high ding.
+    count: () => tone({ f: 440, dur: 0.22, type: 'square', vol: 0.06 }),
+    go: () => {
+      tone({ f: 880, dur: 0.9, type: 'square', vol: 0.05 });
+      tone({ f: 880, dur: 1.1, vol: 0.1 });
+      tone({ f: 1760, dur: 0.6, vol: 0.04 });
+    },
+    // The ringside bell, three strikes: overtime.
+    overtime: () => {
+      for (let i = 0; i < 3; i++) {
+        const at = i * 0.3;
+        tone({ f: 1250, dur: 0.9, vol: 0.1, at });
+        tone({ f: 1250 * 2.76, dur: 0.5, vol: 0.04, at });
+        tone({ f: 1250 * 5.4, dur: 0.25, vol: 0.02, at });
+        tone({ f: 1262, dur: 0.9, vol: 0.05, at });
+      }
+    },
     win: () => [523, 659, 784, 1047].forEach((f, i) => tone({ f, dur: 0.2, type: 'triangle', at: i * 0.12 })),
     lose: () => [440, 370, 311, 262].forEach((f, i) => tone({ f, dur: 0.22, type: 'triangle', vol: 0.09, at: i * 0.15 })),
   };

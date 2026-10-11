@@ -109,6 +109,7 @@ let acc = 0;
 let resultTimer = 0;
 let bannerTimer = 0;
 let scoreKey = '';
+let tickBeat = -1;
 let bonkSeq = 0;
 let bonkWas = false;
 
@@ -1065,7 +1066,7 @@ function watchCarrier() {
   if (key && key !== alarmKey) {
     const mate = meId >= 0 && allied(game.players[meId], p);
     banner(p.id === meId ? t('alarmMe') : t(mate ? 'alarmMate' : 'alarmOther', p.name), true);
-    audio.play.overtime();
+    audio.play.siren();
   }
   // Stepping back out and in again does not repeat it; a new seed does.
   if (key || !game.players.some((c) => c.carrying)) alarmKey = key || '';
@@ -1101,6 +1102,12 @@ function updateHud() {
   }
   const s = Math.floor(game.time);
   const overtime = game.time > OVERTIME.start;
+  // The clock is heard ticking all through overtime, twice a second.
+  const beat = overtime && game.phase === 'playing' ? Math.floor(game.time * 2) : -1;
+  if (beat !== tickBeat) {
+    tickBeat = beat;
+    if (beat >= 0) audio.play.tick(beat % 2);
+  }
   $('clock').textContent = `${overtime ? `${t('overtimeClock')} ` : ''}${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
   $('clock').classList.toggle('overtime', overtime);
 }
