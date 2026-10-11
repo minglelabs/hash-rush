@@ -174,7 +174,7 @@ function renderLobby() {
     $('watchText').textContent = `${t('watchLink')} · ${t('spectators', net.watchers.length)}`;
   }
   // Chat exists only inside a room.
-  for (const id of ['lobbyChat', 'gameChat', 'chatBtn']) $(id).hidden = !net.role;
+  syncChat();
   $('netStatus').hidden = !guest;
   $('netStatus').textContent = net.status || (guest && net.lobby && net.you < 0 ? t('spectating') : '');
   updateStart();
@@ -448,8 +448,28 @@ function hostData(msg) {
 
 const cleanChat = (raw) => String(raw || '').replace(/\s+/g, ' ').trim().slice(0, 80);
 
+// One conversation runs through the whole room: the lobby box and the box on the
+// result screen show the same history, and a round shows new lines as an overlay.
+const CHAT_BOXES = ['lobbyChat', 'resultChat'];
+let chatOpen = false;
+let unread = 0;
+
+// The chat boxes start closed; a button on each screen opens them.
+function syncChat() {
+  for (const id of ['gameChat', 'chatBtn']) $(id).hidden = !net.role;
+  for (const id of CHAT_BOXES) {
+    $(id).hidden = !net.role || !chatOpen;
+    $(`${id}Btn`).hidden = !net.role;
+    $(`${id}Btn`).textContent = t('chatLabel') + (unread ? ` (${unread})` : '');
+  }
+}
+
 function addChat({ name, look, text }) {
-  for (const id of ['lobbyChat', 'gameChat']) {
+  // Count what arrives while the box is closed, so the button can show it.
+  const overlay = !$('stage').hidden && $('result').hidden;
+  if (!chatOpen && !overlay) unread++;
+  syncChat();
+  for (const id of [...CHAT_BOXES, 'gameChat']) {
     const log = $(id).querySelector('.chatLog');
     const line = document.createElement('div');
     const who = document.createElement('b');
@@ -488,7 +508,7 @@ function toggleGameChat(open) {
   else form.querySelector('input').blur();
 }
 
-for (const id of ['lobbyChat', 'gameChat']) {
+for (const id of [...CHAT_BOXES, 'gameChat']) {
   const form = $(id).querySelector('.chatForm');
   const field = form.querySelector('input');
   field.placeholder = t('chatPlaceholder');
@@ -523,6 +543,15 @@ for (const box of document.querySelectorAll('.quick')) {
     box.append(type);
   }
 }
+for (const id of CHAT_BOXES) {
+  $(`${id}Btn`).addEventListener('click', () => {
+    chatOpen = !chatOpen;
+    unread = 0;
+    syncChat();
+    const log = $(id).querySelector('.chatLog');
+    log.scrollTop = log.scrollHeight;
+  });
+}
 $('chatBtn').addEventListener('click', () => {
   toggleGameChat(false);
   $('quick').hidden = !$('quick').hidden;
@@ -532,6 +561,14 @@ window.addEventListener('keydown', (e) => {
   if (e.code !== 'Enter' || !net.role || $('stage').hidden) return;
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLButtonElement) return;
   e.preventDefault();
+  // On the result screen Enter goes to that screen's chat box instead.
+  if (!$('result').hidden) {
+    chatOpen = true;
+    unread = 0;
+    syncChat();
+    $('resultChat').querySelector('input').focus();
+    return;
+  }
   toggleGameChat(true);
 });
 
@@ -668,6 +705,7 @@ function showResult() {
     for (const v of [p.kills, p.deaths, p.seeds, wins[p.look]]) row.insertCell().textContent = v;
   }
   $('result').hidden = false;
+  syncChat();
   if (net.role !== 'guest') $('again').focus();
 }
 
