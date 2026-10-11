@@ -6,7 +6,7 @@ export const DT = 1 / TICK_RATE;
 export const HAMSTER_R = 15;
 export const SPEED = 185;
 // A hamster with a seed in its cheeks is a touch slower, so chasers stay relevant.
-export const CARRY_SPEED = 0.93;
+export const CARRY_SPEED = 0.9;
 
 export const GATHER_TIME = 2.2;
 // The more hamsters crowd the flower, the quicker a seed comes loose: four is
