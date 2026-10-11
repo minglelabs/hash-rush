@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { TRACKS, barsOf, trackSeconds, noteNumber } from '../src/client/music.js';
+import { TRACKS, PLAYLISTS, barsOf, trackSeconds, noteNumber, createMusic } from '../src/client/music.js';
 
 test('every bar of every tune is eight valid eighth notes over one or two chords', () => {
   for (const [name, track] of Object.entries(TRACKS)) {
@@ -13,8 +13,38 @@ test('every bar of every tune is eight valid eighth notes over one or two chords
   }
 });
 
-test('the round tune runs for about four minutes before it repeats', () => {
-  assert.ok(Math.abs(trackSeconds(TRACKS.game) - 240) < 15, `${trackSeconds(TRACKS.game)}s`);
+test('a round has six tunes of about two minutes each', () => {
+  assert.equal(PLAYLISTS.game.length, 6);
+  for (const name of PLAYLISTS.game) assert.ok(Math.abs(trackSeconds(TRACKS[name]) - 120) < 12, `${name}: ${trackSeconds(TRACKS[name])}s`);
+  for (const list of Object.values(PLAYLISTS)) for (const name of list) assert.ok(TRACKS[name], name);
   assert.equal(noteNumber('A4'), 69);
   assert.equal(noteNumber('Bb5'), 82);
+});
+
+test('the round playlist plays on from one tune to a different one', () => {
+  // A stand-in audio context: only the clock matters here.
+  const param = () => ({ value: 0, setValueAtTime() {}, linearRampToValueAtTime() {}, exponentialRampToValueAtTime() {}, setTargetAtTime() {} });
+  const node = () => ({ frequency: param(), gain: param(), Q: param(), connect: (to) => to, disconnect() {}, start() {}, stop() {}, getChannelData: () => new Float32Array(8) });
+  const ctx = { state: 'running', currentTime: 0, sampleRate: 16, destination: node(), createOscillator: node, createGain: node, createBiquadFilter: node, createBufferSource: node, createBuffer: node };
+  const real = { document: globalThis.document, setInterval: globalThis.setInterval };
+  globalThis.document = { hidden: false };
+  let tick = null;
+  globalThis.setInterval = (fn) => ((tick = fn), 1);
+  try {
+    const music = createMusic(() => ctx);
+    music.set('game');
+    const heard = [music.now()];
+    // Ten minutes of play, a second at a time.
+    for (let s = 0; s < 600; s++) {
+      ctx.currentTime += 1;
+      tick();
+      if (music.now() !== heard.at(-1)) heard.push(music.now());
+    }
+    assert.ok(heard.length >= 4, heard.join());
+    for (let i = 1; i < heard.length; i++) assert.notEqual(heard[i], heard[i - 1]);
+    for (const name of heard) assert.ok(PLAYLISTS.game.includes(name), name);
+  } finally {
+    globalThis.document = real.document;
+    globalThis.setInterval = real.setInterval;
+  }
 });
