@@ -199,6 +199,24 @@ button.primary:active {
   opacity: 0.5;
 }
 
+/* Nobody sits here: a dashed outline with no face and no colour. */
+#slots li.vacant {
+  background: transparent;
+  border: 2px dashed var(--line);
+  padding-left: 12px;
+}
+
+#slots li.vacant > span {
+  height: 46px;
+}
+
+#slots li.vacant input,
+#slots li.vacant select {
+  background: transparent;
+  border-style: dashed;
+  color: #a07a45;
+}
+
 #slots canvas {
   width: 52px;
   height: 46px;
