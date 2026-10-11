@@ -167,6 +167,8 @@ function renderLobby() {
     $('watchLink').value = `${link}&watch`;
     $('watchText').textContent = `${t('watchLink')} · ${t('spectators', net.watchers.length)}`;
   }
+  // Chat exists only inside a room.
+  for (const id of ['lobbyChat', 'gameChat', 'chatBtn']) $(id).hidden = !net.role;
   $('netStatus').hidden = !guest;
   $('netStatus').textContent = net.status || (guest && net.lobby && net.you < 0 ? t('spectating') : '');
   updateStart();
@@ -263,6 +265,16 @@ function guestData(conn, msg) {
     return;
   }
   const slot = slots.find((s) => s.conn === conn);
+  if (msg.t === 'chat') {
+    // Players and spectators can both talk; the host stamps the name on.
+    if (!slot && !net.watchers.includes(conn)) return;
+    const now = Date.now();
+    if (now - (conn.lastChat || 0) < 400) return;
+    conn.lastChat = now;
+    const text = cleanChat(msg.text);
+    if (text) relayChat({ name: slot ? slot.name : t('spectatorName'), look: slot ? slots.indexOf(slot) : -1, text });
+    return;
+  }
   if (!slot) return;
   if (msg.t === 'name') {
     slot.name = guestName(slot, msg.name);
@@ -401,8 +413,76 @@ function hostData(msg) {
   } else if (msg.t === 'lobbyscreen') {
     toLobby();
     renderLobby();
+  } else if (msg.t === 'chat') {
+    addChat(msg);
   }
 }
+
+// ---------- chat ----------
+
+const cleanChat = (raw) => String(raw || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+
+function addChat({ name, look, text }) {
+  for (const id of ['lobbyChat', 'gameChat']) {
+    const log = $(id).querySelector('.chatLog');
+    const line = document.createElement('div');
+    const who = document.createElement('b');
+    who.textContent = String(name);
+    who.style.color = LOOKS[look] ? LOOKS[look].color : '#6b7280';
+    line.append(who, ` ${cleanChat(text)}`);
+    log.append(line);
+    // In the lobby the log is a scrolling history; in a round lines fade away.
+    if (id === 'gameChat') line.addEventListener('animationend', () => line.remove());
+    while (log.children.length > 30) log.firstChild.remove();
+    log.scrollTop = log.scrollHeight;
+  }
+}
+
+// The host shows a message and passes it on to everyone in the room.
+function relayChat(msg) {
+  broadcast(() => ({ t: 'chat', ...msg }));
+  addChat(msg);
+}
+
+function sendChat(raw) {
+  const text = cleanChat(raw);
+  if (!text) return;
+  if (net.role === 'guest') {
+    if (net.host) net.host.send({ t: 'chat', text });
+  } else if (net.role === 'host') {
+    relayChat({ name: slots[0].name, look: 0, text });
+  }
+}
+
+function toggleGameChat(open) {
+  const form = $('gameChat').querySelector('.chatForm');
+  form.hidden = !open;
+  if (open) form.querySelector('input').focus();
+  else form.querySelector('input').blur();
+}
+
+for (const id of ['lobbyChat', 'gameChat']) {
+  const form = $(id).querySelector('.chatForm');
+  const field = form.querySelector('input');
+  field.placeholder = t('chatPlaceholder');
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    sendChat(field.value);
+    field.value = '';
+    if (id === 'gameChat') toggleGameChat(false);
+  });
+  field.addEventListener('keydown', (e) => {
+    if (e.code === 'Escape' && id === 'gameChat') toggleGameChat(false);
+  });
+}
+$('chatBtn').addEventListener('click', () => toggleGameChat($('gameChat').querySelector('.chatForm').hidden));
+// Enter opens the chat box during a round, the way it does in most games.
+window.addEventListener('keydown', (e) => {
+  if (e.code !== 'Enter' || !net.role || $('stage').hidden) return;
+  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLButtonElement) return;
+  e.preventDefault();
+  toggleGameChat(true);
+});
 
 // ---------- game ----------
 
@@ -441,6 +521,8 @@ function enterStage() {
   clearTimeout(resultTimer);
   $('result').hidden = true;
   $('feed').textContent = '';
+  // Lobby talk stays in the lobby log; a round starts with a clean overlay.
+  $('gameChat').querySelector('.chatLog').textContent = '';
   $('banner').classList.remove('show');
   $('again').hidden = net.role === 'guest';
   $('resultWait').hidden = net.role !== 'guest';
