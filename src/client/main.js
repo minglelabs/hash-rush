@@ -182,12 +182,16 @@ function renderLobby() {
     if (keep) return;
     const li = document.createElement('li');
     li.dataset.shape = shape(slot, i);
+    // A seat with nobody in it has no face, no colour and no team, so it cannot be
+    // mistaken for a player.
+    const vacant = slot.kind === 'open' || slot.kind === 'closed';
     li.style.setProperty('--c', teams && TEAMS[slot.team] ? TEAMS[slot.team].color : LOOKS[i].color);
     li.classList.toggle('teamed', teams);
     li.classList.toggle('closed', slot.kind === 'closed');
+    li.classList.toggle('vacant', vacant);
 
-    const avatar = document.createElement('canvas');
-    drawAvatar(avatar, LOOKS[i]);
+    const avatar = document.createElement(vacant ? 'span' : 'canvas');
+    if (!vacant) drawAvatar(avatar, LOOKS[i]);
 
     const mine = guest ? i === net.you : slot.kind !== 'remote';
     const name = document.createElement('input');
@@ -238,14 +242,14 @@ function renderLobby() {
       // The host arranges the teams; a guest can also switch its own.
       const team = document.createElement('select');
       team.setAttribute('aria-label', t('slotTeam', i + 1));
-      t('teamNames').forEach((label, k) => {
+      (vacant ? ['–'] : t('teamNames')).forEach((label, k) => {
         const opt = document.createElement('option');
         opt.value = k;
         opt.textContent = label;
         team.append(opt);
       });
-      team.value = slot.team;
-      team.disabled = guest ? i !== net.you : slot.kind === 'closed';
+      if (!vacant) team.value = slot.team;
+      team.disabled = vacant || (guest && i !== net.you);
       team.addEventListener('change', () => {
         slot.team = Number(team.value);
         if (guest) {
@@ -468,6 +472,14 @@ async function openRoom() {
 // they want a slot or only to watch.
 function guestJoined() {}
 
+// The team with the fewest players, out of those in use (red and blue at least).
+function smallerTeam() {
+  const size = TEAMS.map((_, k) => slots.filter((s) => isPlaying(s) && s.team === k).length);
+  let best = 0;
+  for (let k = 1; k < TEAMS.length; k++) if ((k < 2 || size[k] > 0) && size[k] < size[best]) best = k;
+  return best;
+}
+
 function welcome(conn, msg) {
   if (roomPw && cleanPw(msg.pw) !== roomPw) {
     // A few tries, then the connection is dropped so the password cannot be guessed at speed.
@@ -478,6 +490,8 @@ function welcome(conn, msg) {
   }
   const slot = msg.watch ? null : slots.find((s) => s.kind === 'open');
   if (slot) {
+    // An empty seat has no team of its own: the newcomer goes to the smaller side.
+    if (teamMode) slot.team = smallerTeam();
     slot.kind = 'remote';
     slot.conn = conn;
     slot.input = IDLE;
