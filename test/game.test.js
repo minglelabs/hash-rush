@@ -500,6 +500,7 @@ test('a bot sometimes fetches a second seed while a team-mate carries one, and s
   }
   assert.ok(both > 0, 'no team ever carried two seeds at once');
   assert.ok(escorted > 0, 'every game had a team carrying two seeds');
+});
 
 test('bonks in quick succession chain into a double and a triple, and a pause or a knock-out ends the chain', () => {
   const g = started(4);
