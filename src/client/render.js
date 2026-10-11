@@ -2,6 +2,7 @@
 
 import { WORLD, gatesAt } from '../sim/map.js';
 import { HAZARD } from '../sim/hazards.js';
+import { DECO, SCENERY } from './deco.js';
 import { BONK, gatherTime, ALARM_RANGE, THROW } from '../sim/constants.js';
 import { lastStretch } from '../sim/game.js';
 import { mulberry32 } from '../sim/rng.js';
@@ -175,7 +176,17 @@ export function drawFlower(ctx, f, t) {
   ctx.restore();
 }
 
-function buildGround(w, h, base, map) {
+// Seeded shuffle, so a map's scenery is the same every time and for everyone.
+function shuffled(list, rnd) {
+  const out = [...list];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+function buildGround(w, h, base, map, up) {
   const c = document.createElement('canvas');
   c.width = w;
   c.height = h;
@@ -211,6 +222,20 @@ function buildGround(w, h, base, map) {
     ctx.stroke();
   }
 
+  // Flat scenery on the open ground: the field by the flower and the gap in front
+  // of the burrow. It keeps clear of the flower's ring and the tunnels.
+  const kinds = SCENERY[map.id].ground;
+  const spots = [];
+  for (let i = 0; i < 400 && spots.length < 20; i++) {
+    const strip = rnd() < 0.2;
+    const x = strip ? map.home.x2 + 12 + rnd() * (map.lanes.x1 - map.home.x2 - 24) : map.lanes.x2 + 18 + rnd() * (b.x2 - map.lanes.x2 - 38);
+    const y = b.y1 + 20 + rnd() * (b.y2 - b.y1 - 40);
+    if (Math.hypot(x - f.x, y - f.y) < 128 || map.warps.some((wp) => Math.hypot(x - wp.x, y - wp.y) < wp.r + 26)) continue;
+    if (spots.some((s) => Math.hypot(x - s.x, y - s.y) < 42)) continue;
+    spots.push({ x, y });
+  }
+  spots.forEach((s, i) => up(ctx, s.x, s.y, () => DECO[kinds[i % kinds.length]](ctx)));
+
   // Ice: a pale blue sheet with a few glints, so the slippery part is plain to see.
   for (const r of map.ice) {
     ctx.fillStyle = 'rgba(150, 215, 255, 0.85)';
@@ -235,7 +260,7 @@ function buildGround(w, h, base, map) {
   return c;
 }
 
-function buildObstacles(w, h, base, map) {
+function buildObstacles(w, h, base, map, up) {
   const c = document.createElement('canvas');
   c.width = w;
   c.height = h;
@@ -269,7 +294,8 @@ function buildObstacles(w, h, base, map) {
     ctx.fillStyle = th.dots[rnd() < 0.5 ? 0 : 1];
     circle(ctx, x1 + rnd() * bw, y1 + rnd() * bh, 9 + rnd() * 9);
   }
-  for (let i = 0; i < (bw * bh) / 4200; i++) {
+  // Only the meadow's hedges are in bloom.
+  for (let i = 0; i < (map.id === 'meadow' ? (bw * bh) / 4200 : 0); i++) {
     const x = x1 + rnd() * bw;
     const y = y1 + rnd() * bh;
     ctx.fillStyle = th.accents[rnd() < 0.5 ? 0 : 1];
@@ -278,6 +304,16 @@ function buildObstacles(w, h, base, map) {
     circle(ctx, x, y, 1.6);
   }
   ctx.restore();
+
+  // Scenery standing on the walls, one piece to a wall cell at most.
+  const scene = SCENERY[map.id];
+  const deck = mulberry32(23);
+  const picked = shuffled(map.walls, deck).slice(0, Math.round(map.walls.length * scene.share));
+  // Drawn back to front, so a tall piece overlaps the one behind it.
+  picked
+    .map((cell, i) => ({ x: cell.x + (deck() - 0.5) * 8, y: cell.y + (deck() - 0.5) * 8, kind: scene.walls[i % scene.walls.length] }))
+    .sort((a, b2) => a.y - b2.y)
+    .forEach((d) => up(ctx, d.x, d.y, () => DECO[d.kind](ctx)));
 
   return c;
 }
@@ -332,8 +368,16 @@ export function createRenderer(canvas, firstMap) {
     canvas.width = w;
     canvas.height = h;
     scale = w / vw;
-    ground = buildGround(w, h, base, map);
-    obstacles = buildObstacles(w, h, base, map);
+    // Scenery is drawn the right way up even when the world is shown turned.
+    const up = (c, x, y, fn) => {
+      c.save();
+      c.translate(x, y);
+      if (portrait) c.transform(0, 1, -1, 0, 0, 0);
+      fn();
+      c.restore();
+    };
+    ground = buildGround(w, h, base, map, up);
+    obstacles = buildObstacles(w, h, base, map, up);
   }
 
   function toWorld(clientX, clientY) {
