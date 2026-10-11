@@ -751,3 +751,68 @@ button.primary:active {
     font-size: 13px;
   }
 }
+
+/* Quick chat: one tap sends a ready-made line. */
+.quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.quick button {
+  font-size: 13px;
+  padding: 0.3em 0.8em;
+  background: var(--cream);
+}
+
+#quick {
+  margin: 0.5em 0 0;
+  padding: 8px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.92);
+  pointer-events: auto;
+}
+
+#quick button {
+  font-size: 14px;
+  padding: 0.45em 0.9em;
+}
+
+@media (pointer: coarse) {
+  /* iOS zooms the page when a focused field's text is under 16px. */
+  input,
+  select {
+    font-size: 16px !important;
+  }
+
+  /* Typing mid-round happens at the top of the screen, where the keyboard can
+     neither cover the box nor push the map around. */
+  #gameChat .chatForm {
+    position: fixed;
+    top: max(8px, env(safe-area-inset-top));
+    left: 8px;
+    right: 8px;
+    margin: 0;
+    padding: 6px;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.95);
+    z-index: 5;
+  }
+}
+
+@media (orientation: portrait) {
+  /* The phrases open in the strip under the map, above the buttons. */
+  #quick {
+    position: fixed;
+    left: 10px;
+    right: 10px;
+    bottom: 124px;
+    margin: 0;
+    z-index: 5;
+  }
+
+  #quick button {
+    flex: 1 1 22%;
+  }
+}

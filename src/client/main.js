@@ -483,6 +483,7 @@ function sendChat(raw) {
 function toggleGameChat(open) {
   const form = $('gameChat').querySelector('.chatForm');
   form.hidden = !open;
+  if (open) $('quick').hidden = true;
   if (open) form.querySelector('input').focus();
   else form.querySelector('input').blur();
 }
@@ -501,7 +502,31 @@ for (const id of ['lobbyChat', 'gameChat']) {
     if (e.code === 'Escape' && id === 'gameChat') toggleGameChat(false);
   });
 }
-$('chatBtn').addEventListener('click', () => toggleGameChat($('gameChat').querySelector('.chatForm').hidden));
+// Ready-made lines that send with one tap, so a phone never has to bring up its
+// keyboard mid-round. The last button opens the text box for anything else.
+for (const box of document.querySelectorAll('.quick')) {
+  for (const line of t('quickChat')) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = line;
+    b.addEventListener('click', () => {
+      sendChat(line);
+      if (box.id === 'quick') box.hidden = true;
+    });
+    box.append(b);
+  }
+  if (box.id === 'quick') {
+    const type = document.createElement('button');
+    type.type = 'button';
+    type.textContent = '⌨️';
+    type.addEventListener('click', () => toggleGameChat(true));
+    box.append(type);
+  }
+}
+$('chatBtn').addEventListener('click', () => {
+  toggleGameChat(false);
+  $('quick').hidden = !$('quick').hidden;
+});
 // Enter opens the chat box during a round, the way it does in most games.
 window.addEventListener('keydown', (e) => {
   if (e.code !== 'Enter' || !net.role || $('stage').hidden) return;
@@ -549,6 +574,7 @@ function enterStage() {
   $('feed').textContent = '';
   // Lobby talk stays in the lobby log; a round starts with a clean overlay.
   $('gameChat').querySelector('.chatLog').textContent = '';
+  $('quick').hidden = true;
   $('banner').classList.remove('show');
   $('again').hidden = net.role === 'guest';
   $('resultWait').hidden = net.role !== 'guest';
