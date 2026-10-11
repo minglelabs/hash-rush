@@ -1,8 +1,8 @@
 // Computer-controlled hamster. A bot only reads the public game state and returns
 // the same input object a human does, so any slot can be swapped between the two.
 
-import { DT, SPEED, CARRY_SPEED, HAMSTER_R, BONK } from '../sim/constants.js';
-import { distToSegment, isFree } from '../sim/map.js';
+import { DT, SPEED, CARRY_SPEED, HAMSTER_R, BONK, THROW } from '../sim/constants.js';
+import { distToSegment, isFree, segmentClear } from '../sim/map.js';
 import { inHome, allied } from '../sim/game.js';
 import { mulberry32 } from '../sim/rng.js';
 import { getNav, blockCost } from './nav.js';
@@ -17,9 +17,11 @@ export const DIFFICULTY = {
   // hunt: chance to clear a rival away from the flower instead of waiting in line
   // opportunism: swings per second at bystanders who happen to be in reach
   // caution: how strongly a seed carrier avoids enemies waiting near its route
-  easy: { reaction: 0.3, lead: 0.2, margin: 1, jitter: 4, bait: 0.1, hold: 0.2, deny: 0.5, hunt: 0.5, opportunism: 0.5, caution: 0.5 },
-  normal: { reaction: 0.2, lead: 0.5, margin: 2.5, jitter: 2.5, bait: 0.35, hold: 0.7, deny: 0.8, hunt: 0.85, opportunism: 1, caution: 1 },
-  hard: { reaction: 0.12, lead: 0.9, margin: 3, jitter: 1, bait: 0.55, hold: 1, deny: 1, hunt: 1, opportunism: 1.5, caution: 1.2 },
+  // toss: chance to throw the seed at a single rival standing in the way home
+  // volley: chance to throw it when it would take down two, or a rival's seed
+  easy: { reaction: 0.3, lead: 0.2, margin: 1, jitter: 4, bait: 0.1, hold: 0.2, deny: 0.5, hunt: 0.5, opportunism: 0.5, caution: 0.5, toss: 0.1, volley: 0.4 },
+  normal: { reaction: 0.2, lead: 0.5, margin: 2.5, jitter: 2.5, bait: 0.35, hold: 0.7, deny: 0.8, hunt: 0.85, opportunism: 1, caution: 1, toss: 0.3, volley: 0.8 },
+  hard: { reaction: 0.12, lead: 0.9, margin: 3, jitter: 1, bait: 0.55, hold: 1, deny: 1, hunt: 1, opportunism: 1.5, caution: 1.2, toss: 0.5, volley: 1 },
 };
 
 const TOUCH = 2 * HAMSTER_R;
@@ -89,6 +91,8 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
     noise: 0,
     noiseAt: 0,
     bonkDown: false,
+    toss: false,
+    tossRoll: { id: -1, until: 0, yes: false },
     stuck: { x: 0, y: 0, at: 0 },
     nudge: { until: 0, x: 0, y: 0 },
   };
@@ -445,6 +449,56 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       }
     }
 
+    // Seed throw. A carrier can give its seed up to knock down whoever is lined up
+    // ahead: well worth it for two at once or a rival's seed, a gamble against one
+    // hamster blocking the way. It winds up on the walk and lets go once it would hit.
+    if (me.carrying && !meHome) {
+      const wl = Math.hypot(wantX, wantY);
+      const hx = wl > 0.3 ? wantX / wl : me.fx;
+      const hy = wl > 0.3 ? wantY / wl : me.fy;
+      // Rivals a seed thrown along (ax, ay) would reach, nearest first.
+      const inLine = (ax, ay, reach, width) =>
+        seen
+          .filter((e) => {
+            const dx = e.x - me.x;
+            const dy = e.y - me.y;
+            const along = dx * ax + dy * ay;
+            if (e.home || along <= 0 || along > reach || Math.abs(dx * ay - dy * ax) > width) return false;
+            return segmentClear(map, me.x, me.y, e.x, e.y, 0);
+          })
+          .sort((a, b) => dist(me, a) - dist(me, b));
+      const ahead = inLine(hx, hy, THROW.range + 30, THROW.width + 6);
+      if (!mem.toss && ahead.length) {
+        if (mem.tossRoll.id !== ahead[0].id || now > mem.tossRoll.until) {
+          const sure = ahead.length > 1 || ahead[0].carrying;
+          mem.tossRoll = { id: ahead[0].id, until: now + 3, yes: rng() < (sure ? cfg.volley : cfg.toss) };
+        }
+        mem.toss = mem.tossRoll.yes ? { id: ahead[0].id } : false;
+      }
+      if (mem.toss) {
+        out.throw = true;
+        const face = (e, k) => {
+          const d = dist(me, e) || 1;
+          out.mx = ((e.x - me.x) / d) * k;
+          out.my = ((e.y - me.y) / d) * k;
+        };
+        // Keep the one it wound up for in its sights, whatever the route home says,
+        // and stand off rather than walk into its reach.
+        const mark = seen.find((e) => e.id === mem.toss.id);
+        if (mark && !mark.home && dist(me, mark) < THROW.range + 30 && segmentClear(map, me.x, me.y, mark.x, mark.y, 0)) {
+          face(mark, dist(me, mark) < 90 ? 0.08 : 1);
+        }
+        const hit = inLine(me.fx, me.fy, THROW.range - 8, THROW.width - 5);
+        if (me.charge >= THROW.charge && hit.length) {
+          out.throw = false;
+          mem.toss = false;
+          face(hit[0], 0.08);
+        }
+      }
+    } else {
+      mem.toss = false;
+    }
+
     // Swing decision.
     let want = null;
     if (!me.swing && me.cooldown <= 0 && !meHome) {
@@ -475,6 +529,9 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       out.ax = want.ax;
       out.ay = want.ay;
       mem.bonkDown = true;
+      // A swing and a throw do not mix: the bonk goes first and the wind-up is dropped.
+      out.throw = false;
+      mem.toss = false;
     } else {
       mem.bonkDown = false;
     }

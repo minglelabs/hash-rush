@@ -600,3 +600,24 @@ test('a throw does not reach into the burrow', () => {
   assert.equal(a.carrying, false);
   assert.equal(b.deaths, 0, 'safe inside the burrow');
 });
+
+test('a hard bot carrying a seed throws it at two rivals lined up in its way', () => {
+  const g = started(3);
+  const [bot, a, b] = g.players;
+  const brain = createBot({ difficulty: 'hard', seed: 5 });
+  // In the top lane on the way home, with both rivals further down the same lane.
+  const y = MAP.rowYs[1];
+  place(bot, 320, y);
+  bot.carrying = true;
+  place(a, 245, y);
+  place(b, 210, y);
+  const thrown = [];
+  for (let i = 0; i < 3 * TICK_RATE && !thrown.length; i++) {
+    step(g, [brain.think(g, 0), IDLE, IDLE]);
+    thrown.push(...g.events.filter((ev) => ev.type === 'throw'));
+  }
+  assert.equal(thrown.length, 1);
+  assert.equal(thrown[0].hit, 2);
+  assert.equal(a.deaths + b.deaths, 2);
+  assert.equal(bot.deaths, 0);
+});
