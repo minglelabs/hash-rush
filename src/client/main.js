@@ -47,6 +47,8 @@ function localizePage() {
   // lacks a key. Show nothing rather than the word "undefined".
   for (const el of document.querySelectorAll('[data-i18n]')) el.innerHTML = t(el.dataset.i18n) ?? '';
   $('mute').title = t('sound');
+  // For a guest these buttons do not go to a lobby of their own: they leave the room.
+  if (joinId) for (const id of ['quit', 'back']) $(id).textContent = t('leaveRoom');
   $('how').replaceChildren(
     ...t('how').map((html) => {
       const li = document.createElement('li');
@@ -441,6 +443,7 @@ function enterStage() {
   $('feed').textContent = '';
   $('banner').classList.remove('show');
   $('again').hidden = net.role === 'guest';
+  $('resultWait').hidden = net.role !== 'guest';
   scoreKey = '';
   acc = 0;
   renderer.clear();
