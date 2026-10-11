@@ -396,3 +396,25 @@ test('a bonk on overlapping team-mates takes the whole clump, but not one standi
   assert.deepEqual([a.deaths, b.deaths, c.deaths], [1, 1, 0]);
   assert.equal(d.kills, 2);
 });
+
+test('a bot does not follow a seed carrier into a tunnel, and bonks it from the rim', () => {
+  for (const [spot, difficulty] of [[[0, 0], 'hard'], [[0, -18], 'hard'], [[20, 6], 'normal'], [[-12, 14], 'easy']]) {
+    for (const w of MAP.warps) {
+      const g = started(2);
+      const [bot, carrier] = g.players;
+      const brain = createBot({ difficulty, seed: 3 });
+      const inward = w.y < MAP.flower.y ? 1 : -1;
+      place(bot, w.x - 10, w.y + inward * 110);
+      place(carrier, w.x + spot[0], w.y + inward * spot[1]);
+      carrier.carrying = true;
+      const warped = [];
+      for (let i = 0; i < 8 * TICK_RATE && !carrier.deaths; i++) {
+        step(g, [brain.think(g, 0), IDLE]);
+        warped.push(...g.events.filter((ev) => ev.type === 'warp'));
+      }
+      assert.equal(warped.length, 0, `${difficulty} bot walked into the tunnel`);
+      // Easier bots sometimes let a carrier go, which is their choice to make.
+      if (difficulty === 'hard') assert.equal(carrier.deaths, 1, `bot never reached the carrier at ${spot}`);
+    }
+  }
+});
