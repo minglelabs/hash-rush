@@ -381,10 +381,13 @@ function toggleRoomList() {
 }
 
 function renderRooms(rooms) {
-  const others = rooms.filter((r) => r.room !== (net.room || joinId));
-  $('roomsStatus').textContent = others.length ? '' : t('roomsEmpty');
+  // The room this player is in comes first, marked as theirs and without buttons:
+  // seeing it is how a host knows the room really is on the list.
+  const here = net.room || joinId;
+  const shown = [...rooms.filter((r) => r.room === here), ...rooms.filter((r) => r.room !== here)];
+  $('roomsStatus').textContent = shown.length ? '' : t('roomsEmpty');
   $('roomItems').replaceChildren(
-    ...others.map((r) => {
+    ...shown.map((r) => {
       const li = document.createElement('li');
       const title = document.createElement('b');
       title.textContent = `${r.locked ? '🔒 ' : ''}${t('roomOf', r.name || '?')}`;
@@ -395,6 +398,14 @@ function renderRooms(rooms) {
       who.textContent = t('roomPeople', r.humans, r.bots, r.open);
       const info = document.createElement('div');
       info.append(title, state, who);
+      if (r.room === here) {
+        const mine = document.createElement('span');
+        mine.className = 'badge mine';
+        mine.textContent = t('roomMine');
+        title.after(mine);
+        li.append(info);
+        return li;
+      }
       const link = `${location.pathname}?room=${r.room}`;
       const join = document.createElement('button');
       join.className = 'primary';
