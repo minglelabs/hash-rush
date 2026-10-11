@@ -123,7 +123,11 @@ function renderLobby() {
   const teams = guest ? net.teams : teamMode;
   $('modeSolo').classList.toggle('on', !teams);
   $('modeTeam').classList.toggle('on', teams);
-  $('modeSolo').disabled = $('modeTeam').disabled = guest;
+  // A guest cannot choose, so it gets a plain label instead of two dead buttons.
+  $('modeSolo').hidden = $('modeTeam').hidden = guest;
+  $('modeNow').hidden = !guest;
+  $('modeNow').textContent = t('modeNow', t(teams ? 'modeTeam' : 'modeSolo'));
+  $('modeNow').classList.toggle('team', teams);
   // The line-up at a glance, e.g. "Red 3 : Blue 2".
   const sizes = TEAMS.map((_, k) => rows.filter((s) => s.kind !== 'closed' && s.team === k).length);
   $('teamInfo').replaceChildren(

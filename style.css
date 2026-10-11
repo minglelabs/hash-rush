@@ -143,6 +143,18 @@ button.primary:active {
   cursor: default;
 }
 
+#modeNow {
+  padding: 0.35em 1em;
+  border-radius: 999px;
+  background: var(--ink);
+  color: #fff;
+  font-size: 15px;
+}
+
+#modeNow.team {
+  background: linear-gradient(90deg, #e5484d, #3e63dd);
+}
+
 #teamInfo {
   margin-left: auto;
   font-weight: 700;
