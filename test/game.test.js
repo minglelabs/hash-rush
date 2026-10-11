@@ -643,3 +643,49 @@ test('a hamster winding up a throw turns freely, and the seed goes the way it fa
   run(g, 0.5, [{ mx: 0, my: 1, bonk: false, throw: true }]);
   assert.equal(g.players[0].charge, 0, 'nothing left to wind up');
 });
+
+test('a hard bot carrying a seed throws it at two rivals lined up in its way', () => {
+  const g = started(3);
+  const [bot, a, b] = g.players;
+  const brain = createBot({ difficulty: 'hard', seed: 5 });
+  // In the top lane on the way home, with both rivals further down the same lane.
+  const y = MAP.rowYs[1];
+  place(bot, 320, y);
+  bot.carrying = true;
+  place(a, 245, y);
+  place(b, 210, y);
+  const thrown = [];
+  for (let i = 0; i < 3 * TICK_RATE && !thrown.length; i++) {
+    step(g, [brain.think(g, 0), IDLE, IDLE]);
+    thrown.push(...g.events.filter((ev) => ev.type === 'throw'));
+  }
+  assert.equal(thrown.length, 1);
+  assert.equal(thrown[0].hit, 2);
+  assert.equal(a.deaths + b.deaths, 2);
+  assert.equal(bot.deaths, 0);
+});
+
+test('a bot whose throw target gets away keeps its seed', () => {
+  const g = started(2);
+  const [bot, a] = g.players;
+  const brain = createBot({ difficulty: 'hard', seed: 5 });
+  const y = MAP.rowYs[1];
+  let wound = 0;
+  for (let tries = 0; tries < 40 && !wound; tries++) {
+    place(bot, 320, y);
+    bot.carrying = true;
+    place(a, 235, y);
+    for (let i = 0; i < 0.3 * TICK_RATE; i++) step(g, [brain.think(g, 0), IDLE]);
+    wound = bot.charge;
+  }
+  assert.ok(wound > 0.1, 'the bot started winding up a throw at the blocker');
+  // The blocker vanishes into its nest.
+  place(a, a.nest.x, a.nest.y);
+  const thrown = [];
+  for (let i = 0; i < 2.5 * TICK_RATE; i++) {
+    step(g, [brain.think(g, 0), IDLE]);
+    thrown.push(...g.events.filter((ev) => ev.type === 'throw'));
+  }
+  assert.equal(thrown.length, 0);
+  assert.equal(bot.carrying, true);
+});
