@@ -383,3 +383,16 @@ test('when time runs out the most bonks win, then fewest deaths, then seeds, the
   assert.deepEqual(end(() => {}), [0, 1, 2, 3]);
   assert.deepEqual(end((p) => { p[0].kills = 1; p[3].kills = 1; }), [0, 3]);
 });
+
+test('a bonk on overlapping team-mates takes the whole clump, but not one standing apart', () => {
+  const g = teamGame([0, 0, 0, 1]);
+  const [a, b, c, d] = g.players;
+  const y = MAP.laneYs[1];
+  place(d, 230, y);
+  place(a, 230 + 2 * HAMSTER_R + 2, y);
+  place(b, 230 + 2 * HAMSTER_R + 12, y);
+  place(c, 230 + 5 * HAMSTER_R, y);
+  run(g, 0.5, [IDLE, IDLE, IDLE, { mx: 0, my: 0, bonk: true, ax: 1, ay: 0 }]);
+  assert.deepEqual([a.deaths, b.deaths, c.deaths], [1, 1, 0]);
+  assert.equal(d.kills, 2);
+});

@@ -281,9 +281,20 @@ export function step(g, inputs) {
       }
     }
     if (victim) {
-      bonked.add(victim);
-      a.kills++;
-      g.events.push({ type: 'bonk', by: a.id, id: victim.id, x: victim.x, y: victim.y, seed: victim.carrying });
+      // Team-mates can stand inside each other, and that is a risk: a hit on one
+      // of a clump takes out everyone overlapping it.
+      const clump = [victim];
+      for (const c of clump) {
+        for (const v of players) {
+          if (clump.includes(v) || !allied(c, v) || bonked.has(v) || inHome(g, v)) continue;
+          if (Math.hypot(v.x - c.x, v.y - c.y) < 2 * HAMSTER_R) clump.push(v);
+        }
+      }
+      for (const v of clump) {
+        bonked.add(v);
+        a.kills++;
+        g.events.push({ type: 'bonk', by: a.id, id: v.id, x: v.x, y: v.y, seed: v.carrying });
+      }
     }
     g.events.push({ type: 'impact', id: a.id, x: a.x, y: a.y, dx: a.swing.dx, dy: a.swing.dy, hit: !!victim });
   }
