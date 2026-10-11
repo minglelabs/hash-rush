@@ -53,7 +53,7 @@ const GATHER_SPOTS = ring(FLOWER, 55, 8);
 
 // Builds a map from its lanes: runs of grid cells, [col, row, col, row]. A run can
 // also be a block, which makes a room.
-function buildMap({ id, lanes, theme, hazard = null, ice = [], gates = [] }) {
+export function buildMap({ id, lanes, theme, hazard = null, ice = [], gates = [] }) {
   const open = Array.from({ length: ROWS }, () => new Array(COLS).fill(false));
   for (const [c1, r1, c2, r2] of lanes) {
     for (let c = Math.min(c1, c2); c <= Math.max(c1, c2); c++) {
@@ -187,15 +187,17 @@ export const MAPS = {
       [3, 3, 3, 5], [4, 7, 4, 9], [8, 3, 8, 5], [10, 7, 10, 9],
     ],
   }),
-  // Wide detours over the top and bottom and a stair through the middle. Moles dig.
+  // A tangle of thin-walled lanes with loops everywhere and no pattern to it.
+  // Moles dig. (The lanes were grown as a random maze once and are fixed here.)
   desert: buildMap({
     id: 'desert',
     theme: THEMES.desert,
     hazard: 'trap',
     lanes: [
-      [0, 2, 4, 2], [4, 0, 4, 4], [4, 0, 9, 0], [9, 0, 9, 2], [9, 2, 11, 2],
-      [0, 6, 2, 6], [2, 6, 2, 4], [2, 4, 6, 4], [6, 4, 6, 8], [6, 8, 11, 8],
-      [0, 10, 3, 10], [3, 10, 3, 12], [3, 12, 8, 12], [8, 8, 8, 12], [8, 10, 11, 10],
+      [2, 0, 4, 0], [2, 0, 2, 4], [4, 0, 4, 6], [6, 0, 6, 2], [6, 0, 10, 0], [8, 0, 8, 12], [10, 0, 10, 12],
+      [0, 2, 2, 2], [4, 2, 8, 2], [0, 4, 2, 4], [4, 4, 6, 4], [6, 4, 6, 6], [8, 4, 10, 4],
+      [0, 6, 2, 6], [2, 6, 2, 8], [4, 6, 11, 6], [2, 8, 8, 8], [4, 8, 4, 10], [10, 8, 11, 8],
+      [0, 10, 2, 10], [2, 10, 2, 12], [4, 10, 8, 10], [10, 10, 11, 10], [2, 12, 10, 12],
     ],
   }),
   // Three straight conveyor lanes with short connecting passages. Cannons fire down them.
@@ -231,26 +233,29 @@ export const MAPS = {
       [0, 10, 2, 10], [2, 10, 2, 12], [2, 12, 6, 12], [6, 8, 6, 12], [4, 8, 6, 8], [6, 10, 9, 10], [9, 9, 9, 10], [9, 9, 11, 9],
     ],
   }),
-  // A straight avenue, two looping paths and a long alley across them, all behind iron gates.
+  // A maze of narrow alleys that double back on each other, behind iron gates.
+  // (Grown as a random maze once and fixed here, like the desert.)
   graveyard: buildMap({
     id: 'graveyard',
     theme: THEMES.graveyard,
     lanes: [
-      [0, 3, 3, 3], [3, 1, 3, 3], [3, 1, 8, 1], [8, 1, 8, 3], [8, 3, 11, 3],
-      [0, 6, 11, 6],
-      [0, 9, 3, 9], [3, 9, 3, 11], [3, 11, 8, 11], [8, 9, 8, 11], [8, 9, 11, 9],
-      [5, 1, 5, 11],
+      [0, 0, 2, 0], [2, 0, 2, 2], [4, 0, 10, 0], [4, 0, 4, 6], [6, 0, 6, 12], [8, 0, 8, 2], [10, 0, 10, 4],
+      [0, 2, 4, 2], [6, 2, 8, 2], [10, 2, 11, 2], [2, 4, 2, 12], [2, 4, 6, 4], [8, 4, 8, 10], [8, 4, 11, 4],
+      [2, 6, 10, 6], [10, 6, 10, 8], [0, 8, 8, 8], [10, 8, 11, 8],
+      [0, 10, 2, 10], [4, 10, 10, 10], [4, 10, 4, 12], [10, 10, 10, 12], [2, 12, 10, 12],
     ],
     gates: [
       // Two long gates patrol the wide gap in front of the burrow, one after the other.
       gate(175, BOUNDS.y1 + 10, 10, 150, 'y', 340, 9, 0, 0.04),
       gate(175, BOUNDS.y1 + 10, 10, 150, 'y', 340, 9, 4.5, 0.04),
-      // Doors across the avenue slide up into the wall and back.
-      gate(laneX(3) - 5, laneY(6), 10, CELL, 'y', -CELL, 6, 0, 0.36),
-      gate(laneX(9) - 5, laneY(6), 10, CELL, 'y', -CELL, 6, 3, 0.36),
-      // Doors across the alley slide sideways into the wall.
-      gate(laneX(5), laneY(4) - 5, CELL, 10, 'x', CELL, 7, 1.5, 0.36),
-      gate(laneX(5), laneY(9) - 5, CELL, 10, 'x', CELL, 7, 5, 0.36),
+      // Doors across the alleys that run sideways slide up into the wall and back.
+      gate(laneX(3) + 15, laneY(6), 10, CELL, 'y', -CELL, 6, 0, 0.36),
+      gate(laneX(7) + 15, laneY(8), 10, CELL, 'y', -CELL, 6, 3, 0.36),
+      gate(laneX(5) + 15, laneY(10), 10, CELL, 'y', -CELL, 7, 1, 0.36),
+      // Doors across the alleys that run up and down slide sideways into the wall.
+      gate(laneX(6), laneY(5) + 15, CELL, 10, 'x', CELL, 7, 1.5, 0.36),
+      gate(laneX(4), laneY(3) + 15, CELL, 10, 'x', CELL, 6, 4, 0.36),
+      gate(laneX(8), laneY(9) + 15, CELL, 10, 'x', CELL, 7, 5, 0.36),
     ],
   }),
 };
