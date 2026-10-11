@@ -55,7 +55,7 @@ function localizePage() {
   // A browser can briefly hold a newer page with an older, cached script that
   // lacks a key. Show nothing rather than the word "undefined".
   for (const el of document.querySelectorAll('[data-i18n]')) el.innerHTML = t(el.dataset.i18n) ?? '';
-  $('mute').title = t('sound');
+  for (const id of ['mute', 'muteLobby']) $(id).title = t('sound');
   $('swap').title = t('swapSides');
   // For a guest these buttons do not go to a lobby of their own: they leave the room.
   if (joinId) for (const id of ['quit', 'back']) $(id).textContent = t('leaveRoom');
@@ -351,6 +351,8 @@ function updateStart() {
 function show(screen) {
   $('lobby').hidden = screen !== 'lobby';
   $('stage').hidden = screen !== 'stage';
+  // The round's tune keeps going from one round to the next, result screen included.
+  audio.setMusic(screen === 'lobby' ? 'lobby' : 'game');
 }
 
 // ---------- room list ----------
@@ -1235,11 +1237,16 @@ $('resultClose').addEventListener('click', () => ($('result').hidden = true));
 $('result').addEventListener('click', (e) => e.target === $('result') && ($('result').hidden = true));
 $('againBtn').addEventListener('click', startGame);
 $('board').addEventListener('click', () => showBoard(false));
-$('mute').textContent = audio.isMuted() ? '🔇' : '🔊';
-$('mute').addEventListener('click', () => {
-  audio.unlock();
-  $('mute').textContent = audio.toggle() ? '🔇' : '🔊';
-});
+// The same sound button sits in the lobby and on the field.
+const soundButtons = ['mute', 'muteLobby'].map($);
+for (const b of soundButtons) {
+  b.textContent = audio.icon();
+  b.addEventListener('click', () => {
+    audio.unlock();
+    audio.cycle();
+    for (const other of soundButtons) other.textContent = audio.icon();
+  });
+}
 // Which thumb bonks is a matter of habit, so the phone remembers the chosen side.
 const setBonkSide = (left) => document.body.classList.toggle('bonk-left', left);
 try {
