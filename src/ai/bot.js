@@ -137,7 +137,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
     };
 
     // Where could I cut off a seed carrier before they get home?
-    const intercept = (c, lastStand) => {
+    const intercept = (c, force) => {
       let entry = entries[0];
       let home = Infinity;
       for (const en of entries) {
@@ -176,10 +176,11 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
           viaTunnel = w;
         }
       }
-      // Too late on paper. With the seed almost home that is no reason to let it
-      // go: carriers get held up at the door, so take the quickest way there.
-      if (!lastStand) return null;
-      return nav.distance(me, door) / SPEED <= tunnelTime ? door : viaTunnel;
+      // Too late on paper. That is no reason to let it go: carriers get held up
+      // on the way and at the door, so head there anyway.
+      if (!force) return null;
+      // Running at them shows the chase; the tunnel is only worth it when clearly quicker.
+      return nav.distance(me, door) / SPEED <= tunnelTime * 1.25 ? door : viaTunnel;
     };
 
     const plan = () => {
@@ -212,7 +213,12 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
         if (!mem.denyRolls.has(key)) mem.denyRolls.set(key, rng() < cfg.deny);
         if (!mem.denyRolls.get(key) && !lastStand) continue;
         const near = dist(me, c) < 230 && nav.clear(me, c);
-        const at = near ? c : intercept(c, lastStand);
+        // Out of reach is no reason to shrug either: everyone keeps after the seed,
+        // except that with three or more chasers the one nearest the flower stays
+        // on it, ready to nibble the moment the seed is knocked loose.
+        const chasers = [me, ...mates, ...seen.filter((e) => e.id !== c.id && !allied(e, c))].filter((e) => !e.carrying);
+        const stays = chasers.length >= 3 && chasers.every((e) => e === me || dist(e, f) > dist(me, f));
+        const at = near ? c : intercept(c, lastStand || !stays);
         if (!at) continue;
         if (c.x < urgent) {
           urgent = c.x;
