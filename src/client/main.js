@@ -1076,7 +1076,7 @@ function fillScores(table) {
   groups.className = 'groups';
   th(groups, t('gameNo', rounds + (game.counted ? 0 : 1)));
   th(groups, t('thisRound'), cols.length);
-  th(groups, t('totals'), cols.length + 2).classList.add('total', 'split');
+  th(groups, t('totals'), cols.length + 3).classList.add('total', 'split');
   const head = table.insertRow();
   th(head, '');
   cols.forEach((h) => th(head, h));
@@ -1085,6 +1085,7 @@ function fillScores(table) {
     cell.classList.add('total');
     cell.classList.toggle('split', k === 0);
   });
+  th(head, '').classList.add('total');
   // Until the round is added to the totals, they include it as it stands.
   const totalOf = (p) => roundOf(p).map((v, k) => ((career[p.look] || [])[k] || 0) + (game.counted ? 0 : v));
   const mvps = pickMvp(game.players.map((p) => [p.id, totalOf(p)]));
@@ -1101,12 +1102,6 @@ function fillScores(table) {
       scored.textContent = t('goalBadge');
       who.append(scored);
     }
-    if (mvps.includes(p.id)) {
-      const badge = document.createElement('span');
-      badge.className = 'mvp';
-      badge.textContent = 'MVP';
-      who.append(badge);
-    }
     const round = roundOf(p);
     const total = totalOf(p);
     [...round, ...total, wins[p.look], mvpScore(total)].forEach((v, k) => {
@@ -1116,12 +1111,21 @@ function fillScores(table) {
       cell.classList.toggle('split', k === round.length);
     });
     row.lastChild.classList.add('score');
+    // The MVP badge sits at the far right, after the score that earned it.
+    const prize = row.insertCell();
+    prize.className = 'total prize';
+    if (mvps.includes(p.id)) {
+      const badge = document.createElement('span');
+      badge.className = 'mvp';
+      badge.textContent = 'MVP';
+      prize.append(badge);
+    }
   }
   // How the score that decides the MVP adds up.
   const rule = table.insertRow();
   rule.className = 'rule';
   const cell = rule.insertCell();
-  cell.colSpan = 2 * cols.length + 3;
+  cell.colSpan = 2 * cols.length + 4;
   cell.textContent = `${t('mvpRule')} = ${cols.map((name, k) => (MVP_POINTS[k] ? `${name} ×${MVP_POINTS[k]}` : '')).filter(Boolean).join(' + ')}`;
 }
 
