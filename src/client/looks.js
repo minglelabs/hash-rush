@@ -9,3 +9,8 @@ export const LOOKS = [
   { fur: '#cf8562', ear: '#ad6243', belly: '#fbe6d6', paw: '#f0c2a8', color: '#e0529c' },
   { fur: '#d9d2c3', ear: '#b8ad98', belly: '#ffffff', paw: '#eccbc0', color: '#b58900' },
 ];
+
+// In a team game the outline, label and nest take the team's colour; the fur stays the slot's own.
+export const TEAMS = [{ color: '#e5484d' }, { color: '#2f6fed' }, { color: '#1f9d55' }, { color: '#9b51e0' }];
+export const colorOf = (p) => (p.team >= 0 ? TEAMS[p.team].color : LOOKS[p.look].color);
+export const lookOf = (p) => (p.team >= 0 ? { ...LOOKS[p.look], color: TEAMS[p.team].color } : LOOKS[p.look]);

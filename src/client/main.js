@@ -4,28 +4,32 @@
 // Online play has no server. The host's browser runs the simulation; guests send
 // their inputs and draw the snapshots the host sends back.
 
-import { createGame, step } from '../sim/game.js';
+import { createGame, step, allied } from '../sim/game.js';
 import { DT, OVERTIME, COUNTDOWN } from '../sim/constants.js';
 import { MAP } from '../sim/map.js';
 import { createBot } from '../ai/bot.js';
 import { createRenderer, drawHamster } from './render.js';
 import { createInput } from './input.js';
 import { createAudio } from './audio.js';
-import { LOOKS } from './looks.js';
+import { LOOKS, TEAMS, colorOf } from './looks.js';
 import { lang, t, LANGUAGES, stringsFor } from './i18n.js';
 import { hostRoom, joinRoom, announceRoom, watchRooms } from './net.js';
 
 const $ = (id) => document.getElementById(id);
 const STORE = 'seed-rush-slots';
+const MODE_STORE = 'seed-rush-teams';
 // What the host can set a slot to. 'remote' is an open slot a friend has taken.
 const KINDS = ['human', 'bot:easy', 'bot:normal', 'bot:hard', 'closed', 'open'];
-const DEFAULT_SLOTS = ['human', 'bot:hard', 'bot:hard', 'bot:hard'].map((kind, i) => ({ kind, name: t('names')[i] }));
+// Every slot keeps a team, used only while team play is on. Teams need not be even: 3 v 2 is fine.
+const DEFAULT_SLOTS = ['human', 'bot:hard', 'bot:hard', 'bot:hard'].map((kind, i) => ({ kind, name: t('names')[i], team: i % 2 }));
 // The host can add slots up to MAX_SLOTS; extra ones start as a hard computer.
 const MAX_SLOTS = LOOKS.length;
 const defaultName = (i) => t('names')[i] ?? t('fallbackName', i + 1);
 const IDLE = { mx: 0, my: 0, ax: 0, ay: 0, seq: 0 };
 // A guest who never renamed itself is still called "Me" in its own language.
 const ME_NAMES = new Set(LANGUAGES.map((code) => stringsFor(code).names[0]));
+
+const validTeam = (v) => Number.isInteger(v) && v >= 0 && v < TEAMS.length;
 
 function loadSlots() {
   try {
@@ -34,6 +38,7 @@ function loadSlots() {
       return saved.map((s, i) => ({
         kind: i === 0 ? 'human' : KINDS.some((k) => k === s.kind && k !== 'human' && k !== 'open') ? s.kind : 'bot:hard',
         name: String(s.name || defaultName(i)).slice(0, 8),
+        team: validTeam(s.team) ? s.team : i % 2,
       }));
     }
   } catch {
@@ -62,6 +67,12 @@ function localizePage() {
 }
 
 const slots = loadSlots();
+let teamMode = false;
+try {
+  teamMode = localStorage.getItem(MODE_STORE) === '1';
+} catch {
+  // stays off
+}
 const wins = slots.map(() => 0);
 const audio = createAudio();
 const renderer = createRenderer($('canvas'), MAP);
@@ -80,7 +91,7 @@ const joinId = query.get('room');
 // Opening the watch link joins as a spectator instead of taking a slot.
 const watchOnly = query.has('watch');
 // role: null (offline), 'host' or 'guest'.
-const net = { role: joinId ? 'guest' : null, room: null, host: null, status: '', lobby: null, you: -1, pending: [], watchers: [] };
+const net = { role: joinId ? 'guest' : null, room: null, host: null, status: '', lobby: null, teams: false, you: -1, pending: [], watchers: [] };
 
 let game = null;
 let controllers = [];
@@ -109,12 +120,27 @@ const isPlaying = (slot) => slot.kind !== 'closed' && slot.kind !== 'open';
 function renderLobby() {
   const guest = net.role === 'guest';
   const rows = guest ? net.lobby || [] : slots;
+  const teams = guest ? net.teams : teamMode;
+  $('modeSolo').classList.toggle('on', !teams);
+  $('modeTeam').classList.toggle('on', teams);
+  $('modeSolo').disabled = $('modeTeam').disabled = guest;
+  // The line-up at a glance, e.g. "Red 3 : Blue 2".
+  const sizes = TEAMS.map((_, k) => rows.filter((s) => s.kind !== 'closed' && s.team === k).length);
+  $('teamInfo').replaceChildren(
+    ...(teams ? TEAMS : []).flatMap((team, k) => {
+      if (!sizes[k]) return [];
+      const b = document.createElement('b');
+      b.textContent = `${t('teamNames')[k]} ${sizes[k]}`;
+      b.style.color = team.color;
+      return [' : ', b];
+    }).slice(1),
+  );
   const list = $('slots');
   // Rebuilding the list would replace the field someone is typing a name in,
   // which drops focus and breaks Korean/Japanese/Chinese composition. While the
   // rows are otherwise the same, only the other names are refreshed.
   const typing = document.activeElement;
-  const shape = (slot, i) => `${slot.kind}:${guest ? i === net.you : ''}`;
+  const shape = (slot, i) => `${slot.kind}:${guest ? i === net.you : ''}:${teams ? slot.team : ''}`;
   const keep =
     typing instanceof HTMLInputElement &&
     list.contains(typing) &&
@@ -130,7 +156,8 @@ function renderLobby() {
     if (keep) return;
     const li = document.createElement('li');
     li.dataset.shape = shape(slot, i);
-    li.style.setProperty('--c', LOOKS[i].color);
+    li.style.setProperty('--c', teams && TEAMS[slot.team] ? TEAMS[slot.team].color : LOOKS[i].color);
+    li.classList.toggle('teamed', teams);
     li.classList.toggle('closed', slot.kind === 'closed');
 
     const avatar = document.createElement('canvas');
@@ -173,7 +200,32 @@ function renderLobby() {
     kind.disabled = guest || i === 0;
     kind.addEventListener('change', () => (kind.value === 'remove' ? removeSlot(slot) : setKind(slot, kind.value)));
 
-    li.append(avatar, name, kind);
+    li.append(avatar, name);
+    if (teams) {
+      // The host arranges the teams; a guest can also switch its own.
+      const team = document.createElement('select');
+      team.setAttribute('aria-label', t('slotTeam', i + 1));
+      t('teamNames').forEach((label, k) => {
+        const opt = document.createElement('option');
+        opt.value = k;
+        opt.textContent = label;
+        team.append(opt);
+      });
+      team.value = slot.team;
+      team.disabled = guest ? i !== net.you : slot.kind === 'closed';
+      team.addEventListener('change', () => {
+        slot.team = Number(team.value);
+        if (guest) {
+          net.host.send({ t: 'team', team: slot.team });
+        } else {
+          saveSlots();
+          sendLobby();
+        }
+        renderLobby();
+      });
+      li.append(team);
+    }
+    li.append(kind);
     list.append(li);
   });
   $('addSlot').hidden = guest || slots.length >= MAX_SLOTS;
@@ -209,9 +261,21 @@ function setKind(slot, kind) {
   sendLobby();
 }
 
+function setTeamMode(on) {
+  if (net.role === 'guest' || teamMode === on) return;
+  teamMode = on;
+  try {
+    localStorage.setItem(MODE_STORE, on ? '1' : '0');
+  } catch {
+    // not persisted
+  }
+  renderLobby();
+  sendLobby();
+}
+
 function addSlot() {
   if (slots.length >= MAX_SLOTS) return;
-  slots.push({ kind: 'bot:hard', name: defaultName(slots.length) });
+  slots.push({ kind: 'bot:hard', name: defaultName(slots.length), team: slots.length % 2 });
   wins.push(0);
   saveSlots();
   renderLobby();
@@ -231,7 +295,7 @@ function removeSlot(slot) {
 
 function saveSlots() {
   try {
-    localStorage.setItem(STORE, JSON.stringify(slots.map(({ kind, name }) => ({ kind, name }))));
+    localStorage.setItem(STORE, JSON.stringify(slots.map(({ kind, name, team }) => ({ kind, name, team }))));
   } catch {
     // not persisted
   }
@@ -245,9 +309,11 @@ function updateStart() {
     $('start').textContent = net.failed ? t('retry') : net.host ? t('waitingHost') : t('connecting');
     return;
   }
-  const playing = slots.filter(isPlaying).length;
-  $('start').disabled = playing < 2;
-  $('start').textContent = t(playing < 2 ? 'needOpponent' : 'start');
+  const playing = slots.filter(isPlaying);
+  // A team game needs somebody to play against, however the sides are split.
+  const lonely = teamMode && playing.length >= 2 && new Set(playing.map((s) => s.team)).size < 2;
+  $('start').disabled = playing.length < 2 || lonely;
+  $('start').textContent = t(playing.length < 2 ? 'needOpponent' : lonely ? 'needTeams' : 'start');
 }
 
 function show(screen) {
@@ -383,7 +449,7 @@ function guestName(slot, raw) {
   return !name || ME_NAMES.has(name) ? defaultName(slots.indexOf(slot)) : name;
 }
 
-const roster = () => game.players.map((p) => ({ name: p.name, look: p.look, nest: p.nest }));
+const roster = () => game.players.map((p) => ({ name: p.name, look: p.look, team: p.team, nest: p.nest }));
 
 function guestData(conn, msg) {
   if (!msg) return;
@@ -405,6 +471,12 @@ function guestData(conn, msg) {
   if (!slot) return;
   if (msg.t === 'name') {
     slot.name = guestName(slot, msg.name);
+    renderLobby();
+    sendLobby();
+  } else if (msg.t === 'team') {
+    if (!teamMode || !validTeam(msg.team)) return;
+    slot.team = msg.team;
+    saveSlots();
     renderLobby();
     sendLobby();
   } else if (msg.t === 'i') {
@@ -445,8 +517,8 @@ function broadcast(make) {
 
 function sendLobby() {
   if (net.role !== 'host') return;
-  const view = slots.map((s) => ({ kind: s.kind, name: s.name }));
-  broadcast((slot, i) => ({ t: 'lobby', slots: view, you: i, wins }));
+  const view = slots.map((s) => ({ kind: s.kind, name: s.name, team: s.team }));
+  broadcast((slot, i) => ({ t: 'lobby', slots: view, teams: teamMode, you: i, wins }));
   announce();
 }
 
@@ -498,6 +570,7 @@ function hostData(msg) {
   if (!msg) return;
   if (msg.t === 'lobby') {
     net.lobby = msg.slots;
+    net.teams = !!msg.teams;
     net.you = msg.you;
     msg.wins.forEach((n, i) => (wins[i] = n));
     if ($('stage').hidden) renderLobby();
@@ -515,7 +588,7 @@ function hostData(msg) {
       nibbler: -1,
       winner: null,
       players: msg.players.map((p, id) => ({
-        id, name: p.name, look: p.look, nest: p.nest, x: p.nest.x, y: p.nest.y, vx: 0, vy: 0, fx: 1, fy: 0,
+        id, name: p.name, look: p.look, team: p.team ?? -1, nest: p.nest, x: p.nest.x, y: p.nest.y, vx: 0, vy: 0, fx: 1, fy: 0,
         carrying: false, gather: 0, queued: -1, swing: null, cooldown: 0, kills: 0, deaths: 0, seeds: 0,
       })),
     };
@@ -681,7 +754,12 @@ function startGame() {
   const seed = (Date.now() ^ (Math.random() * 0xffffffff)) >>> 0;
   for (const s of slots) s.playerId = -1;
   game = createGame({
-    slots: active.map(({ slot, look }) => ({ name: slot.name.trim() || t('fallbackName', look + 1), kind: slot.kind, look })),
+    slots: active.map(({ slot, look }) => ({
+      name: slot.name.trim() || t('fallbackName', look + 1),
+      kind: slot.kind,
+      look,
+      team: teamMode ? slot.team : -1,
+    })),
     seed,
   });
   controllers = active.map(({ slot }, id) => {
@@ -748,9 +826,14 @@ function banner(text) {
 function nameTag(p) {
   const b = document.createElement('b');
   b.textContent = p.name;
-  b.style.color = LOOKS[p.look].color;
+  b.style.color = colorOf(p);
   return b;
 }
+
+// Whether this hamster is the winner or on the winner's team.
+const won = (p) => game.winner != null && (p.id === game.winner || allied(p, game.players[game.winner]));
+// A team game lists team-mates together.
+const lineUp = () => [...game.players].sort((a, b) => a.team - b.team);
 
 function onEvent(ev) {
   renderer.onEvent(ev, game, meId);
@@ -775,14 +858,15 @@ function onEvent(ev) {
     if (ev.id === meId) audio.play.spawn();
   } else if (ev.type === 'seed') {
     audio.play.seed();
-    banner(ev.id === meId ? t('gotSeedMe') : t('gotSeedOther', players[ev.id].name));
+    const mate = meId >= 0 && allied(players[meId], players[ev.id]);
+    banner(ev.id === meId ? t('gotSeedMe') : t(mate ? 'gotSeedMate' : 'gotSeedOther', players[ev.id].name));
   } else if (ev.type === 'overtime') {
     audio.play.overtime();
     banner(t('overtime'));
   } else if (ev.type === 'win') {
-    const winner = players[ev.id];
-    wins[winner.look]++;
-    if (ev.id === meId || meId < 0) audio.play.win();
+    // A team wins together: everyone on it gets the win.
+    for (const p of players) if (won(p)) wins[p.look]++;
+    if (meId < 0 || won(players[meId])) audio.play.win();
     else audio.play.lose();
     input.enable(false);
     resultTimer = setTimeout(showResult, 1500);
@@ -792,7 +876,11 @@ function onEvent(ev) {
 function showResult() {
   if (!game) return;
   const winner = game.players[game.winner];
-  $('resultTitle').textContent = game.winner === meId ? t('winMe') : t('winOther', winner.name);
+  if (winner.team >= 0) {
+    $('resultTitle').textContent = meId >= 0 && won(game.players[meId]) ? t('winTeamMe') : t('winTeam', t('teamNames')[winner.team]);
+  } else {
+    $('resultTitle').textContent = game.winner === meId ? t('winMe') : t('winOther', winner.name);
+  }
   const table = $('resultTable');
   table.textContent = '';
   const head = table.insertRow();
@@ -801,9 +889,9 @@ function showResult() {
     th.textContent = h;
     head.append(th);
   }
-  for (const p of game.players) {
+  for (const p of lineUp()) {
     const row = table.insertRow();
-    row.classList.toggle('winner', p.id === game.winner);
+    row.classList.toggle('winner', won(p));
     row.insertCell().append(nameTag(p));
     for (const v of [p.kills, p.deaths, p.seeds, wins[p.look]]) row.insertCell().textContent = v;
   }
@@ -818,10 +906,10 @@ function updateHud() {
     scoreKey = key;
     $('scores').classList.toggle('many', game.players.length > 4);
     $('scores').replaceChildren(
-      ...game.players.map((p) => {
+      ...lineUp().map((p) => {
         const chip = document.createElement('span');
         chip.className = `chip${p.id === meId ? ' me' : ''}${p.carrying ? ' carry' : ''}`;
-        chip.style.setProperty('--c', LOOKS[p.look].color);
+        chip.style.setProperty('--c', colorOf(p));
         const dot = document.createElement('i');
         const name = document.createElement('span');
         name.textContent = (p.carrying ? '🌻 ' : '') + p.name;
@@ -893,6 +981,8 @@ $('start').addEventListener('click', () => {
 });
 $('again').addEventListener('click', startGame);
 $('addSlot').addEventListener('click', addSlot);
+$('modeSolo').addEventListener('click', () => setTeamMode(false));
+$('modeTeam').addEventListener('click', () => setTeamMode(true));
 $('roomListBtn').addEventListener('click', toggleRoomList);
 $('listed').addEventListener('change', announce);
 for (const id of ['back', 'quit']) {

@@ -295,3 +295,66 @@ test('bots of every level finish a match', () => {
     }
   }
 });
+
+function teamGame(teams) {
+  const g = createGame({ slots: teams.map((team, i) => ({ name: `p${i}`, kind: 'human', team })), seed: 7 });
+  for (let i = 0; i < COUNTDOWN * TICK_RATE + 2 && g.phase === 'countdown'; i++) step(g, []);
+  return g;
+}
+
+test('team-mates walk through each other and cannot bonk each other', () => {
+  const g = teamGame([0, 0, 1]);
+  const [a, b, c] = g.players;
+  const y = MAP.laneYs[1];
+  place(a, 230, y);
+  place(b, 300, y);
+  place(c, 700, 100);
+  run(g, 1, [{ mx: 1, my: 0, bonk: false }, IDLE, IDLE]);
+  assert.ok(a.x > b.x + 2 * HAMSTER_R, `walked past the team-mate, x=${a.x}`);
+  place(a, 300, y);
+  place(b, 300 + 2 * HAMSTER_R, y);
+  run(g, 0.5, [{ mx: 0, my: 0, bonk: true, ax: 1, ay: 0 }, IDLE, IDLE]);
+  assert.equal(b.deaths, 0);
+  assert.equal(a.kills, 0);
+});
+
+test('a rival is still solid and can be bonked in a team game', () => {
+  const g = teamGame([0, 0, 1]);
+  const [a, , c] = g.players;
+  const y = MAP.laneYs[1];
+  place(a, 230, y);
+  place(c, 300, y);
+  run(g, 1, [{ mx: 1, my: 0, bonk: false }, IDLE, IDLE]);
+  assert.ok(a.x <= c.x - 2 * HAMSTER_R + 0.01, 'stopped behind the rival');
+  run(g, 0.5, [{ mx: 0, my: 0, bonk: true, ax: 1, ay: 0 }, IDLE, IDLE]);
+  assert.equal(c.deaths, 1);
+});
+
+test('one hamster bringing a seed home wins it for the team', () => {
+  const g = teamGame([0, 0, 0, 1, 1]);
+  const p = g.players[4];
+  p.carrying = true;
+  place(p, MAP.home.x2 - 30, MAP.laneYs[1]);
+  step(g, []);
+  assert.equal(g.phase, 'over');
+  assert.equal(g.winner, 4);
+  assert.deepEqual(g.events.at(-1), { type: 'win', id: 4, team: 1 });
+});
+
+test('team-mates start on neighbouring nests', () => {
+  for (let seed = 1; seed <= 20; seed++) {
+    const teams = [0, 1, 0, 1, 0];
+    const g = createGame({ slots: teams.map((team, i) => ({ name: `p${i}`, kind: 'bot', team })), seed });
+    const order = [...g.players].sort((a, b) => a.nest.y - b.nest.y).map((p) => p.team).join('');
+    assert.ok(order === '00011' || order === '11000', `seed ${seed}: ${order}`);
+    assert.equal(new Set(g.players.map((p) => p.nest)).size, 5);
+  }
+});
+
+test('an uneven three against two bot game finishes', () => {
+  const teams = [0, 0, 0, 1, 1];
+  const g = createGame({ slots: teams.map((team, i) => ({ name: `p${i}`, kind: 'bot', team })), seed: 3 });
+  const bots = teams.map((_, i) => createBot({ difficulty: 'hard', seed: 40 + i }));
+  while (g.phase !== 'over' && g.tick < 400 * TICK_RATE) step(g, bots.map((b, i) => b.think(g, i)));
+  assert.equal(g.phase, 'over');
+});

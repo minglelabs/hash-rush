@@ -14,6 +14,13 @@ export function inHome(g, p) {
   return p.x < g.homeX;
 }
 
+// Team-mates cannot bonk each other and walk straight through one another. A slot
+// without a team (-1) is on its own side, so a game with no teams is everyone
+// against everyone.
+export function allied(a, b) {
+  return a.team >= 0 && a.team === b.team;
+}
+
 export function createGame({ slots, map = MAP, seed = 1 }) {
   const rng = mulberry32(seed);
   const nests = (slots.length > map.nests.length ? map.bigNests : map.nests).map((n) => ({ ...n }));
@@ -21,11 +28,20 @@ export function createGame({ slots, map = MAP, seed = 1 }) {
     const j = Math.floor(rng() * (i + 1));
     [nests[i], nests[j]] = [nests[j], nests[i]];
   }
+  if (slots.some((s) => s.team >= 0)) {
+    // Team-mates start side by side. Which team gets which stretch of the arc is random.
+    const rank = new Map();
+    for (const s of slots) if (!rank.has(s.team)) rank.set(s.team, rng());
+    const order = slots.map((_, id) => id).sort((a, b) => rank.get(slots[a].team) - rank.get(slots[b].team) || a - b);
+    const byY = nests.slice(0, slots.length).sort((a, b) => a.y - b.y);
+    order.forEach((id, i) => (nests[id] = byY[i]));
+  }
   const players = slots.map((slot, id) => ({
     id,
     name: slot.name,
     kind: slot.kind,
     look: slot.look ?? id,
+    team: slot.team ?? -1,
     nest: nests[id],
     x: nests[id].x,
     y: nests[id].y,
@@ -64,7 +80,7 @@ function pickAim(g, p, inp, mx, my, moveLen) {
   let best = null;
   let bestD = BONK.assist;
   for (const e of g.players) {
-    if (e === p || inHome(g, e)) continue;
+    if (e === p || allied(p, e) || inHome(g, e)) continue;
     const tx = e.x + e.vx * BONK.windup - p.x;
     const ty = e.y + e.vy * BONK.windup - p.y;
     const d = Math.hypot(tx, ty);
@@ -88,6 +104,7 @@ function separate(g) {
       for (let j = i + 1; j < players.length; j++) {
         const a = players[i];
         const b = players[j];
+        if (allied(a, b)) continue;
         let nx = b.x - a.x;
         let ny = b.y - a.y;
         const d = Math.hypot(nx, ny);
@@ -231,7 +248,7 @@ export function step(g, inputs) {
     let nearest = BONK.reach;
     if (!inHome(g, a)) {
       for (const v of players) {
-        if (v === a || bonked.has(v) || inHome(g, v)) continue;
+        if (v === a || allied(a, v) || bonked.has(v) || inHome(g, v)) continue;
         const dx = v.x - a.x;
         const dy = v.y - a.y;
         const d = Math.hypot(dx, dy);
@@ -268,7 +285,7 @@ export function step(g, inputs) {
     if (p.carrying && inHome(g, p)) {
       g.phase = 'over';
       g.winner = p.id;
-      g.events.push({ type: 'win', id: p.id });
+      g.events.push({ type: 'win', id: p.id, team: p.team });
       return g;
     }
   }
