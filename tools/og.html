@@ -4,7 +4,7 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@700&family=Jua&display=swap" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@700&display=swap" />
     <style>
       body { margin: 0; background: #222; }
       canvas { display: block; }
@@ -17,7 +17,6 @@
       import { LOOKS } from '../src/client/looks.js';
 
       await document.fonts.load('700 150px Fredoka');
-      await document.fonts.load('56px Jua', '해바라기씨 물고 집까지 달려라!');
       const W = 1200;
       const H = 630;
       const ctx = document.getElementById('og').getContext('2d');
@@ -114,9 +113,9 @@
       ctx.save();
       ctx.translate(mid, 340);
       ctx.rotate(-0.05);
-      ctx.font = '56px Jua';
+      ctx.font = '700 54px Fredoka';
       ctx.textAlign = 'center';
-      const tag = '해바라기씨 물고 집까지 달려라!';
+      const tag = 'Grab a seed and race home!';
       const tw = ctx.measureText(tag).width;
       ctx.fillStyle = '#5b3416';
       ctx.beginPath();

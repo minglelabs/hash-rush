@@ -69,7 +69,7 @@ git worktree add ../hash-rush-<작업명> -b <브랜치> origin/main
   - 방마다 retained 메시지 하나, 방장 연결이 끊기면 last will로 자동 삭제
   - 1분마다 갱신, 3분 소식 없으면 목록에서 숨김
   - 누구나 가짜 방을 올릴 수 있음 (글자로만 표시해서 안전)
-- **Google Fonts** (Fredoka, Jua): OG 이미지 생성 도구에서만 사용
+- **Google Fonts** (Fredoka): OG 이미지 생성 도구에서만 사용
 
 ## 5. 실기기에서 확인 못 한 것
 
