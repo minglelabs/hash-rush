@@ -16,7 +16,7 @@ export const COUNTDOWN = 3;
 
 // Stalemate breaker: after `start` seconds the burrow's edge creeps towards the flower.
 // At `end` the round is called on bonks instead.
-export const OVERTIME = { start: 60, speed: 5, end: 150 };
+export const OVERTIME = { start: 40, speed: 6.5, end: 105 };
 
 export const BONK = {
   windup: 0.14, // standing still before the hit lands
