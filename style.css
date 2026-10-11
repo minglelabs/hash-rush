@@ -178,6 +178,92 @@ button.primary:active {
   background: var(--cream);
 }
 
+#roomListBtn {
+  display: block;
+  width: 100%;
+  margin-bottom: 14px;
+}
+
+#rooms {
+  margin-bottom: 18px;
+  padding: 12px;
+  background: #fff;
+  border: 2px solid var(--line);
+  border-radius: 16px;
+}
+
+#roomsStatus {
+  margin: 0;
+  font-size: 14px;
+  color: #a07a45;
+}
+
+#roomsStatus:empty {
+  display: none;
+}
+
+#roomItems {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+#roomItems li {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  background: var(--cream);
+  border-radius: 12px;
+}
+
+#roomItems li div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+  min-width: 0;
+}
+
+#roomItems small {
+  flex-basis: 100%;
+  color: #a07a45;
+}
+
+#roomItems button {
+  padding: 0.45em 0.9em;
+}
+
+#roomItems button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.badge {
+  padding: 0.1em 0.6em;
+  border-radius: 999px;
+  background: #d8f0c8;
+  color: #2f7a3d;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.badge.playing {
+  background: #ffe2a8;
+  color: #a06a00;
+}
+
+.listed {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 13px;
+}
+
 #watchRow {
   margin-top: 10px;
 }

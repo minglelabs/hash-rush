@@ -13,7 +13,7 @@ import { createInput } from './input.js';
 import { createAudio } from './audio.js';
 import { LOOKS } from './looks.js';
 import { lang, t, LANGUAGES, stringsFor } from './i18n.js';
-import { hostRoom, joinRoom } from './net.js';
+import { hostRoom, joinRoom, announceRoom, watchRooms } from './net.js';
 
 const $ = (id) => document.getElementById(id);
 const STORE = 'seed-rush-slots';
@@ -160,6 +160,8 @@ function renderLobby() {
     list.append(li);
   });
   $('addSlot').hidden = guest || slots.length >= MAX_SLOTS;
+  $('roomListBtn').hidden = guest;
+  if (guest) $('rooms').hidden = true;
 
   const inviting = net.role === 'host' || slots.some((s) => s.kind === 'open');
   $('invite').hidden = guest || !inviting;
@@ -238,6 +240,83 @@ function show(screen) {
   $('stage').hidden = screen !== 'stage';
 }
 
+// ---------- room list ----------
+
+let stopWatching = null;
+let listTimer = 0;
+
+function toggleRoomList() {
+  const open = $('rooms').hidden;
+  $('rooms').hidden = !open;
+  $('roomListBtn').textContent = t(open ? 'roomListClose' : 'roomList');
+  if (!open) {
+    if (stopWatching) stopWatching();
+    stopWatching = null;
+    return;
+  }
+  $('roomItems').textContent = '';
+  $('roomsStatus').textContent = t('roomsLoading');
+  watchRooms(renderRooms)
+    .then((stop) => {
+      // Closed again while still connecting.
+      if ($('rooms').hidden) stop();
+      else stopWatching = stop;
+    })
+    .catch(() => ($('roomsStatus').textContent = t('roomsFail')));
+}
+
+function renderRooms(rooms) {
+  const others = rooms.filter((r) => r.room !== net.room);
+  $('roomsStatus').textContent = others.length ? '' : t('roomsEmpty');
+  $('roomItems').replaceChildren(
+    ...others.map((r) => {
+      const li = document.createElement('li');
+      const title = document.createElement('b');
+      title.textContent = t('roomOf', r.name || '?');
+      const state = document.createElement('span');
+      state.className = `badge${r.playing ? ' playing' : ''}`;
+      state.textContent = t(r.playing ? 'roomPlaying' : 'roomWaiting');
+      const who = document.createElement('small');
+      who.textContent = t('roomPeople', r.humans, r.bots, r.open);
+      const info = document.createElement('div');
+      info.append(title, state, who);
+      const link = `${location.pathname}?room=${r.room}`;
+      const join = document.createElement('button');
+      join.className = 'primary';
+      join.textContent = t('joinRoom');
+      join.disabled = r.open === 0;
+      join.addEventListener('click', () => (location.href = link));
+      const watch = document.createElement('button');
+      watch.textContent = t('watchRoom');
+      watch.addEventListener('click', () => (location.href = `${link}&watch`));
+      li.append(info, join, watch);
+      return li;
+    }),
+  );
+}
+
+// What the room list shows about this room. Sent at most once a second, since
+// renaming a slot sends the lobby on every keystroke.
+function announce() {
+  if (!net.announce) return;
+  clearTimeout(listTimer);
+  listTimer = setTimeout(() => {
+    if (!net.announce) return;
+    const humans = slots.filter((s) => s.kind === 'human' || s.kind === 'remote').length;
+    net.announce.update(
+      $('listed').checked
+        ? {
+            name: slots[0].name.trim() || defaultName(0),
+            humans,
+            bots: slots.filter(isPlaying).length - humans,
+            open: slots.filter((s) => s.kind === 'open').length,
+            state: game && !$('stage').hidden ? 'playing' : 'lobby',
+          }
+        : null,
+    );
+  }, 1000);
+}
+
 // ---------- hosting ----------
 
 async function openRoom() {
@@ -247,6 +326,13 @@ async function openRoom() {
   try {
     const room = await hostRoom({ join: guestJoined, data: guestData, leave: guestLeft });
     net.room = room.room;
+    // The room works by link even if it cannot be listed.
+    announceRoom(net.room)
+      .then((a) => {
+        net.announce = a;
+        announce();
+      })
+      .catch(() => {});
   } catch {
     net.role = null;
     net.status = t('roomFail');
@@ -346,6 +432,7 @@ function sendLobby() {
   if (net.role !== 'host') return;
   const view = slots.map((s) => ({ kind: s.kind, name: s.name }));
   broadcast((slot, i) => ({ t: 'lobby', slots: view, you: i, wins }));
+  announce();
 }
 
 function snapshot(events) {
@@ -603,6 +690,7 @@ function startGame() {
   const players = roster();
   broadcast((slot) => ({ t: 'start', players, you: slot.playerId, wins }));
   enterStage();
+  announce();
 }
 
 function enterStage() {
@@ -780,6 +868,7 @@ function toLobby() {
   input.enable(false);
   game = null;
   show('lobby');
+  announce();
 }
 
 $('start').addEventListener('click', () => {
@@ -789,6 +878,8 @@ $('start').addEventListener('click', () => {
 });
 $('again').addEventListener('click', startGame);
 $('addSlot').addEventListener('click', addSlot);
+$('roomListBtn').addEventListener('click', toggleRoomList);
+$('listed').addEventListener('change', announce);
 for (const id of ['back', 'quit']) {
   $(id).addEventListener('click', () => {
     // A guest leaving goes back to its own offline lobby.
