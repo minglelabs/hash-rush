@@ -4,6 +4,7 @@
 
 import { BONK } from '../sim/constants.js';
 import { inHome, allied } from '../sim/game.js';
+import { segmentClear } from '../sim/map.js';
 import { getNav, blockCost } from '../ai/nav.js';
 import { predictSwing } from '../ai/bot.js';
 
@@ -16,16 +17,56 @@ const KEYS = {
 };
 const HANDLED = new Set(Object.values(KEYS).flat());
 const STICK_RANGE = 46;
-// Top speed comes after a short drag; the knob can still travel the full range.
-const STICK_FULL = 18;
+// Past this the hamster runs flat out, the way a held arrow key does.
+const STICK_DEAD = 8;
+// Lanes run along the axes, so a push counts as straight unless it is this close
+// to a true diagonal.
+const DIAGONAL = (15 * Math.PI) / 180;
+// Extra lean needed to leave the current heading, so a wobbling thumb does not flicker.
+const STICKY = (6 * Math.PI) / 180;
 // Closest the stick centre may sit to a screen edge.
 const STICK_EDGE = 90;
+
+// The joystick is an eight-way pad: no slow walk, and a slightly crooked push still
+// runs straight down a lane. `was` is the previous result.
+export function stickDir(dx, dy, was = null) {
+  if (Math.hypot(dx, dy) < STICK_DEAD) return { x: 0, y: 0 };
+  const a = Math.atan2(dy, dx);
+  if (was && (was.x || was.y)) {
+    let off = Math.abs(a - Math.atan2(was.y, was.x));
+    if (off > Math.PI) off = 2 * Math.PI - off;
+    if (off <= (was.x && was.y ? DIAGONAL : Math.PI / 4 - DIAGONAL) + STICKY) return was;
+  }
+  let snap = Math.round(a / (Math.PI / 4)) * (Math.PI / 4);
+  if (Math.abs(a - snap) > DIAGONAL) snap = Math.round(a / (Math.PI / 2)) * (Math.PI / 2);
+  return { x: Math.round(Math.cos(snap)) || 0, y: Math.round(Math.sin(snap)) || 0 };
+}
+
+// Holding the touch button waits for the swing that connects instead of whiffing.
+// Returns the aim to swing with now, or null to keep waiting. With nobody around a
+// fresh press swings anyway, so the button never feels dead.
+export function holdSwing(g, me, fresh) {
+  if (me.swing || me.cooldown > 0 || inHome(g, me)) return null;
+  let best = null;
+  let near = false;
+  for (const e of g.players) {
+    if (e === me || allied(me, e) || inHome(g, e)) continue;
+    const p = predictSwing(me, e, BONK.windup);
+    if (p.dist < BONK.assist) near = true;
+    if (p.dist > BONK.reach - 3 || (best && p.dist >= best.dist)) continue;
+    if (segmentClear(g.map, me.x, me.y, e.x, e.y, 0)) best = p;
+  }
+  if (best) return best;
+  return fresh && !near ? { ax: 0, ay: 0, dist: 0 } : null;
+}
 
 export function createInput({ stage, canvas, stick, knob, bonkBtn, toWorld, toWorldDir }) {
   const down = new Set();
   let enabled = false;
   let touch = null;
   let button = false;
+  let buttonWas = false;
+  let pulsed = false;
   let click = null;
   let order = null;
   let autoHeld = false;
@@ -36,6 +77,7 @@ export function createInput({ stage, canvas, stick, knob, bonkBtn, toWorld, toWo
     down.clear();
     touch = null;
     button = false;
+    buttonWas = false;
     click = null;
     order = null;
     stick.hidden = true;
@@ -91,12 +133,18 @@ export function createInput({ stage, canvas, stick, knob, bonkBtn, toWorld, toWo
     let dy = e.clientY - touch.oy;
     const d = Math.hypot(dx, dy);
     if (d > STICK_RANGE) {
+      // The stick trails a thumb that has run past its rim, so turning back takes
+      // effect at once instead of after the trip back to the centre.
+      touch.ox += (dx / d) * (d - STICK_RANGE);
+      touch.oy += (dy / d) * (d - STICK_RANGE);
+      stick.style.left = `${touch.ox}px`;
+      stick.style.top = `${touch.oy}px`;
       dx = (dx / d) * STICK_RANGE;
       dy = (dy / d) * STICK_RANGE;
     }
-    const k = d < 6 ? 0 : Math.min(1, d / STICK_FULL) / Math.min(d, STICK_RANGE);
-    touch.x = dx * k;
-    touch.y = dy * k;
+    const dir = stickDir(dx, dy, touch);
+    touch.x = dir.x;
+    touch.y = dir.y;
     knob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
   });
   const release = (e) => {
@@ -140,7 +188,7 @@ export function createInput({ stage, canvas, stick, knob, bonkBtn, toWorld, toWo
 
   function read(g, id) {
     const me = g.players[id];
-    const out = { mx: 0, my: 0, bonk: held('bonk') || button, ax: 0, ay: 0 };
+    const out = { mx: 0, my: 0, bonk: held('bonk'), ax: 0, ay: 0 };
     if (held('left')) out.mx -= 1;
     if (held('right')) out.mx += 1;
     if (held('up')) out.my -= 1;
@@ -153,6 +201,15 @@ export function createInput({ stage, canvas, stick, knob, bonkBtn, toWorld, toWo
     const dir = toWorldDir(out.mx, out.my);
     out.mx = dir.x;
     out.my = dir.y;
+    // The sim swings on a fresh press, so a held button presses again each time a hit is on.
+    const aim = button && g.phase === 'playing' ? holdSwing(g, me, !buttonWas) : null;
+    buttonWas = button;
+    if (aim && !pulsed) {
+      out.bonk = true;
+      out.ax = aim.ax;
+      out.ay = aim.ay;
+    }
+    pulsed = !!aim && !pulsed;
     if (click && g.phase === 'playing') order = resolveClick(g, me);
     click = null;
     if (out.mx || out.my) order = null;
