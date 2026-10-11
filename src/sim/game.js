@@ -260,11 +260,17 @@ export function step(g, inputs) {
 
     // Holding the button with a seed winds up a throw, and letting go throws it.
     // The swing the press started can be cut short, but not before it lands.
+    const landed = !(p.swing && p.swing.phase === 'windup');
     if (inp.throw && p.carrying && !inHome(g, p)) {
       p.charge += DT;
+      // Fully wound up: it goes by itself.
+      if (p.charge >= THROW.max - 1e-9 && landed) {
+        throwing.push(p);
+        p.charge = 0;
+      }
     } else {
       const ready = p.charge >= THROW.charge - 1e-9 && p.carrying && !inHome(g, p);
-      if (ready && !(p.swing && p.swing.phase === 'windup')) throwing.push(p);
+      if (ready && landed) throwing.push(p);
       p.charge = 0;
     }
 
@@ -291,6 +297,13 @@ export function step(g, inputs) {
         p.fx = mx / len;
         p.fy = my / len;
       }
+    }
+
+    // Winding up a throw, the hamster turns wherever it is steered, even while the
+    // swing that the press started still holds it in place.
+    if (p.charge > 0 && len > 0.05) {
+      p.fx = mx / len;
+      p.fy = my / len;
     }
 
     p.x += p.vx * DT;

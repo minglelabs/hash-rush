@@ -7,17 +7,17 @@ export const HAMSTER_R = 15;
 export const SPEED = 185;
 // A hamster with a seed in its cheeks is a touch slower, so chasers stay relevant.
 export const CARRY_SPEED = 0.9;
-// On the last stretch, this close to the home edge, the seed weighs heavier still.
-export const LAST_STRETCH = { range: 90, speed: 0.8 };
+// A seed carrier this close to the home edge is "almost home": the alarm goes off,
+// and stopping it there is a big play.
+export const ALARM_RANGE = 190;
+// From where the alarm goes off, the seed weighs heavier still.
+export const LAST_STRETCH = { range: ALARM_RANGE, speed: 0.8 };
 
 export const GATHER_TIME = 2.2;
 // The more hamsters crowd the flower, the quicker a seed comes loose: four is
 // the baseline, and eight nibble in half the time.
 export const gatherTime = (players) => (GATHER_TIME * 4) / Math.max(4, players);
 export const COUNTDOWN = 3;
-// A seed carrier this close to the home edge is "almost home": the alarm goes off,
-// and stopping it there is a big play.
-export const ALARM_RANGE = 190;
 
 // Stalemate breaker: after `start` seconds the burrow's edge creeps towards the flower.
 // At `end` the round is called on bonks instead.
@@ -37,7 +37,8 @@ export const BONK = {
 };
 
 // A seed carrier can give the seed up as a weapon: hold the bonk button to wind up,
-// let go to throw it the way the hamster faces. It knocks out every rival along
+// let go to throw it the way the hamster faces. It can turn freely while winding
+// up, and a wind-up held for `max` seconds lets go by itself. It knocks out every rival along
 // its path, four hamsters long. `friendlyFire` decides whether team-mates in the
 // way go down too.
-export const THROW = { charge: 0.4, range: 8 * HAMSTER_R, width: HAMSTER_R + 6, friendlyFire: false };
+export const THROW = { charge: 0.4, max: 1.6, range: 8 * HAMSTER_R, width: HAMSTER_R + 6, friendlyFire: false };

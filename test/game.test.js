@@ -601,6 +601,49 @@ test('a throw does not reach into the burrow', () => {
   assert.equal(b.deaths, 0, 'safe inside the burrow');
 });
 
+test('a hamster winding up a throw turns freely, and the seed goes the way it faces when it leaves', () => {
+  const thrown = (g) => {
+    for (let i = 0; i < 3 * TICK_RATE; i++) {
+      const ev = g.events.find((e) => e.type === 'throw');
+      if (ev) return ev;
+      step(g, []);
+    }
+    return g.events.find((e) => e.type === 'throw');
+  };
+  const carrier = () => {
+    const g = started(1);
+    const a = g.players[0];
+    place(a, 760, 120);
+    a.fx = 1;
+    a.fy = 0;
+    a.carrying = true;
+    return g;
+  };
+
+  // The press swings first, as the keyboard does, and the hamster still turns during it.
+  let g = carrier();
+  run(g, 0.2, [{ mx: 0, my: 0, bonk: true, throw: true }]);
+  run(g, 0.3, [{ mx: 0, my: -1, bonk: true, throw: true }]);
+  assert.ok(g.players[0].swing, 'still inside the swing');
+  run(g, 0.1, [{ mx: -1, my: 0, bonk: true, throw: true }]);
+  const ev = thrown(g);
+  assert.deepEqual([ev.dx, ev.dy], [-1, 0], 'thrown the last way it turned');
+
+  // Held all the way, it lets go by itself, facing wherever it faces then.
+  g = carrier();
+  run(g, THROW.max - 0.2, [{ mx: 0, my: 0, bonk: false, throw: true }]);
+  assert.equal(g.players[0].carrying, true);
+  let auto = null;
+  for (let i = 0; i < 0.3 * TICK_RATE && !auto; i++) {
+    step(g, [{ mx: 0, my: 1, bonk: false, throw: true }]);
+    auto = g.events.find((e) => e.type === 'throw');
+  }
+  assert.deepEqual([auto.dx, auto.dy], [0, 1]);
+  assert.equal(g.players[0].carrying, false);
+  run(g, 0.5, [{ mx: 0, my: 1, bonk: false, throw: true }]);
+  assert.equal(g.players[0].charge, 0, 'nothing left to wind up');
+});
+
 test('a hard bot carrying a seed throws it at two rivals lined up in its way', () => {
   const g = started(3);
   const [bot, a, b] = g.players;
@@ -620,4 +663,29 @@ test('a hard bot carrying a seed throws it at two rivals lined up in its way', (
   assert.equal(thrown[0].hit, 2);
   assert.equal(a.deaths + b.deaths, 2);
   assert.equal(bot.deaths, 0);
+});
+
+test('a bot whose throw target gets away keeps its seed', () => {
+  const g = started(2);
+  const [bot, a] = g.players;
+  const brain = createBot({ difficulty: 'hard', seed: 5 });
+  const y = MAP.rowYs[1];
+  let wound = 0;
+  for (let tries = 0; tries < 40 && !wound; tries++) {
+    place(bot, 320, y);
+    bot.carrying = true;
+    place(a, 235, y);
+    for (let i = 0; i < 0.3 * TICK_RATE; i++) step(g, [brain.think(g, 0), IDLE]);
+    wound = bot.charge;
+  }
+  assert.ok(wound > 0.1, 'the bot started winding up a throw at the blocker');
+  // The blocker vanishes into its nest.
+  place(a, a.nest.x, a.nest.y);
+  const thrown = [];
+  for (let i = 0; i < 2.5 * TICK_RATE; i++) {
+    step(g, [brain.think(g, 0), IDLE]);
+    thrown.push(...g.events.filter((ev) => ev.type === 'throw'));
+  }
+  assert.equal(thrown.length, 0);
+  assert.equal(bot.carrying, true);
 });

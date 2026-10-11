@@ -540,7 +540,9 @@ export function createRenderer(canvas, map) {
     for (const p of game.players) {
       if (!p.carrying || !(p.charge > 0)) continue;
       const k = Math.min(1, p.charge / THROW.charge);
-      ctx.strokeStyle = k < 1 ? 'rgba(255, 255, 255, 0.6)' : `rgba(255, 200, 40, ${0.75 + 0.2 * Math.sin(t * 14)})`;
+      // Gold when ready, reddening as it nears the point where it lets go by itself.
+      const hot = Math.max(0, Math.min(1, (p.charge - THROW.charge) / (THROW.max - THROW.charge)));
+      ctx.strokeStyle = k < 1 ? 'rgba(255, 255, 255, 0.6)' : `rgba(255, ${Math.round(200 - 140 * hot)}, 40, ${0.75 + 0.2 * Math.sin(t * (14 + 16 * hot))})`;
       ctx.lineCap = 'round';
       ctx.lineWidth = 2 * THROW.width * (k < 1 ? 0.35 : 0.5);
       ctx.beginPath();
