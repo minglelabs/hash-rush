@@ -895,6 +895,7 @@ function enterStage() {
   $('quick').hidden = true;
   $('banner').classList.remove('show');
   $('again').hidden = net.role === 'guest';
+  $('againBtn').hidden = true;
   $('resultWait').hidden = net.role !== 'guest';
   scoreKey = '';
   showBoard(false);
@@ -1012,6 +1013,13 @@ function fillScores(table) {
 }
 
 let boardKey = '';
+// Once a round is over, Tab and the chart button bring the result card back.
+function reopenResult() {
+  if (!game || game.phase !== 'over' || $('stage').hidden) return false;
+  if ($('result').hidden) showResult();
+  return true;
+}
+
 function showBoard(on) {
   if (!game || $('stage').hidden || !$('result').hidden) on = false;
   $('board').hidden = !on;
@@ -1035,6 +1043,8 @@ function showResult() {
   if (game.timeout) $('resultTitle').textContent = `⏰ ${$('resultTitle').textContent}`;
   $('result').hidden = false;
   syncChat();
+  // The card can be put away to look around, so the rematch button is also outside it.
+  $('againBtn').hidden = net.role === 'guest';
   if (net.role !== 'guest') $('again').focus();
 }
 
@@ -1186,11 +1196,18 @@ for (const [button, field] of [['copy', 'inviteLink'], ['copyWatch', 'watchLink'
 window.addEventListener('keydown', (e) => {
   if (e.code !== 'Tab' || $('stage').hidden || !$('result').hidden) return;
   e.preventDefault();
-  if ($('board').hidden) showBoard(true);
+  if (!reopenResult() && $('board').hidden) showBoard(true);
 });
 window.addEventListener('keyup', (e) => e.code === 'Tab' && showBoard(false));
 window.addEventListener('blur', () => showBoard(false));
-$('boardBtn').addEventListener('click', () => showBoard($('board').hidden));
+$('boardBtn').addEventListener('click', () => {
+  if (game && game.phase === 'over' && !$('result').hidden) $('result').hidden = true;
+  else if (!reopenResult()) showBoard($('board').hidden);
+});
+$('resultClose').addEventListener('click', () => ($('result').hidden = true));
+// A click on the dimmed map around the card also puts it away.
+$('result').addEventListener('click', (e) => e.target === $('result') && ($('result').hidden = true));
+$('againBtn').addEventListener('click', startGame);
 $('board').addEventListener('click', () => showBoard(false));
 $('mute').textContent = audio.isMuted() ? '🔇' : '🔊';
 $('mute').addEventListener('click', () => {
