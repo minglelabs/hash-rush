@@ -69,6 +69,7 @@ export function createGame({ slots, map = MAP, seed = 1 }) {
     deaths: 0,
     seeds: 0,
     supers: 0,
+    throws: 0,
     charge: 0,
   }));
   return {
@@ -175,7 +176,7 @@ function timeoutWinners(players) {
     const key = p.team >= 0 ? `t${p.team}` : `p${p.id}`;
     const side = sides.get(key) || { ids: [], kills: 0, deaths: 0, seeds: 0 };
     side.ids.push(p.id);
-    side.kills += p.kills;
+    side.kills += p.kills + p.throws;
     side.deaths += p.deaths;
     side.seeds += p.seeds;
     sides.set(key, side);
@@ -186,11 +187,13 @@ function timeoutWinners(players) {
 }
 
 // Credits `a` with knocking out `victims`, by a bonk or a thrown seed.
-function strike(g, a, victims, bonked) {
+function strike(g, a, victims, bonked, thrown = false) {
   if (!victims.length) return;
   for (const v of victims) {
     bonked.add(v);
-    a.kills++;
+    // A thrown seed is its own kind of knock-out and is counted apart from bonks.
+    if (thrown) a.throws++;
+    else a.kills++;
     // `close` marks a seed stopped just short of home.
     const close = v.carrying && v.x - g.homeX < ALARM_RANGE;
     g.events.push({ type: 'bonk', by: a.id, id: v.id, x: v.x, y: v.y, seed: v.carrying, close });
@@ -342,7 +345,7 @@ export function step(g, inputs) {
       victims.push(v);
     }
     g.events.push({ type: 'throw', id: a.id, x: a.x, y: a.y, dx: a.fx, dy: a.fy, hit: victims.length });
-    strike(g, a, victims, bonked);
+    strike(g, a, victims, bonked, true);
   }
   for (const a of landing) {
     if (bonked.has(a)) continue;

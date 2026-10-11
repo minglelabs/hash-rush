@@ -576,7 +576,8 @@ test('a held and released throw sends the seed along the way the hamster faces, 
   assert.deepEqual(g.events.filter((ev) => ev.type === 'multi'), [{ type: 'multi', by: 0, n: 2 }]);
   assert.equal(g.players[0].carrying, false, 'the seed is gone');
   assert.deepEqual(g.players.map((p) => p.deaths), [0, 1, 1, 0, 0], 'out of range and off to the side are safe');
-  assert.equal(g.players[0].kills, 2);
+  assert.equal(g.players[0].throws, 2, 'counted as throws');
+  assert.equal(g.players[0].kills, 0, 'and not as bonks');
 
   // A team-mate standing in the path is not hurt.
   g = setup([0, 0, 1, 1, 1]);
