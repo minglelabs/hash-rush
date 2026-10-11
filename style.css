@@ -1078,9 +1078,33 @@ button.primary:active {
   margin-bottom: 0;
 }
 
-.scoreTable th:first-child {
-  font-size: 0.85em;
-  font-weight: 600;
+/* Running totals sit apart from this round's numbers. */
+.scoreTable .total {
+  color: #8a6a3a;
+}
+
+.scoreTable th {
+  white-space: nowrap;
+}
+
+.scoreTable td:nth-child(5),
+.scoreTable th:nth-child(5) {
+  border-left: 2px solid var(--line);
+}
+
+@media (max-width: 640px), (orientation: portrait) {
+  .scoreTable {
+    font-size: 11px;
+  }
+
+  .scoreTable th {
+    white-space: normal;
+  }
+
+  .scoreTable th,
+  .scoreTable td {
+    padding: 4px 3px;
+  }
 }
 
 /* The result card can be put away to look at the map and reach the other buttons. */

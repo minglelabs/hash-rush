@@ -990,25 +990,30 @@ function addCareer() {
   }
 }
 
-// The score table: this round's numbers with the running total in brackets.
+// The score table: this round's numbers, then the running totals for the room.
 // It is the result screen's table and the one Tab brings up mid-round.
 function fillScores(table) {
   table.textContent = '';
   const head = table.insertRow();
-  for (const h of [t('scoreNote'), ...t('columns')]) {
+  for (const h of ['', ...t('columns')]) {
     const th = document.createElement('th');
     th.textContent = h;
     head.append(th);
   }
+  [...head.cells].forEach((th, i) => th.classList.toggle('total', i > 3));
   for (const p of lineUp()) {
     const row = table.insertRow();
     row.classList.toggle('winner', won(p));
     row.insertCell().append(nameTag(p));
     const c = career[p.look] || [0, 0, 0];
-    [p.kills, p.deaths, p.seeds].forEach((v, i) => {
-      row.insertCell().textContent = `${v} (${c[i] + (game.counted ? 0 : v)})`;
+    const round = [p.kills, p.deaths, p.seeds];
+    // Until the round is added to the totals, they include it as it stands.
+    const total = round.map((v, i) => c[i] + (game.counted ? 0 : v));
+    [...round, ...total, wins[p.look]].forEach((v, i) => {
+      const cell = row.insertCell();
+      cell.textContent = v;
+      cell.classList.toggle('total', i >= round.length);
     });
-    row.insertCell().textContent = wins[p.look];
   }
 }
 
@@ -1024,6 +1029,7 @@ function showBoard(on) {
   if (!game || $('stage').hidden || !$('result').hidden) on = false;
   $('board').hidden = !on;
   boardKey = '';
+  if (on) fillScores($('boardTable'));
 }
 
 function showResult() {
