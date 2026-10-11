@@ -358,14 +358,16 @@ test('one hamster bringing a seed home wins it for the team', () => {
   assert.deepEqual(g.events.at(-1), { type: 'win', id: 4, team: 1 });
 });
 
-test('team-mates start on neighbouring nests', () => {
-  for (let seed = 1; seed <= 20; seed++) {
+test('nests are dealt at random, team-mates included', () => {
+  const orders = new Set();
+  for (let seed = 1; seed <= 40; seed++) {
     const teams = [0, 1, 0, 1, 0];
     const g = createGame({ slots: teams.map((team, i) => ({ name: `p${i}`, kind: 'bot', team })), seed });
-    const order = [...g.players].sort((a, b) => a.nest.y - b.nest.y).map((p) => p.team).join('');
-    assert.ok(order === '00011' || order === '11000', `seed ${seed}: ${order}`);
+    orders.add([...g.players].sort((a, b) => a.nest.y - b.nest.y).map((p) => p.team).join(''));
     assert.equal(new Set(g.players.map((p) => p.nest)).size, 5);
   }
+  // Not just the two line-ups that keep a team together.
+  assert.ok(orders.size > 4, [...orders].join());
 });
 
 test('an uneven three against two bot game finishes', () => {

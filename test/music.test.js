@@ -43,6 +43,23 @@ test('the round playlist plays on from one tune to a different one', () => {
     assert.ok(heard.length >= 4, heard.join());
     for (let i = 1; i < heard.length; i++) assert.notEqual(heard[i], heard[i - 1]);
     for (const name of heard) assert.ok(PLAYLISTS.game.includes(name), name);
+    assert.equal(new Set(heard).size, heard.length, `no tune comes back before all six have played: ${heard.join()}`);
+
+    // A trip to the lobby does not start the list over: the next tunes are the ones not heard yet.
+    music.set('lobby');
+    ctx.currentTime += 1;
+    tick();
+    assert.equal(music.now(), 'lobby');
+    music.set('game');
+    for (let s = 0; s < 400 && new Set(heard).size < 6; s++) {
+      ctx.currentTime += 1;
+      tick();
+      if (music.now() !== heard.at(-1)) {
+        assert.ok(!heard.includes(music.now()), `${music.now()} repeated after ${heard.join()}`);
+        heard.push(music.now());
+      }
+    }
+    assert.equal(new Set(heard).size, 6, heard.join());
   } finally {
     globalThis.document = real.document;
     globalThis.setInterval = real.setInterval;
