@@ -351,6 +351,7 @@ function updateStart() {
 function show(screen) {
   $('lobby').hidden = screen !== 'lobby';
   $('stage').hidden = screen !== 'stage';
+  if (screen === 'lobby') checkUpdate();
   // The round's tune keeps going from one round to the next, result screen included.
   audio.setMusic(screen === 'lobby' ? 'lobby' : 'game');
 }
@@ -1379,6 +1380,52 @@ window.addEventListener('resize', () => renderer.resize());
 document.addEventListener('visibilitychange', () => {
   acc = 0;
 });
+
+// ---------- updates ----------
+
+// The service worker makes every page load fetch the latest deploy. A page that is
+// already open is never reloaded, since that would end a round or close a room;
+// instead the lobby offers a button once a newer version is out.
+const seenTags = new Map();
+let lastCheck = -Infinity;
+
+async function checkUpdate() {
+  if (performance.now() - lastCheck < 60000 || !$('updateBtn').hidden) return;
+  lastCheck = performance.now();
+  const files = performance
+    .getEntriesByType('resource')
+    .map((e) => e.name)
+    .filter((url) => url.startsWith(location.origin) && /\.(js|css)(\?|$)/.test(url));
+  try {
+    for (const url of new Set([location.origin + location.pathname, ...files])) {
+      const res = await fetch(url, { method: 'HEAD', cache: 'no-store' });
+      const tag = res.ok && (res.headers.get('etag') || res.headers.get('last-modified'));
+      if (!tag) continue;
+      if (!seenTags.has(url)) seenTags.set(url, tag);
+      else if (seenTags.get(url) !== tag) $('updateBtn').hidden = false;
+    }
+  } catch {
+    // offline: try again later
+  }
+}
+setInterval(() => {
+  if (!document.hidden && !$('lobby').hidden) checkUpdate();
+}, 180000);
+$('updateBtn').addEventListener('click', () => {
+  // Reloading breaks up the room, so anyone sharing one is asked first.
+  const shared = net.role === 'guest' || net.watchers.length > 0 || slots.some((s) => s.conn);
+  if (!shared || confirm(t('updateLeave'))) location.reload();
+});
+
+if ('serviceWorker' in navigator) {
+  // The first visit loads before the worker is in charge and may have run cached
+  // scripts. Nothing has happened yet at that point, so load once more through it.
+  const fresh = !navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (fresh && performance.now() < 8000 && !game) location.reload();
+  });
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
 
 localizePage();
 // The room exists from the start, so the invite link is always there to share.

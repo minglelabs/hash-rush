@@ -301,6 +301,15 @@ button.primary:active {
   margin: -8px 0 18px;
 }
 
+#updateBtn {
+  display: block;
+  width: 100%;
+  margin-bottom: 14px;
+  background: #d8f0c8;
+  border-color: #9fd08a;
+  color: #2f7a3d;
+}
+
 #roomListBtn {
   display: block;
   width: 100%;
