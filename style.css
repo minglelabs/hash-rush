@@ -117,6 +117,37 @@ button.primary:active {
   border-radius: 16px;
 }
 
+#slots li.teamed {
+  grid-template-columns: 52px 1fr 96px 148px;
+}
+
+#mode {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 10px;
+}
+
+#mode button {
+  padding: 0.35em 0.9em;
+}
+
+#mode button.on {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
+}
+
+#mode button:disabled {
+  opacity: 1;
+  cursor: default;
+}
+
+#teamInfo {
+  margin-left: auto;
+  font-weight: 700;
+}
+
 #addSlot {
   display: block;
   width: 100%;
@@ -724,6 +755,15 @@ button.primary:active {
 
   #slots li {
     grid-template-columns: 46px 1fr 118px;
+  }
+
+  #slots li.teamed {
+    grid-template-columns: 46px 1fr 78px 96px;
+    gap: 6px;
+  }
+
+  #slots li.teamed select {
+    padding: 0.45em 0.3em;
   }
 }
 

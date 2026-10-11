@@ -3,7 +3,7 @@
 import { WORLD } from '../sim/map.js';
 import { BONK, GATHER_TIME } from '../sim/constants.js';
 import { mulberry32 } from '../sim/rng.js';
-import { LOOKS } from './looks.js';
+import { colorOf, lookOf } from './looks.js';
 import { t as tr } from './i18n.js';
 
 const TAU = Math.PI * 2;
@@ -312,7 +312,7 @@ export function createRenderer(canvas, map) {
   }
 
   function onEvent(ev, game, meId) {
-    const color = (id) => LOOKS[game.players[id].look].color;
+    const color = (id) => colorOf(game.players[id]);
     if (ev.type === 'impact') {
       fx.push({ type: 'swoosh', x: ev.x, y: ev.y, a: Math.atan2(ev.dy, ev.dx), t: 0, life: 0.2, hit: ev.hit });
     } else if (ev.type === 'bonk') {
@@ -508,7 +508,7 @@ export function createRenderer(canvas, map) {
         oval(ctx, 0, 6, 19, 11);
         ctx.fill();
         ctx.lineWidth = 3;
-        ctx.strokeStyle = LOOKS[p.look].color;
+        ctx.strokeStyle = colorOf(p);
         ctx.stroke();
       });
     }
@@ -536,7 +536,7 @@ export function createRenderer(canvas, map) {
     const depth = (p) => (portrait ? -p.x : p.y);
     const order = [...game.players].sort((a, c) => depth(a) - depth(c));
     for (const p of order) {
-      const look = LOOKS[p.look];
+      const look = lookOf(p);
       const face = toScreenDir(p.fx, p.fy);
       upright(p.x, p.y, () => {
         if (p.carrying) {
@@ -586,7 +586,7 @@ export function createRenderer(canvas, map) {
     }
 
     for (const p of order) {
-      const look = LOOKS[p.look];
+      const look = lookOf(p);
       const me = p.id === view.meId;
       upright(p.x, p.y, () => {
         let ly = -25;

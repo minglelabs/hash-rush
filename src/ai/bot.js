@@ -3,7 +3,7 @@
 
 import { DT, SPEED, CARRY_SPEED, HAMSTER_R, BONK } from '../sim/constants.js';
 import { distToSegment, isFree } from '../sim/map.js';
-import { inHome } from '../sim/game.js';
+import { inHome, allied } from '../sim/game.js';
 import { mulberry32 } from '../sim/rng.js';
 import { getNav, blockCost } from './nav.js';
 
@@ -41,6 +41,7 @@ export function predictSwing(me, e, lead) {
 function snapshot(g, p) {
   return {
     id: p.id,
+    team: p.team,
     x: p.x,
     y: p.y,
     vx: p.vx,
@@ -91,7 +92,9 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
     const nav = getNav(map);
     const now = g.time;
     const f = map.flower;
-    const seen = history[0].filter((s) => s.id !== id);
+    // Everything below is about rivals; team-mates are neither targets nor obstacles.
+    const seen = history[0].filter((s) => s.id !== id && !allied(s, me));
+    const mates = history[0].filter((s) => s.id !== id && allied(s, me));
     const meHome = inHome(g, me);
     // Spots just inside the burrow that a seed carrier can aim for.
     const entries = map.rowYs.map((y) => ({ x: g.homeX - 14, y })).filter((p) => isFree(map, p.x, p.y, HAMSTER_R));
@@ -196,6 +199,27 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
         mem.targetId = target.c.id;
         mem.path = target.at === target.c ? null : nav.findPath(me, target.at).points;
         return;
+      }
+
+      // A team-mate is running a seed home: clear out whoever is closest to them.
+      for (const c of mates) {
+        if (!c.carrying || c.home) continue;
+        let guard = null;
+        let guardD = 320;
+        for (const e of seen) {
+          if (e.home || e.carrying) continue;
+          const d = dist(e, c);
+          if (d < guardD) {
+            guardD = d;
+            guard = e;
+          }
+        }
+        if (guard) {
+          mem.mode = 'hunt';
+          mem.targetId = guard.id;
+          mem.path = null;
+          return;
+        }
       }
 
       // Otherwise go for a seed. Only one hamster can nibble at a time and it has
