@@ -89,7 +89,7 @@ try {
 }
 const wins = slots.map(() => 0);
 // Bonks, times bonked and seeds added up over every round in this room.
-const career = slots.map(() => [0, 0, 0, 0, 0]);
+const career = slots.map(() => [0, 0, 0, 0, 0, 0]);
 // Rounds finished in this room.
 let rounds = 0;
 // The first to this many wins takes the championship, and the room starts over.
@@ -607,7 +607,7 @@ function snapshot(events) {
     to: game.timeout,
     p: game.players.map((p) => [
       r(p.x), r(p.y), r(p.vx), r(p.vy), p.fx, p.fy, p.carrying ? 1 : 0, p.gather, p.queued,
-      p.swing ? [p.swing.phase, p.swing.t, p.swing.dx, p.swing.dy] : 0, p.cooldown, p.kills, p.deaths, p.seeds, p.supers, p.charge,
+      p.swing ? [p.swing.phase, p.swing.t, p.swing.dx, p.swing.dy] : 0, p.cooldown, p.kills, p.deaths, p.seeds, p.supers, p.charge, p.throws,
     ]),
     ev: events,
   };
@@ -690,7 +690,7 @@ function hostData(msg) {
       timeout: false,
       players: msg.players.map((p, id) => ({
         id, name: p.name, look: p.look, team: p.team ?? -1, kind: p.kind, nest: p.nest, x: p.nest.x, y: p.nest.y, vx: 0, vy: 0, fx: 1, fy: 0,
-        carrying: false, gather: 0, queued: -1, swing: null, cooldown: 0, kills: 0, deaths: 0, seeds: 0, supers: 0, charge: 0,
+        carrying: false, gather: 0, queued: -1, swing: null, cooldown: 0, kills: 0, deaths: 0, seeds: 0, supers: 0, charge: 0, throws: 0,
       })),
     };
     meId = msg.you;
@@ -711,7 +711,7 @@ function hostData(msg) {
       p.gather = s[7];
       p.queued = s[8];
       p.swing = s[9] ? { phase: s[9][0], t: s[9][1], dx: s[9][2], dy: s[9][3] } : null;
-      [p.cooldown, p.kills, p.deaths, p.seeds, p.supers = 0, p.charge = 0] = s.slice(10);
+      [p.cooldown, p.kills, p.deaths, p.seeds, p.supers = 0, p.charge = 0, p.throws = 0] = s.slice(10);
     });
     for (const ev of msg.ev) onEvent(ev);
   } else if (msg.t === 'lobbyscreen') {
@@ -1055,14 +1055,17 @@ function onEvent(ev) {
 // A finished round goes into the running totals once.
 // A goal is a seed brought home: one hamster's, in a round that did not run out of time.
 const goal = (p) => (game.phase === 'over' && !game.timeout && game.winner === p.id ? 1 : 0);
-const roundOf = (p) => [p.kills, p.deaths, p.seeds, goal(p), p.supers];
+const roundOf = (p) => [p.kills, p.deaths, p.seeds, goal(p), p.supers, p.throws || 0];
+// The order the table shows them in. This round leaves the goal out: its badge says it.
+const ROUND_COLS = [0, 5, 1, 2, 4];
+const TOTAL_COLS = [0, 5, 1, 2, 3, 4];
 
 function addCareer() {
   if (game.counted) return;
   game.counted = true;
   rounds++;
   for (const p of game.players) {
-    const c = career[p.look] || (career[p.look] = [0, 0, 0, 0, 0]);
+    const c = career[p.look] || (career[p.look] = [0, 0, 0, 0, 0, 0]);
     roundOf(p).forEach((v, k) => (c[k] = (c[k] || 0) + v));
   }
 }
@@ -1083,12 +1086,12 @@ function fillScores(table) {
   const groups = table.insertRow();
   groups.className = 'groups';
   th(groups, t('gameNo', rounds + (game.counted ? 0 : 1)));
-  th(groups, t('thisRound'), cols.length);
-  th(groups, t('totals'), cols.length + 3).classList.add('total', 'split');
+  th(groups, t('thisRound'), ROUND_COLS.length);
+  th(groups, t('totals'), TOTAL_COLS.length + 3).classList.add('total', 'split');
   const head = table.insertRow();
   th(head, '');
-  cols.forEach((h) => th(head, h));
-  [...cols, t('colWins'), t('colScore')].forEach((h, k) => {
+  ROUND_COLS.forEach((c) => th(head, cols[c]));
+  [...TOTAL_COLS.map((c) => cols[c]), t('colWins'), t('colScore')].forEach((h, k) => {
     const cell = th(head, h);
     cell.classList.add('total');
     cell.classList.toggle('split', k === 0);
@@ -1112,11 +1115,11 @@ function fillScores(table) {
     }
     const round = roundOf(p);
     const total = totalOf(p);
-    [...round, ...total, wins[p.look], mvpScore(total)].forEach((v, k) => {
+    [...ROUND_COLS.map((c) => round[c]), ...TOTAL_COLS.map((c) => total[c]), wins[p.look], mvpScore(total)].forEach((v, k) => {
       const cell = row.insertCell();
       cell.textContent = v;
-      cell.classList.toggle('total', k >= round.length);
-      cell.classList.toggle('split', k === round.length);
+      cell.classList.toggle('total', k >= ROUND_COLS.length);
+      cell.classList.toggle('split', k === ROUND_COLS.length);
     });
     row.lastChild.classList.add('score');
     // The MVP badge sits at the far right, after the score that earned it.
@@ -1133,8 +1136,8 @@ function fillScores(table) {
   const rule = table.insertRow();
   rule.className = 'rule';
   const cell = rule.insertCell();
-  cell.colSpan = 2 * cols.length + 4;
-  cell.textContent = `${t('mvpRule')} = ${cols.map((name, k) => (MVP_POINTS[k] ? `${name} ×${MVP_POINTS[k]}` : '')).filter(Boolean).join(' + ')}`;
+  cell.colSpan = ROUND_COLS.length + TOTAL_COLS.length + 4;
+  cell.textContent = `${t('mvpRule')} = ${TOTAL_COLS.filter((c) => MVP_POINTS[c]).map((c) => `${cols[c]} ×${MVP_POINTS[c]}`).join(' + ')}`;
 }
 
 let boardKey = '';
@@ -1406,7 +1409,7 @@ function updateHud() {
   // The throw button is only there while this player has a seed to throw.
   $('throw').hidden = !(meId >= 0 && game.phase === 'playing' && game.players[meId].carrying);
   if (!$('board').hidden) {
-    const now = game.players.map((p) => `${p.kills},${p.deaths},${p.seeds},${p.supers}`).join();
+    const now = game.players.map((p) => `${p.kills},${p.deaths},${p.seeds},${p.supers},${p.throws}`).join();
     if (now !== boardKey) {
       boardKey = now;
       fillScores($('boardTable'));

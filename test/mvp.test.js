@@ -8,6 +8,7 @@ test('bonks, seeds, goals and super plays each add to the MVP score; being bonke
   assert.equal(mvpScore([0, 0, 0, 2, 0]), 10);
   assert.equal(mvpScore([0, 0, 0, 0, 2]), 6);
   assert.equal(mvpScore([3, 5, 2, 1, 1]), 15);
+  assert.equal(mvpScore([0, 0, 0, 0, 0, 3]), 6);
   assert.equal(mvpScore([]), 0);
 });
 
