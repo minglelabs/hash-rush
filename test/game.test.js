@@ -483,6 +483,24 @@ test('two hard bots that meet in a lane do not stand there swinging at thin air'
   assert.equal(clinched, 0);
 });
 
+test('a bot sometimes fetches a second seed while a team-mate carries one, and sometimes escorts', () => {
+  const teams = [0, 0, 1, 1];
+  let both = 0;
+  let escorted = 0;
+  for (let n = 0; n < 12; n++) {
+    const g = createGame({ slots: teams.map((team, i) => ({ name: `b${i}`, kind: 'bot', team })), seed: n + 1 });
+    const bots = teams.map((_, i) => createBot({ difficulty: 'hard', seed: n * 97 + i * 13 + 5 }));
+    let pair = false;
+    while (g.phase !== 'over' && g.tick < 200 * TICK_RATE) {
+      step(g, bots.map((b, i) => b.think(g, i)));
+      pair ||= [0, 1].some((team) => g.players.filter((p) => p.team === team && p.carrying).length === 2);
+    }
+    if (pair) both++;
+    else escorted++;
+  }
+  assert.ok(both > 0, 'no team ever carried two seeds at once');
+  assert.ok(escorted > 0, 'every game had a team carrying two seeds');
+
 test('bonks in quick succession chain into a double and a triple, and a pause or a knock-out ends the chain', () => {
   const g = started(4);
   const [a, b, c, d] = g.players;

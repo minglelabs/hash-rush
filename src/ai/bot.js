@@ -25,6 +25,8 @@ export const DIFFICULTY = {
 const TOUCH = 2 * HAMSTER_R;
 const DANGER_R = 110;
 const DANGER_K = 300;
+// Chance that a bot goes for a seed of its own while a team-mate carries one home.
+const SECOND_SEED = 0.45;
 // How far outside a tunnel's edge a bot stops when it does not mean to go in.
 const RIM = 2;
 
@@ -81,6 +83,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
     targetId: -1,
     entryY: -1,
     denyRolls: new Map(),
+    secondRolls: new Map(),
     huntRoll: { id: -1, until: 0, yes: false },
     duel: { id: -1, expires: 0 },
     noise: 0,
@@ -262,8 +265,13 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       }
 
       // A team-mate is running a seed home: clear out whoever is closest to them.
+      // Or leave the escorting to others and fetch a second seed, which gives the
+      // rivals two carriers to stop. One choice per trip, so it does not dither.
       for (const c of mates) {
         if (!c.carrying || c.home) continue;
+        const key = c.id * 1000 + c.seeds;
+        if (!mem.secondRolls.has(key)) mem.secondRolls.set(key, rng() < SECOND_SEED);
+        if (g.nibbler === id || mem.secondRolls.get(key)) break;
         let guard = null;
         let guardD = 320;
         for (const e of seen) {
