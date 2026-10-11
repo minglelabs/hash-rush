@@ -133,6 +133,49 @@ export function createAudio() {
         tone({ f: 1262, dur: 0.9, vol: 0.05, at });
       }
     },
+    // Ta-da-da-da-daaa: the champion's fanfare, brassy, with a chord under the last note.
+    fanfare: () => {
+      const brass = (f, at, dur, vol = 0.09) => {
+        tone({ f, dur, type: 'sawtooth', vol: vol * 0.55, at });
+        tone({ f, dur, type: 'square', vol: vol * 0.35, at });
+        tone({ f: f * 2, dur: dur * 0.7, type: 'triangle', vol: vol * 0.3, at });
+      };
+      [392, 392, 392, 523].forEach((f, i) => brass(f, i * 0.17, 0.16));
+      brass(659, 0.68, 0.3);
+      brass(784, 1.0, 1.9, 0.11);
+      [523, 659].forEach((f) => brass(f, 1.0, 1.9, 0.05));
+      [1047, 1319, 1568, 2093].forEach((f, i) => tone({ f, dur: 0.5, vol: 0.05, at: 1.5 + i * 0.12 }));
+    },
+    // A crowd going "waaah": a swell of voice-band noise with clapping scattered through it.
+    cheer: () => {
+      if (muted || !ctx) return;
+      const dur = 4.5;
+      const len = Math.ceil(ctx.sampleRate * dur);
+      const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+      const t0 = ctx.currentTime + 0.3;
+      for (const [freq, q, vol] of [[750, 0.9, 0.16], [1250, 1.2, 0.11], [2600, 1.5, 0.05]]) {
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        const band = ctx.createBiquadFilter();
+        band.type = 'bandpass';
+        band.Q.value = q;
+        // The vowel opens up as the cheer rises.
+        band.frequency.setValueAtTime(freq * 0.8, t0);
+        band.frequency.linearRampToValueAtTime(freq * 1.15, t0 + 0.9);
+        band.frequency.linearRampToValueAtTime(freq, t0 + dur);
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(0.0001, t0);
+        gain.gain.exponentialRampToValueAtTime(vol, t0 + 0.7);
+        gain.gain.setValueAtTime(vol, t0 + 2.2);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+        src.connect(band).connect(gain).connect(ctx.destination);
+        src.start(t0);
+        src.stop(t0 + dur);
+      }
+      for (let i = 0; i < 26; i++) setTimeout(() => noise({ dur: 0.03, vol: 0.05, cutoff: 1500 }), 500 + Math.random() * 3200);
+    },
     win: () => [523, 659, 784, 1047].forEach((f, i) => tone({ f, dur: 0.2, type: 'triangle', at: i * 0.12 })),
     lose: () => [440, 370, 311, 262].forEach((f, i) => tone({ f, dur: 0.22, type: 'triangle', vol: 0.09, at: i * 0.15 })),
   };
