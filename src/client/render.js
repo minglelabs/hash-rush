@@ -650,7 +650,69 @@ export function createRenderer(canvas, map) {
       });
     }
 
+    // What somebody just said, in a bubble over their hamster: "name: message".
+    const now = performance.now();
+    for (const p of order) {
+      const said = view.bubbles && view.bubbles.get(p.look);
+      if (!said || said.until <= now) continue;
+      upright(p.x, p.y, () => drawBubble(p, said, now));
+    }
+
     drawFx(dt);
+  }
+
+  function drawBubble(p, said, now) {
+    const size = 13 * (portrait ? 1.45 : 1);
+    const maxW = 170 * (portrait ? 1.3 : 1);
+    const head = `${said.name}: `;
+    ctx.font = `700 ${size}px ${FONT}`;
+    // Chinese, Japanese and Korean have no spaces to break at, so wrap by character.
+    const lines = [''];
+    for (const ch of head + said.text) {
+      if (ctx.measureText(lines.at(-1) + ch).width > maxW) {
+        if (lines.length === 3) {
+          lines[2] = `${lines[2].slice(0, -1)}…`;
+          break;
+        }
+        lines.push('');
+      }
+      lines[lines.length - 1] += ch;
+    }
+    const w = Math.max(...lines.map((line) => ctx.measureText(line).width)) + 16;
+    const lh = size * 1.25;
+    const h = lines.length * lh + 10;
+    // Keep the whole bubble on screen when the hamster is near an edge.
+    const sx = portrait ? p.y : p.x;
+    const sy = portrait ? WORLD.w - p.x : p.y;
+    const vw = portrait ? WORLD.h : WORLD.w;
+    const cx = Math.min(Math.max(sx, w / 2 + 4), vw - w / 2 - 4) - sx;
+    const top = Math.max(-(p.carrying ? 58 : 34) - h, 4 - sy);
+    ctx.globalAlpha = Math.min(1, (said.until - now) / 400);
+    ctx.beginPath();
+    ctx.roundRect(cx - w / 2, top, w, h, 9);
+    ctx.moveTo(-5, top + h - 1);
+    ctx.lineTo(0, top + h + 7);
+    ctx.lineTo(5, top + h - 1);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.96)';
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = colorOf(p);
+    ctx.stroke();
+    ctx.textAlign = 'left';
+    lines.forEach((line, i) => {
+      const y = top + 5 + lh * (i + 0.78);
+      ctx.fillStyle = '#3a2a1a';
+      ctx.fillText(line, cx - w / 2 + 8, y);
+      // The name stands out in the speaker's colour.
+      if (i === 0) {
+        const shown = line.slice(0, head.length - 1);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.96)';
+        ctx.fillRect(cx - w / 2 + 7, top + 4, ctx.measureText(shown).width + 1, lh);
+        ctx.fillStyle = colorOf(p);
+        ctx.fillText(shown, cx - w / 2 + 8, y);
+      }
+    });
+    ctx.globalAlpha = 1;
   }
 
   return { resize, draw, onEvent, toWorld, toWorldDir, clear: () => (fx.length = 0) };

@@ -115,6 +115,7 @@ button.primary:active {
   border: 2px solid var(--line);
   border-left: 8px solid var(--c);
   border-radius: 16px;
+  position: relative;
 }
 
 #slots li.teamed {
@@ -167,6 +168,26 @@ button.primary:active {
   border-style: dashed;
   background: transparent;
   color: #a07a45;
+}
+
+.bubble {
+  position: absolute;
+  left: 34px;
+  bottom: calc(100% - 12px);
+  z-index: 5;
+  max-width: 80%;
+  padding: 4px 10px;
+  background: #fff;
+  border: 2px solid var(--c);
+  border-radius: 12px 12px 12px 3px;
+  box-shadow: 0 3px 8px rgba(58, 42, 26, 0.18);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+
+.bubble b {
+  color: var(--c);
 }
 
 #slots li.closed {
