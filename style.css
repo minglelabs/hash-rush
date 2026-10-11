@@ -647,40 +647,40 @@ button.primary:active {
   animation: pulse 0.8s ease-in-out infinite alternate;
 }
 
-#result table {
+.scoreTable {
   width: 100%;
   margin-bottom: 16px;
   border-collapse: collapse;
   font-size: clamp(12px, 1.6cqw, 16px);
 }
 
-#result th {
+.scoreTable th {
   color: #a07a45;
   font-weight: 600;
 }
 
-#result th,
-#result td {
+.scoreTable th,
+.scoreTable td {
   padding: 5px 8px;
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
 
-#result th:first-child,
-#result td:first-child {
+.scoreTable th:first-child,
+.scoreTable td:first-child {
   text-align: left;
   font-weight: 700;
 }
 
-#result tr.winner td {
+.scoreTable tr.winner td {
   background: #ffe9a8;
 }
 
-#result tr.winner td:first-child {
+.scoreTable tr.winner td:first-child {
   border-radius: 10px 0 0 10px;
 }
 
-#result tr.winner td:last-child {
+.scoreTable tr.winner td:last-child {
   border-radius: 0 10px 10px 0;
 }
 
@@ -1024,4 +1024,28 @@ button.primary:active {
 #result .card {
   max-height: 96%;
   overflow-y: auto;
+}
+
+/* Scores mid-round: hold Tab, or the chart button on a phone. */
+#board {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(20, 40, 20, 0.3);
+  z-index: 4;
+}
+
+#board .card {
+  padding: 14px 20px;
+  min-width: min(380px, 90%);
+}
+
+#board .scoreTable {
+  margin-bottom: 0;
+}
+
+.scoreTable th:first-child {
+  font-size: 0.85em;
+  font-weight: 600;
 }

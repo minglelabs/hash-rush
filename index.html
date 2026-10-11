@@ -115,14 +115,21 @@
           <div id="tools">
             <button id="mute">🔊</button>
             <button id="chatBtn" data-i18n="chatLabel" hidden></button>
+            <button id="boardBtn">📊</button>
             <button id="quit" data-i18n="lobby"></button>
+          </div>
+        </div>
+
+        <div id="board" hidden>
+          <div class="card">
+            <table id="boardTable" class="scoreTable"></table>
           </div>
         </div>
 
         <div id="result" hidden>
           <div class="card">
             <h2 id="resultTitle"></h2>
-            <table id="resultTable"></table>
+            <table id="resultTable" class="scoreTable"></table>
             <p id="resultWait" data-i18n="waitingRematch" hidden></p>
             <button id="resultChatBtn" hidden></button>
             <div id="resultChat" class="chat" hidden>

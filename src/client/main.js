@@ -74,6 +74,8 @@ try {
   // stays off
 }
 const wins = slots.map(() => 0);
+// Bonks, times bonked and seeds added up over every round in this room.
+const career = slots.map(() => [0, 0, 0]);
 const audio = createAudio();
 const renderer = createRenderer($('canvas'), MAP);
 const input = createInput({
@@ -291,6 +293,7 @@ function addSlot() {
   if (slots.length >= MAX_SLOTS) return;
   slots.push({ kind: 'bot:hard', name: defaultName(slots.length), team: slots.length % 2 });
   wins.push(0);
+  career.push([0, 0, 0]);
   saveSlots();
   renderLobby();
   sendLobby();
@@ -302,6 +305,7 @@ function removeSlot(slot) {
   if (slot.conn) slot.conn.close();
   slots.splice(i, 1);
   wins.splice(i, 1);
+  career.splice(i, 1);
   saveSlots();
   renderLobby();
   sendLobby();
@@ -463,7 +467,7 @@ function welcome(conn, msg) {
   renderLobby();
   sendLobby();
   // Arriving mid-round, they watch it; a new player gets a hamster next round.
-  if (game && !$('stage').hidden) conn.send({ t: 'start', players: roster(), you: -1, wins });
+  if (game && !$('stage').hidden) conn.send({ t: 'start', players: roster(), you: -1, wins, tot: career });
 }
 
 function guestName(slot, raw) {
@@ -540,7 +544,7 @@ function broadcast(make) {
 function sendLobby() {
   if (net.role !== 'host') return;
   const view = slots.map((s) => ({ kind: s.kind, name: s.name, team: s.team }));
-  broadcast((slot, i) => ({ t: 'lobby', slots: view, teams: teamMode, pw: roomPw, you: i, wins }));
+  broadcast((slot, i) => ({ t: 'lobby', slots: view, teams: teamMode, pw: roomPw, you: i, wins, tot: career }));
   announce();
 }
 
@@ -606,6 +610,7 @@ function hostData(msg) {
     net.needPw = false;
     net.you = msg.you;
     msg.wins.forEach((n, i) => (wins[i] = n));
+    (msg.tot || []).forEach((v, i) => (career[i] = v));
     if ($('stage').hidden) renderLobby();
   } else if (msg.t === 'pw') {
     net.needPw = true;
@@ -617,6 +622,7 @@ function hostData(msg) {
     renderLobby();
   } else if (msg.t === 'start') {
     msg.wins.forEach((n, i) => (wins[i] = n));
+    (msg.tot || []).forEach((v, i) => (career[i] = v));
     game = {
       map: MAP,
       phase: 'countdown',
@@ -823,7 +829,7 @@ function startGame() {
   meId = active.findIndex((a) => a.slot.kind === 'human');
   net.pending = [];
   const players = roster();
-  broadcast((slot) => ({ t: 'start', players, you: slot.playerId, wins }));
+  broadcast((slot) => ({ t: 'start', players, you: slot.playerId, wins, tot: career }));
   enterStage();
   announce();
 }
@@ -839,6 +845,7 @@ function enterStage() {
   $('again').hidden = net.role === 'guest';
   $('resultWait').hidden = net.role !== 'guest';
   scoreKey = '';
+  showBoard(false);
   acc = 0;
   renderer.clear();
   input.reset();
@@ -908,11 +915,53 @@ function onEvent(ev) {
   } else if (ev.type === 'win') {
     // A team wins together: everyone on it gets the win.
     for (const p of players) if (won(p)) wins[p.look]++;
+    addCareer();
     if (meId < 0 || won(players[meId])) audio.play.win();
     else audio.play.lose();
     input.enable(false);
     resultTimer = setTimeout(showResult, 1500);
   }
+}
+
+// A finished round goes into the running totals once.
+function addCareer() {
+  if (game.counted) return;
+  game.counted = true;
+  for (const p of game.players) {
+    const c = career[p.look] || (career[p.look] = [0, 0, 0]);
+    c[0] += p.kills;
+    c[1] += p.deaths;
+    c[2] += p.seeds;
+  }
+}
+
+// The score table: this round's numbers with the running total in brackets.
+// It is the result screen's table and the one Tab brings up mid-round.
+function fillScores(table) {
+  table.textContent = '';
+  const head = table.insertRow();
+  for (const h of [t('scoreNote'), ...t('columns')]) {
+    const th = document.createElement('th');
+    th.textContent = h;
+    head.append(th);
+  }
+  for (const p of lineUp()) {
+    const row = table.insertRow();
+    row.classList.toggle('winner', won(p));
+    row.insertCell().append(nameTag(p));
+    const c = career[p.look] || [0, 0, 0];
+    [p.kills, p.deaths, p.seeds].forEach((v, i) => {
+      row.insertCell().textContent = `${v} (${c[i] + (game.counted ? 0 : v)})`;
+    });
+    row.insertCell().textContent = wins[p.look];
+  }
+}
+
+let boardKey = '';
+function showBoard(on) {
+  if (!game || $('stage').hidden || !$('result').hidden) on = false;
+  $('board').hidden = !on;
+  boardKey = '';
 }
 
 function showResult() {
@@ -927,20 +976,8 @@ function showResult() {
   } else {
     $('resultTitle').textContent = game.winner === meId ? t('winMe') : t('winOther', winner.name);
   }
-  const table = $('resultTable');
-  table.textContent = '';
-  const head = table.insertRow();
-  for (const h of ['', ...t('columns')]) {
-    const th = document.createElement('th');
-    th.textContent = h;
-    head.append(th);
-  }
-  for (const p of lineUp()) {
-    const row = table.insertRow();
-    row.classList.toggle('winner', won(p));
-    row.insertCell().append(nameTag(p));
-    for (const v of [p.kills, p.deaths, p.seeds, wins[p.look]]) row.insertCell().textContent = v;
-  }
+  $('board').hidden = true;
+  fillScores($('resultTable'));
   if (game.timeout) $('resultTitle').textContent = `⏰ ${$('resultTitle').textContent}`;
   $('result').hidden = false;
   syncChat();
@@ -948,6 +985,13 @@ function showResult() {
 }
 
 function updateHud() {
+  if (!$('board').hidden) {
+    const now = game.players.map((p) => `${p.kills},${p.deaths},${p.seeds}`).join();
+    if (now !== boardKey) {
+      boardKey = now;
+      fillScores($('boardTable'));
+    }
+  }
   const key = game.players.map((p) => `${p.carrying ? 1 : 0}${wins[p.look]}`).join();
   if (key !== scoreKey) {
     scoreKey = key;
@@ -1069,6 +1113,16 @@ for (const [button, field] of [['copy', 'inviteLink'], ['copyWatch', 'watchLink'
     setTimeout(() => ($(button).textContent = t('copy')), 1500);
   });
 }
+// Hold Tab to look at the scores mid-round; phones get a button that toggles them.
+window.addEventListener('keydown', (e) => {
+  if (e.code !== 'Tab' || $('stage').hidden || !$('result').hidden) return;
+  e.preventDefault();
+  if ($('board').hidden) showBoard(true);
+});
+window.addEventListener('keyup', (e) => e.code === 'Tab' && showBoard(false));
+window.addEventListener('blur', () => showBoard(false));
+$('boardBtn').addEventListener('click', () => showBoard($('board').hidden));
+$('board').addEventListener('click', () => showBoard(false));
 $('mute').textContent = audio.isMuted() ? '🔇' : '🔊';
 $('mute').addEventListener('click', () => {
   audio.unlock();
