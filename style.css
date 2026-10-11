@@ -1279,6 +1279,27 @@ button.primary:active {
   animation-delay: 0.55s;
 }
 
+/* This round's goal scorer: a sunflower-green stamp that bounces. */
+.goalBadge {
+  display: inline-block;
+  margin-left: 0.45em;
+  padding: 0.08em 0.55em;
+  border-radius: 999px;
+  border: 2px solid #fff;
+  background: #1f9d55;
+  color: #fff;
+  font-size: 0.82em;
+  font-weight: 900;
+  box-shadow: 0 0 0 2px #157a40;
+  animation: goalBounce 0.5s ease-in-out infinite alternate;
+}
+
+@keyframes goalBounce {
+  to {
+    transform: translateY(-0.18em) scale(1.08);
+  }
+}
+
 @keyframes mvpShine {
   to {
     background-position: -250% 0;
