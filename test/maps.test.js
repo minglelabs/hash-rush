@@ -118,12 +118,13 @@ test('a cannon warns first, then knocks out everyone in its line of fire and nob
   const map = MAPS.factory;
   const g = playing(map, 4);
   const [a, b, c, d] = g.players;
-  // Firing east along the middle conveyor from its first cell.
-  const y = map.laneYs[1];
-  const h = { kind: 'cannon', x: 240, y, dx: 1, dy: 0, age: 0 };
-  a.x = 270;
-  b.x = 240 + HAZARD.cannon.range - 5;
-  c.x = 240 + HAZARD.cannon.range + 40;
+  // Firing east along a straight passage: the run across the middle of the floor.
+  const y = map.rowYs[6];
+  const x0 = 390;
+  const h = { kind: 'cannon', x: x0, y, dx: 1, dy: 0, age: 0 };
+  a.x = x0 + 30;
+  b.x = x0 + HAZARD.cannon.range - 5;
+  c.x = x0 + HAZARD.cannon.range + 40;
   for (const p of [a, b, c]) p.y = y;
   d.x = 60;
   d.y = 280;
