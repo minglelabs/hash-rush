@@ -28,6 +28,9 @@ const DANGER_K = 300;
 // How far outside a tunnel's edge a bot stops when it does not mean to go in.
 const RIM = 2;
 
+// A seed carrier this close to the home edge has every rival bot drop what it is doing.
+const LAST_STAND = 260;
+
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 
 // If `me` started a swing now, how far away would `e` be when it lands?
@@ -126,7 +129,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
     };
 
     // Where could I cut off a seed carrier before they get home?
-    const intercept = (c) => {
+    const intercept = (c, lastStand) => {
       let entry = entries[0];
       let home = Infinity;
       for (const en of entries) {
@@ -155,10 +158,20 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       if (nav.distance(me, door) / SPEED <= deadline) return door;
       // Too far to run: a tunnel by the flower drops me at my nest, ahead of them.
       const fromNest = nav.distance(me.nest, door) / SPEED;
+      let viaTunnel = null;
+      let tunnelTime = Infinity;
       for (const w of map.warps) {
-        if (nav.distance(me, w) / SPEED + fromNest <= deadline) return w;
+        const time = nav.distance(me, w) / SPEED + fromNest;
+        if (time <= deadline) return w;
+        if (time < tunnelTime) {
+          tunnelTime = time;
+          viaTunnel = w;
+        }
       }
-      return null;
+      // Too late on paper. With the seed almost home that is no reason to let it
+      // go: carriers get held up at the door, so take the quickest way there.
+      if (!lastStand) return null;
+      return nav.distance(me, door) / SPEED <= tunnelTime ? door : viaTunnel;
     };
 
     const plan = () => {
@@ -185,11 +198,13 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       let urgent = Infinity;
       for (const c of seen) {
         if (!c.carrying || c.home) continue;
+        // A seed about to reach home is everybody's problem, whatever was rolled.
+        const lastStand = c.x - g.homeX < LAST_STAND;
         const key = c.id * 1000 + c.seeds;
         if (!mem.denyRolls.has(key)) mem.denyRolls.set(key, rng() < cfg.deny);
-        if (!mem.denyRolls.get(key)) continue;
+        if (!mem.denyRolls.get(key) && !lastStand) continue;
         const near = dist(me, c) < 230 && nav.clear(me, c);
-        const at = near ? c : intercept(c);
+        const at = near ? c : intercept(c, lastStand);
         if (!at) continue;
         if (c.x < urgent) {
           urgent = c.x;
