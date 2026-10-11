@@ -34,9 +34,17 @@ const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 // `lead` is how far ahead (seconds) to extrapolate the target's movement.
 export function predictSwing(me, e, lead) {
   const drift = e.swing ? 0 : lead;
-  const dx = e.x + e.vx * drift - me.x;
-  const dy = e.y + e.vy * drift - me.y;
+  const cx = e.x - me.x;
+  const cy = e.y - me.y;
+  const cd = Math.hypot(cx, cy);
+  const dx = cx + e.vx * drift;
+  const dy = cy + e.vy * drift;
   const d = Math.hypot(dx, dy) || 1;
+  // Hamsters are solid: one charging at me stops when it touches me. Carrying its
+  // velocity on would put it behind me, and the swing would go the wrong way.
+  if (cd > 1e-6 && ((d < TOUCH && d < cd) || dx * cx + dy * cy <= 0)) {
+    return { ax: cx / cd, ay: cy / cd, dist: Math.min(cd, TOUCH) };
+  }
   return { ax: dx / d, ay: dy / d, dist: d };
 }
 

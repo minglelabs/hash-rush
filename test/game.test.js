@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createGame, step, inHome } from '../src/sim/game.js';
-import { createBot } from '../src/ai/bot.js';
+import { createBot, predictSwing } from '../src/ai/bot.js';
 import { getNav, blockCost } from '../src/ai/nav.js';
 import { BONK, COUNTDOWN, GATHER_TIME, gatherTime, HAMSTER_R, OVERTIME, TICK_RATE } from '../src/sim/constants.js';
 import { MAP, isFree } from '../src/sim/map.js';
@@ -417,4 +417,38 @@ test('a bot does not follow a seed carrier into a tunnel, and bonks it from the 
       if (difficulty === 'hard') assert.equal(carrier.deaths, 1, `bot never reached the carrier at ${spot}`);
     }
   }
+});
+
+test('a bot swings at a hamster pressing into it, not away from it', () => {
+  const me = { x: 300, y: 260 };
+  // Touching and charging: carried on at full speed it would be 16px behind me.
+  const charging = { x: 300 + 2 * HAMSTER_R, y: 260, vx: -185, vy: 0, swing: null };
+  const p = predictSwing(me, charging, 0.25);
+  assert.ok(p.ax > 0.99, `aims at it, ax=${p.ax}`);
+  assert.ok(p.dist <= 2 * HAMSTER_R + 0.01);
+  // One still on its way in is led as before.
+  const far = predictSwing(me, { x: 400, y: 260, vx: -185, vy: 0, swing: null }, 0.25);
+  assert.ok(Math.abs(far.dist - (100 - 185 * 0.25)) < 0.01);
+});
+
+test('two hard bots that meet in a lane do not stand there swinging at thin air', () => {
+  let clinched = 0;
+  for (let seed = 1; seed <= 6; seed++) {
+    const g = createGame({ slots: Array.from({ length: 6 }, (_, i) => ({ name: `b${i}`, kind: 'bot' })), seed });
+    const bots = g.players.map((_, i) => createBot({ difficulty: 'hard', seed: seed * 97 + i * 13 + 5 }));
+    const close = new Map();
+    while (g.phase !== 'over') {
+      step(g, bots.map((b, i) => b.think(g, i)));
+      for (const a of g.players) {
+        for (const b of g.players) {
+          if (a.id >= b.id) continue;
+          const key = a.id * 10 + b.id;
+          const near = Math.hypot(a.x - b.x, a.y - b.y) < BONK.reach + 4 && !inHome(g, a) && !inHome(g, b);
+          close.set(key, near ? (close.get(key) || 0) + 1 : 0);
+          if (close.get(key) === 2 * TICK_RATE) clinched++;
+        }
+      }
+    }
+  }
+  assert.equal(clinched, 0);
 });
