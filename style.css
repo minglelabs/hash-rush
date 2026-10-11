@@ -115,6 +115,50 @@ button.primary:active {
   border: 2px solid var(--line);
   border-left: 8px solid var(--c);
   border-radius: 16px;
+  position: relative;
+}
+
+#slots li.teamed {
+  grid-template-columns: 52px 1fr 96px 148px;
+}
+
+#mode {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 10px;
+}
+
+#mode button {
+  padding: 0.35em 0.9em;
+}
+
+#mode button.on {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
+}
+
+#mode button:disabled {
+  opacity: 1;
+  cursor: default;
+}
+
+#modeNow {
+  padding: 0.35em 1em;
+  border-radius: 999px;
+  background: var(--ink);
+  color: #fff;
+  font-size: 15px;
+}
+
+#modeNow.team {
+  background: linear-gradient(90deg, #e5484d, #3e63dd);
+}
+
+#teamInfo {
+  margin-left: auto;
+  font-weight: 700;
 }
 
 #addSlot {
@@ -124,6 +168,26 @@ button.primary:active {
   border-style: dashed;
   background: transparent;
   color: #a07a45;
+}
+
+.bubble {
+  position: absolute;
+  left: 34px;
+  bottom: calc(100% - 12px);
+  z-index: 5;
+  max-width: 80%;
+  padding: 4px 10px;
+  background: #fff;
+  border: 2px solid var(--c);
+  border-radius: 12px 12px 12px 3px;
+  box-shadow: 0 3px 8px rgba(58, 42, 26, 0.18);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+
+.bubble b {
+  color: var(--c);
 }
 
 #slots li.closed {
@@ -176,6 +240,42 @@ button.primary:active {
   border: 2px solid var(--line);
   border-radius: 10px;
   background: var(--cream);
+}
+
+#roomPw {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  background: #fff;
+  border: 2px solid var(--line);
+  border-radius: 14px;
+  font-weight: 700;
+}
+
+#roomPw input,
+#pwForm input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-weight: 700;
+  color: var(--ink);
+  padding: 0.35em 0.6em;
+  border: 2px solid var(--line);
+  border-radius: 10px;
+  background: var(--cream);
+}
+
+#roomPw input:disabled {
+  border-color: transparent;
+  background: transparent;
+  opacity: 1;
+  -webkit-text-fill-color: var(--ink);
+}
+
+#pwForm {
+  margin: -8px 0 18px;
 }
 
 #roomListBtn {
@@ -448,6 +548,18 @@ button.primary:active {
   opacity: 1;
 }
 
+#banner.alarm {
+  background: rgba(214, 30, 30, 0.94);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.85);
+  animation: alarm 0.35s ease-in-out infinite alternate;
+}
+
+@keyframes alarm {
+  to {
+    transform: translateX(-50%) scale(1.07);
+  }
+}
+
 #big {
   position: absolute;
   inset: 0;
@@ -579,40 +691,40 @@ button.primary:active {
   animation: pulse 0.8s ease-in-out infinite alternate;
 }
 
-#result table {
+.scoreTable {
   width: 100%;
   margin-bottom: 16px;
   border-collapse: collapse;
   font-size: clamp(12px, 1.6cqw, 16px);
 }
 
-#result th {
+.scoreTable th {
   color: #a07a45;
   font-weight: 600;
 }
 
-#result th,
-#result td {
+.scoreTable th,
+.scoreTable td {
   padding: 5px 8px;
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
 
-#result th:first-child,
-#result td:first-child {
+.scoreTable th:first-child,
+.scoreTable td:first-child {
   text-align: left;
   font-weight: 700;
 }
 
-#result tr.winner td {
+.scoreTable tr.winner td {
   background: #ffe9a8;
 }
 
-#result tr.winner td:first-child {
+.scoreTable tr.winner td:first-child {
   border-radius: 10px 0 0 10px;
 }
 
-#result tr.winner td:last-child {
+.scoreTable tr.winner td:last-child {
   border-radius: 0 10px 10px 0;
 }
 
@@ -735,6 +847,15 @@ button.primary:active {
 
   #slots li {
     grid-template-columns: 46px 1fr 118px;
+  }
+
+  #slots li.teamed {
+    grid-template-columns: 46px 1fr 78px 96px;
+    gap: 6px;
+  }
+
+  #slots li.teamed select {
+    padding: 0.45em 0.3em;
   }
 }
 
@@ -958,4 +1079,65 @@ button.primary:active {
 #result .card {
   max-height: 96%;
   overflow-y: auto;
+}
+
+/* Scores mid-round: hold Tab, or the chart button on a phone. */
+#board {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(20, 40, 20, 0.3);
+  z-index: 4;
+}
+
+#board .card {
+  padding: 14px 20px;
+  min-width: min(380px, 90%);
+}
+
+#board .scoreTable {
+  margin-bottom: 0;
+}
+
+/* Running totals sit apart from this round's numbers. */
+.scoreTable .total {
+  color: #8a6a3a;
+}
+
+.scoreTable th {
+  white-space: nowrap;
+}
+
+.scoreTable td:nth-child(5),
+.scoreTable th:nth-child(5) {
+  border-left: 2px solid var(--line);
+}
+
+@media (max-width: 640px), (orientation: portrait) {
+  .scoreTable {
+    font-size: 11px;
+  }
+
+  .scoreTable th {
+    white-space: normal;
+  }
+
+  .scoreTable th,
+  .scoreTable td {
+    padding: 4px 3px;
+  }
+}
+
+/* The result card can be put away to look at the map and reach the other buttons. */
+#result .card {
+  position: relative;
+}
+
+#resultClose {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  padding: 0.15em 0.6em;
+  font-size: 15px;
 }

@@ -4,23 +4,25 @@
 // Online play has no server. The host's browser runs the simulation; guests send
 // their inputs and draw the snapshots the host sends back.
 
-import { createGame, step } from '../sim/game.js';
+import { createGame, step, allied } from '../sim/game.js';
 import { DT, OVERTIME, COUNTDOWN } from '../sim/constants.js';
 import { MAP } from '../sim/map.js';
 import { createBot } from '../ai/bot.js';
-import { createRenderer, drawHamster } from './render.js';
+import { createRenderer, drawHamster, nearHome } from './render.js';
 import { createInput } from './input.js';
 import { createAudio } from './audio.js';
-import { LOOKS } from './looks.js';
+import { LOOKS, TEAMS, colorOf } from './looks.js';
 import { lang, t, LANGUAGES, stringsFor } from './i18n.js';
 import { hostRoom, joinRoom, announceRoom, watchRooms } from './net.js';
 
 const $ = (id) => document.getElementById(id);
 const STORE = 'seed-rush-slots';
 const SIDE_STORE = 'hash-rush-bonk-left';
+const MODE_STORE = 'seed-rush-teams';
 // What the host can set a slot to. 'remote' is an open slot a friend has taken.
 const KINDS = ['human', 'bot:easy', 'bot:normal', 'bot:hard', 'closed', 'open'];
-const DEFAULT_SLOTS = ['human', 'bot:hard', 'bot:hard', 'bot:hard'].map((kind, i) => ({ kind, name: t('names')[i] }));
+// Every slot keeps a team, used only while team play is on. Teams need not be even: 3 v 2 is fine.
+const DEFAULT_SLOTS = ['human', 'bot:hard', 'bot:hard', 'bot:hard'].map((kind, i) => ({ kind, name: t('names')[i], team: i % 2 }));
 // The host can add slots up to MAX_SLOTS; extra ones start as a hard computer.
 const MAX_SLOTS = LOOKS.length;
 const defaultName = (i) => t('names')[i] ?? t('fallbackName', i + 1);
@@ -28,13 +30,16 @@ const IDLE = { mx: 0, my: 0, ax: 0, ay: 0, seq: 0 };
 // A guest who never renamed itself is still called "Me" in its own language.
 const ME_NAMES = new Set(LANGUAGES.map((code) => stringsFor(code).names[0]));
 
+const validTeam = (v) => Number.isInteger(v) && v >= 0 && v < TEAMS.length;
+
 function loadSlots() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORE));
-    if (Array.isArray(saved) && saved.length >= DEFAULT_SLOTS.length && saved.length <= MAX_SLOTS) {
+    if (Array.isArray(saved) && saved.length >= 1 && saved.length <= MAX_SLOTS) {
       return saved.map((s, i) => ({
         kind: i === 0 ? 'human' : KINDS.some((k) => k === s.kind && k !== 'human' && k !== 'open') ? s.kind : 'bot:hard',
         name: String(s.name || defaultName(i)).slice(0, 8),
+        team: validTeam(s.team) ? s.team : i % 2,
       }));
     }
   } catch {
@@ -64,7 +69,15 @@ function localizePage() {
 }
 
 const slots = loadSlots();
+let teamMode = false;
+try {
+  teamMode = localStorage.getItem(MODE_STORE) === '1';
+} catch {
+  // stays off
+}
 const wins = slots.map(() => 0);
+// Bonks, times bonked and seeds added up over every round in this room.
+const career = slots.map(() => [0, 0, 0]);
 const audio = createAudio();
 const renderer = createRenderer($('canvas'), MAP);
 const input = createInput({
@@ -81,8 +94,12 @@ const query = new URLSearchParams(location.search);
 const joinId = query.get('room');
 // Opening the watch link joins as a spectator instead of taking a slot.
 const watchOnly = query.has('watch');
+// A private room asks for its password. The host's invite link carries it; someone
+// coming in from the room list types it.
+const cleanPw = (raw) => String(raw ?? '').trim().slice(0, 12);
+let roomPw = '';
 // role: null (offline), 'host' or 'guest'.
-const net = { role: joinId ? 'guest' : null, room: null, host: null, status: '', lobby: null, you: -1, pending: [], watchers: [] };
+const net = { role: joinId ? 'guest' : null, room: null, host: null, status: '', lobby: null, teams: false, pw: cleanPw(query.get('pw')), needPw: false, you: -1, pending: [], watchers: [] };
 
 let game = null;
 let controllers = [];
@@ -111,11 +128,48 @@ const isPlaying = (slot) => slot.kind !== 'closed' && slot.kind !== 'open';
 function renderLobby() {
   const guest = net.role === 'guest';
   const rows = guest ? net.lobby || [] : slots;
+  const teams = guest ? net.teams : teamMode;
+  $('modeSolo').classList.toggle('on', !teams);
+  $('modeTeam').classList.toggle('on', teams);
+  // A guest cannot choose, so it gets a plain label instead of two dead buttons.
+  $('modeSolo').hidden = $('modeTeam').hidden = guest;
+  $('modeNow').hidden = !guest;
+  $('modeNow').textContent = t('modeNow', t(teams ? 'modeTeam' : 'modeSolo'));
+  $('modeNow').classList.toggle('team', teams);
+  // The line-up at a glance, e.g. "Red 3 : Blue 2".
+  const sizes = TEAMS.map((_, k) => rows.filter((s) => s.kind !== 'closed' && s.team === k).length);
+  $('teamInfo').replaceChildren(
+    ...(teams ? TEAMS : []).flatMap((team, k) => {
+      if (!sizes[k]) return [];
+      const b = document.createElement('b');
+      b.textContent = `${t('teamNames')[k]} ${sizes[k]}`;
+      b.style.color = team.color;
+      return [' : ', b];
+    }).slice(1),
+  );
   const list = $('slots');
-  list.textContent = '';
+  // Rebuilding the list would replace the field someone is typing a name in,
+  // which drops focus and breaks Korean/Japanese/Chinese composition. While the
+  // rows are otherwise the same, only the other names are refreshed.
+  const typing = document.activeElement;
+  const shape = (slot, i) => `${slot.kind}:${guest ? i === net.you : ''}:${teams ? slot.team : ''}`;
+  const keep =
+    typing instanceof HTMLInputElement &&
+    list.contains(typing) &&
+    list.children.length === rows.length &&
+    rows.every((slot, i) => list.children[i].dataset.shape === shape(slot, i));
+  if (keep) {
+    rows.forEach((slot, i) => {
+      const field = list.children[i].querySelector('input');
+      if (field !== typing) field.value = slot.kind === 'open' ? '' : slot.name;
+    });
+  } else list.textContent = '';
   rows.forEach((slot, i) => {
+    if (keep) return;
     const li = document.createElement('li');
-    li.style.setProperty('--c', LOOKS[i].color);
+    li.dataset.shape = shape(slot, i);
+    li.style.setProperty('--c', teams && TEAMS[slot.team] ? TEAMS[slot.team].color : LOOKS[i].color);
+    li.classList.toggle('teamed', teams);
     li.classList.toggle('closed', slot.kind === 'closed');
 
     const avatar = document.createElement('canvas');
@@ -145,9 +199,9 @@ function renderLobby() {
     // A guest only sees who is in each slot; the host chooses.
     const person = guest ? (i === net.you ? 'human' : 'remote') : slot.kind;
     const shown = slot.kind === 'human' || slot.kind === 'remote' ? person : slot.kind;
-    const options = guest || i === 0 || slot.kind === 'remote' ? [shown, ...(slot.kind === 'remote' && !guest ? ['open', 'closed'] : [])] : KINDS.filter((k) => k !== 'human');
-    // Slots beyond the default four can be taken away again.
-    if (!guest && i >= DEFAULT_SLOTS.length) options.push('remove');
+    const options = guest || i === 0 || slot.kind === 'remote' ? [shown, ...(slot.kind === 'remote' && !guest ? ['kick', 'closed'] : [])] : KINDS.filter((k) => k !== 'human');
+    // Any slot but the host's own can be taken away, whoever is in it.
+    if (!guest && i > 0) options.push('remove');
     for (const value of options) {
       const opt = document.createElement('option');
       opt.value = value;
@@ -156,39 +210,79 @@ function renderLobby() {
     }
     kind.value = shown;
     kind.disabled = guest || i === 0;
-    kind.addEventListener('change', () => (kind.value === 'remove' ? removeSlot(slot) : setKind(slot, kind.value)));
+    // Kicking a friend leaves the slot open for somebody else.
+    kind.addEventListener('change', () => (kind.value === 'remove' ? removeSlot(slot) : setKind(slot, kind.value === 'kick' ? 'open' : kind.value)));
 
-    li.append(avatar, name, kind);
+    li.append(avatar, name);
+    if (teams) {
+      // The host arranges the teams; a guest can also switch its own.
+      const team = document.createElement('select');
+      team.setAttribute('aria-label', t('slotTeam', i + 1));
+      t('teamNames').forEach((label, k) => {
+        const opt = document.createElement('option');
+        opt.value = k;
+        opt.textContent = label;
+        team.append(opt);
+      });
+      team.value = slot.team;
+      team.disabled = guest ? i !== net.you : slot.kind === 'closed';
+      team.addEventListener('change', () => {
+        slot.team = Number(team.value);
+        if (guest) {
+          net.host.send({ t: 'team', team: slot.team });
+        } else {
+          saveSlots();
+          sendLobby();
+        }
+        renderLobby();
+      });
+      li.append(team);
+    }
+    li.append(kind);
     list.append(li);
   });
   $('addSlot').hidden = guest || slots.length >= MAX_SLOTS;
-  $('roomListBtn').hidden = guest;
-  if (guest) $('rooms').hidden = true;
 
   const inviting = net.role === 'host' || slots.some((s) => s.kind === 'open');
   $('invite').hidden = guest || !inviting;
+  // The password sits at the top of the room, where everyone in it can read it.
+  $('roomPw').hidden = guest ? !net.lobby || !net.pw : !inviting;
+  $('pwField').disabled = guest;
+  $('pwField').placeholder = t('pwNone');
+  if (document.activeElement !== $('pwField')) $('pwField').value = guest ? net.pw : roomPw;
+  $('pwForm').hidden = !net.needPw;
   $('inviteText').textContent = net.room ? t('invite') : net.status || t('roomCreating');
   $('inviteLink').hidden = !net.room;
   $('copy').hidden = !net.room;
   $('watchRow').hidden = !net.room;
   if (net.room) {
-    const link = `${location.origin}${location.pathname}?room=${net.room}`;
+    const link = `${location.origin}${location.pathname}?room=${net.room}${roomPw ? `&pw=${encodeURIComponent(roomPw)}` : ''}`;
     $('inviteLink').value = link;
     $('watchLink').value = `${link}&watch`;
     $('watchText').textContent = `${t('watchLink')} · ${t('spectators', net.watchers.length)}`;
   }
   // Chat exists only inside a room.
   syncChat();
+  showLobbyBubbles();
   $('netStatus').hidden = !guest;
   $('netStatus').textContent = net.status || (guest && net.lobby && net.you < 0 ? t('spectating') : '');
   updateStart();
 }
 
+// Tells a friend the host has taken them out, then drops the connection. The
+// close waits a moment so the message gets through first.
+function kick(slot) {
+  const conn = slot.conn;
+  if (!conn) return;
+  slot.conn = null;
+  slot.name = defaultName(slots.indexOf(slot));
+  conn.kicked = true;
+  if (conn.open) conn.send({ t: 'kicked' });
+  setTimeout(() => conn.close(), 300);
+}
+
 function setKind(slot, kind) {
-  if (slot.conn) {
-    slot.conn.close();
-    slot.conn = null;
-  }
+  kick(slot);
   slot.kind = kind;
   if (kind === 'open') openRoom();
   saveSlots();
@@ -196,10 +290,23 @@ function setKind(slot, kind) {
   sendLobby();
 }
 
+function setTeamMode(on) {
+  if (net.role === 'guest' || teamMode === on) return;
+  teamMode = on;
+  try {
+    localStorage.setItem(MODE_STORE, on ? '1' : '0');
+  } catch {
+    // not persisted
+  }
+  renderLobby();
+  sendLobby();
+}
+
 function addSlot() {
   if (slots.length >= MAX_SLOTS) return;
-  slots.push({ kind: 'bot:hard', name: defaultName(slots.length) });
+  slots.push({ kind: 'bot:hard', name: defaultName(slots.length), team: slots.length % 2 });
   wins.push(0);
+  career.push([0, 0, 0]);
   saveSlots();
   renderLobby();
   sendLobby();
@@ -207,10 +314,11 @@ function addSlot() {
 
 function removeSlot(slot) {
   const i = slots.indexOf(slot);
-  if (i < DEFAULT_SLOTS.length) return;
-  if (slot.conn) slot.conn.close();
+  if (i < 1) return;
+  kick(slot);
   slots.splice(i, 1);
   wins.splice(i, 1);
+  career.splice(i, 1);
   saveSlots();
   renderLobby();
   sendLobby();
@@ -218,7 +326,7 @@ function removeSlot(slot) {
 
 function saveSlots() {
   try {
-    localStorage.setItem(STORE, JSON.stringify(slots.map(({ kind, name }) => ({ kind, name }))));
+    localStorage.setItem(STORE, JSON.stringify(slots.map(({ kind, name, team }) => ({ kind, name, team }))));
   } catch {
     // not persisted
   }
@@ -232,9 +340,11 @@ function updateStart() {
     $('start').textContent = net.failed ? t('retry') : net.host ? t('waitingHost') : t('connecting');
     return;
   }
-  const playing = slots.filter(isPlaying).length;
-  $('start').disabled = playing < 2;
-  $('start').textContent = t(playing < 2 ? 'needOpponent' : 'start');
+  const playing = slots.filter(isPlaying);
+  // A team game needs somebody to play against, however the sides are split.
+  const lonely = teamMode && playing.length >= 2 && new Set(playing.map((s) => s.team)).size < 2;
+  $('start').disabled = playing.length < 2 || lonely;
+  $('start').textContent = t(playing.length < 2 ? 'needOpponent' : lonely ? 'needTeams' : 'start');
 }
 
 function show(screen) {
@@ -268,13 +378,13 @@ function toggleRoomList() {
 }
 
 function renderRooms(rooms) {
-  const others = rooms.filter((r) => r.room !== net.room);
+  const others = rooms.filter((r) => r.room !== (net.room || joinId));
   $('roomsStatus').textContent = others.length ? '' : t('roomsEmpty');
   $('roomItems').replaceChildren(
     ...others.map((r) => {
       const li = document.createElement('li');
       const title = document.createElement('b');
-      title.textContent = t('roomOf', r.name || '?');
+      title.textContent = `${r.locked ? '🔒 ' : ''}${t('roomOf', r.name || '?')}`;
       const state = document.createElement('span');
       state.className = `badge${r.playing ? ' playing' : ''}`;
       state.textContent = t(r.playing ? 'roomPlaying' : 'roomWaiting');
@@ -313,6 +423,7 @@ function announce() {
             bots: slots.filter(isPlaying).length - humans,
             open: slots.filter((s) => s.kind === 'open').length,
             state: game && !$('stage').hidden ? 'playing' : 'lobby',
+            locked: !!roomPw,
           }
         : null,
     );
@@ -348,6 +459,13 @@ async function openRoom() {
 function guestJoined() {}
 
 function welcome(conn, msg) {
+  if (roomPw && cleanPw(msg.pw) !== roomPw) {
+    // A few tries, then the connection is dropped so the password cannot be guessed at speed.
+    conn.tries = (conn.tries || 0) + 1;
+    if (conn.tries > 5) conn.close();
+    else conn.send({ t: 'pw', wrong: !!cleanPw(msg.pw) });
+    return;
+  }
   const slot = msg.watch ? null : slots.find((s) => s.kind === 'open');
   if (slot) {
     slot.kind = 'remote';
@@ -362,7 +480,7 @@ function welcome(conn, msg) {
   renderLobby();
   sendLobby();
   // Arriving mid-round, they watch it; a new player gets a hamster next round.
-  if (game && !$('stage').hidden) conn.send({ t: 'start', players: roster(), you: -1, wins });
+  if (game && !$('stage').hidden) conn.send({ t: 'start', players: roster(), you: -1, wins, tot: career });
 }
 
 function guestName(slot, raw) {
@@ -370,10 +488,10 @@ function guestName(slot, raw) {
   return !name || ME_NAMES.has(name) ? defaultName(slots.indexOf(slot)) : name;
 }
 
-const roster = () => game.players.map((p) => ({ name: p.name, look: p.look, nest: p.nest }));
+const roster = () => game.players.map((p) => ({ name: p.name, look: p.look, team: p.team, nest: p.nest }));
 
 function guestData(conn, msg) {
-  if (!msg) return;
+  if (!msg || conn.kicked) return;
   if (msg.t === 'hello') {
     if (!slots.some((s) => s.conn === conn) && !net.watchers.includes(conn)) welcome(conn, msg);
     return;
@@ -392,6 +510,12 @@ function guestData(conn, msg) {
   if (!slot) return;
   if (msg.t === 'name') {
     slot.name = guestName(slot, msg.name);
+    renderLobby();
+    sendLobby();
+  } else if (msg.t === 'team') {
+    if (!teamMode || !validTeam(msg.team)) return;
+    slot.team = msg.team;
+    saveSlots();
     renderLobby();
     sendLobby();
   } else if (msg.t === 'i') {
@@ -432,8 +556,8 @@ function broadcast(make) {
 
 function sendLobby() {
   if (net.role !== 'host') return;
-  const view = slots.map((s) => ({ kind: s.kind, name: s.name }));
-  broadcast((slot, i) => ({ t: 'lobby', slots: view, you: i, wins }));
+  const view = slots.map((s) => ({ kind: s.kind, name: s.name, team: s.team }));
+  broadcast((slot, i) => ({ t: 'lobby', slots: view, teams: teamMode, pw: roomPw, you: i, wins, tot: career }));
   announce();
 }
 
@@ -447,6 +571,8 @@ function snapshot(events) {
     hx: game.homeX,
     nb: game.nibbler,
     w: game.winner,
+    ws: game.winners,
+    to: game.timeout,
     p: game.players.map((p) => [
       r(p.x), r(p.y), r(p.vx), r(p.vy), p.fx, p.fy, p.carrying ? 1 : 0, p.gather, p.queued,
       p.swing ? [p.swing.phase, p.swing.t, p.swing.dx, p.swing.dy] : 0, p.cooldown, p.kills, p.deaths, p.seeds,
@@ -460,10 +586,11 @@ function snapshot(events) {
 async function enterRoom() {
   net.status = t('connecting');
   net.failed = false;
+  net.kicked = false;
   renderLobby();
   try {
     net.host = await joinRoom(joinId, { data: hostData, close: hostGone });
-    net.host.send({ t: 'hello', name: slots[0].name, watch: watchOnly });
+    sayHello();
     net.status = '';
   } catch (err) {
     net.failed = true;
@@ -472,11 +599,17 @@ async function enterRoom() {
   renderLobby();
 }
 
+function sayHello() {
+  net.needPw = false;
+  net.status = '';
+  net.host.send({ t: 'hello', name: slots[0].name, watch: watchOnly, pw: net.pw });
+}
+
 function hostGone() {
   net.host = null;
   net.lobby = null;
   net.failed = true;
-  net.status = t('hostLeft');
+  net.status = t(net.kicked ? 'kicked' : 'hostLeft');
   toLobby();
   renderLobby();
 }
@@ -485,14 +618,30 @@ function hostData(msg) {
   if (!msg) return;
   if (msg.t === 'lobby') {
     net.lobby = msg.slots;
+    net.teams = !!msg.teams;
+    net.pw = cleanPw(msg.pw);
+    if (net.needPw) net.status = '';
+    net.needPw = false;
     net.you = msg.you;
     msg.wins.forEach((n, i) => (wins[i] = n));
+    (msg.tot || []).forEach((v, i) => (career[i] = v));
     if ($('stage').hidden) renderLobby();
+  } else if (msg.t === 'kicked') {
+    net.kicked = true;
+    const host = net.host;
+    hostGone();
+    if (host) host.close();
+  } else if (msg.t === 'pw') {
+    net.needPw = true;
+    net.status = t(msg.wrong ? 'pwWrong' : 'pwNeeded');
+    renderLobby();
+    $('pwInput').focus();
   } else if (msg.t === 'full') {
     net.status = t('roomFull');
     renderLobby();
   } else if (msg.t === 'start') {
     msg.wins.forEach((n, i) => (wins[i] = n));
+    (msg.tot || []).forEach((v, i) => (career[i] = v));
     game = {
       map: MAP,
       phase: 'countdown',
@@ -501,8 +650,10 @@ function hostData(msg) {
       homeX: MAP.home.x2,
       nibbler: -1,
       winner: null,
+      winners: [],
+      timeout: false,
       players: msg.players.map((p, id) => ({
-        id, name: p.name, look: p.look, nest: p.nest, x: p.nest.x, y: p.nest.y, vx: 0, vy: 0, fx: 1, fy: 0,
+        id, name: p.name, look: p.look, team: p.team ?? -1, nest: p.nest, x: p.nest.x, y: p.nest.y, vx: 0, vy: 0, fx: 1, fy: 0,
         carrying: false, gather: 0, queued: -1, swing: null, cooldown: 0, kills: 0, deaths: 0, seeds: 0,
       })),
     };
@@ -515,6 +666,8 @@ function hostData(msg) {
     game.homeX = msg.hx;
     game.nibbler = msg.nb;
     game.winner = msg.w;
+    game.winners = msg.ws || [];
+    game.timeout = !!msg.to;
     msg.p.forEach((s, i) => {
       const p = game.players[i];
       [p.x, p.y, p.vx, p.vy, p.fx, p.fy] = s;
@@ -553,7 +706,42 @@ function syncChat() {
   }
 }
 
+// What each slot last said, shown for a few seconds as a speech bubble over its
+// hamster: on the field during a round, on its row in the lobby.
+const bubbles = new Map();
+let bubbleTimer = 0;
+
+function showLobbyBubbles() {
+  const now = performance.now();
+  let next = Infinity;
+  [...$('slots').children].forEach((li, i) => {
+    const said = bubbles.get(i);
+    const live = said && said.until > now;
+    let el = li.querySelector('.bubble');
+    if (!live) {
+      if (el) el.remove();
+      return;
+    }
+    next = Math.min(next, said.until);
+    if (!el) {
+      el = document.createElement('div');
+      el.className = 'bubble';
+      li.append(el);
+    }
+    const who = document.createElement('b');
+    who.textContent = `${said.name}:`;
+    el.replaceChildren(who, ` ${said.text}`);
+  });
+  clearTimeout(bubbleTimer);
+  if (next < Infinity) bubbleTimer = setTimeout(showLobbyBubbles, next - now + 20);
+}
+
 function addChat({ name, look, text }) {
+  if (look >= 0) {
+    const said = cleanChat(text);
+    bubbles.set(look, { name: String(name), text: said, until: performance.now() + 3000 + 50 * said.length });
+    showLobbyBubbles();
+  }
   // Count what arrives while the box is closed, so the button can show it.
   const overlay = !$('stage').hidden && $('result').hidden;
   if (!chatOpen && !overlay) unread++;
@@ -668,7 +856,12 @@ function startGame() {
   const seed = (Date.now() ^ (Math.random() * 0xffffffff)) >>> 0;
   for (const s of slots) s.playerId = -1;
   game = createGame({
-    slots: active.map(({ slot, look }) => ({ name: slot.name.trim() || t('fallbackName', look + 1), kind: slot.kind, look })),
+    slots: active.map(({ slot, look }) => ({
+      name: slot.name.trim() || t('fallbackName', look + 1),
+      kind: slot.kind,
+      look,
+      team: teamMode ? slot.team : -1,
+    })),
     seed,
   });
   controllers = active.map(({ slot }, id) => {
@@ -690,7 +883,7 @@ function startGame() {
   meId = active.findIndex((a) => a.slot.kind === 'human');
   net.pending = [];
   const players = roster();
-  broadcast((slot) => ({ t: 'start', players, you: slot.playerId, wins }));
+  broadcast((slot) => ({ t: 'start', players, you: slot.playerId, wins, tot: career }));
   enterStage();
   announce();
 }
@@ -704,8 +897,11 @@ function enterStage() {
   $('quick').hidden = true;
   $('banner').classList.remove('show');
   $('again').hidden = net.role === 'guest';
+  $('againBtn').hidden = true;
   $('resultWait').hidden = net.role !== 'guest';
   scoreKey = '';
+  showBoard(false);
+  alarmKey = '';
   acc = 0;
   renderer.clear();
   input.reset();
@@ -724,10 +920,11 @@ function big(text) {
   el.addEventListener('animationend', () => el.remove());
 }
 
-function banner(text) {
+function banner(text, alarm = false) {
   const el = $('banner');
   el.textContent = text;
   el.classList.add('show');
+  el.classList.toggle('alarm', alarm);
   clearTimeout(bannerTimer);
   bannerTimer = setTimeout(() => el.classList.remove('show'), 2200);
 }
@@ -735,9 +932,14 @@ function banner(text) {
 function nameTag(p) {
   const b = document.createElement('b');
   b.textContent = p.name;
-  b.style.color = LOOKS[p.look].color;
+  b.style.color = colorOf(p);
   return b;
 }
+
+// Whether this hamster is the winner or on the winner's team.
+const won = (p) => game.winners.includes(p.id);
+// A team game lists team-mates together.
+const lineUp = () => [...game.players].sort((a, b) => a.team - b.team);
 
 function onEvent(ev) {
   renderer.onEvent(ev, game, meId);
@@ -762,25 +964,37 @@ function onEvent(ev) {
     if (ev.id === meId) audio.play.spawn();
   } else if (ev.type === 'seed') {
     audio.play.seed();
-    banner(ev.id === meId ? t('gotSeedMe') : t('gotSeedOther', players[ev.id].name));
+    const mate = meId >= 0 && allied(players[meId], players[ev.id]);
+    banner(ev.id === meId ? t('gotSeedMe') : t(mate ? 'gotSeedMate' : 'gotSeedOther', players[ev.id].name));
   } else if (ev.type === 'overtime') {
     audio.play.overtime();
     banner(t('overtime'));
   } else if (ev.type === 'win') {
-    const winner = players[ev.id];
-    wins[winner.look]++;
-    if (ev.id === meId || meId < 0) audio.play.win();
+    // A team wins together: everyone on it gets the win.
+    for (const p of players) if (won(p)) wins[p.look]++;
+    addCareer();
+    if (meId < 0 || won(players[meId])) audio.play.win();
     else audio.play.lose();
     input.enable(false);
     resultTimer = setTimeout(showResult, 1500);
   }
 }
 
-function showResult() {
-  if (!game) return;
-  const winner = game.players[game.winner];
-  $('resultTitle').textContent = game.winner === meId ? t('winMe') : t('winOther', winner.name);
-  const table = $('resultTable');
+// A finished round goes into the running totals once.
+function addCareer() {
+  if (game.counted) return;
+  game.counted = true;
+  for (const p of game.players) {
+    const c = career[p.look] || (career[p.look] = [0, 0, 0]);
+    c[0] += p.kills;
+    c[1] += p.deaths;
+    c[2] += p.seeds;
+  }
+}
+
+// The score table: this round's numbers, then the running totals for the room.
+// It is the result screen's table and the one Tab brings up mid-round.
+function fillScores(table) {
   table.textContent = '';
   const head = table.insertRow();
   for (const h of ['', ...t('columns')]) {
@@ -788,27 +1002,92 @@ function showResult() {
     th.textContent = h;
     head.append(th);
   }
-  for (const p of game.players) {
+  [...head.cells].forEach((th, i) => th.classList.toggle('total', i > 3));
+  for (const p of lineUp()) {
     const row = table.insertRow();
-    row.classList.toggle('winner', p.id === game.winner);
+    row.classList.toggle('winner', won(p));
     row.insertCell().append(nameTag(p));
-    for (const v of [p.kills, p.deaths, p.seeds, wins[p.look]]) row.insertCell().textContent = v;
+    const c = career[p.look] || [0, 0, 0];
+    const round = [p.kills, p.deaths, p.seeds];
+    // Until the round is added to the totals, they include it as it stands.
+    const total = round.map((v, i) => c[i] + (game.counted ? 0 : v));
+    [...round, ...total, wins[p.look]].forEach((v, i) => {
+      const cell = row.insertCell();
+      cell.textContent = v;
+      cell.classList.toggle('total', i >= round.length);
+    });
   }
+}
+
+let boardKey = '';
+// Once a round is over, Tab and the chart button bring the result card back.
+function reopenResult() {
+  if (!game || game.phase !== 'over' || $('stage').hidden) return false;
+  if ($('result').hidden) showResult();
+  return true;
+}
+
+function showBoard(on) {
+  if (!game || $('stage').hidden || !$('result').hidden) on = false;
+  $('board').hidden = !on;
+  boardKey = '';
+  if (on) fillScores($('boardTable'));
+}
+
+function showResult() {
+  if (!game) return;
+  const winner = game.players[game.winner];
+  const winners = game.winners.map((id) => game.players[id]);
+  if (winners.some((p) => !allied(p, winner) && p !== winner)) {
+    // Time ran out with the top sides level: they share the round.
+    $('resultTitle').textContent = t('winShared', winners.map((p) => p.name).join(', '));
+  } else if (winner.team >= 0) {
+    $('resultTitle').textContent = meId >= 0 && won(game.players[meId]) ? t('winTeamMe') : t('winTeam', t('teamNames')[winner.team]);
+  } else {
+    $('resultTitle').textContent = game.winner === meId ? t('winMe') : t('winOther', winner.name);
+  }
+  $('board').hidden = true;
+  fillScores($('resultTable'));
+  if (game.timeout) $('resultTitle').textContent = `⏰ ${$('resultTitle').textContent}`;
   $('result').hidden = false;
   syncChat();
+  // The card can be put away to look around, so the rematch button is also outside it.
+  $('againBtn').hidden = net.role === 'guest';
   if (net.role !== 'guest') $('again').focus();
 }
 
+// Tell everyone, once per carry, when a seed is about to reach home.
+let alarmKey = '';
+function watchCarrier() {
+  const p = game.phase === 'playing' && game.players.find((c) => nearHome(game, c));
+  const key = p ? `${p.id}:${p.seeds}` : '';
+  if (key && key !== alarmKey) {
+    const mate = meId >= 0 && allied(game.players[meId], p);
+    banner(p.id === meId ? t('alarmMe') : t(mate ? 'alarmMate' : 'alarmOther', p.name), true);
+    audio.play.overtime();
+  }
+  // Stepping back out and in again does not repeat it; a new seed does.
+  if (key || !game.players.some((c) => c.carrying)) alarmKey = key || '';
+}
+
 function updateHud() {
+  watchCarrier();
+  if (!$('board').hidden) {
+    const now = game.players.map((p) => `${p.kills},${p.deaths},${p.seeds}`).join();
+    if (now !== boardKey) {
+      boardKey = now;
+      fillScores($('boardTable'));
+    }
+  }
   const key = game.players.map((p) => `${p.carrying ? 1 : 0}${wins[p.look]}`).join();
   if (key !== scoreKey) {
     scoreKey = key;
     $('scores').classList.toggle('many', game.players.length > 4);
     $('scores').replaceChildren(
-      ...game.players.map((p) => {
+      ...lineUp().map((p) => {
         const chip = document.createElement('span');
         chip.className = `chip${p.id === meId ? ' me' : ''}${p.carrying ? ' carry' : ''}`;
-        chip.style.setProperty('--c', LOOKS[p.look].color);
+        chip.style.setProperty('--c', colorOf(p));
         const dot = document.createElement('i');
         const name = document.createElement('span');
         name.textContent = (p.carrying ? '🌻 ' : '') + p.name;
@@ -861,7 +1140,7 @@ function frame(now) {
       broadcast(() => msg);
     }
   }
-  renderer.draw(game, { dt, meId, marker: input.marker() });
+  renderer.draw(game, { dt, meId, marker: input.marker(), bubbles });
   updateHud();
 }
 
@@ -880,8 +1159,23 @@ $('start').addEventListener('click', () => {
 });
 $('again').addEventListener('click', startGame);
 $('addSlot').addEventListener('click', addSlot);
+$('modeSolo').addEventListener('click', () => setTeamMode(false));
+$('modeTeam').addEventListener('click', () => setTeamMode(true));
 $('roomListBtn').addEventListener('click', toggleRoomList);
 $('listed').addEventListener('change', announce);
+$('pwField').addEventListener('input', () => {
+  roomPw = cleanPw($('pwField').value);
+  renderLobby();
+  sendLobby();
+});
+$('pwForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  if (!net.host) return;
+  net.pw = cleanPw($('pwInput').value);
+  $('pwInput').value = '';
+  sayHello();
+  renderLobby();
+});
 for (const id of ['back', 'quit']) {
   $(id).addEventListener('click', () => {
     // A guest leaving goes back to its own offline lobby.
@@ -906,6 +1200,23 @@ for (const [button, field] of [['copy', 'inviteLink'], ['copyWatch', 'watchLink'
     setTimeout(() => ($(button).textContent = t('copy')), 1500);
   });
 }
+// Hold Tab to look at the scores mid-round; phones get a button that toggles them.
+window.addEventListener('keydown', (e) => {
+  if (e.code !== 'Tab' || $('stage').hidden || !$('result').hidden) return;
+  e.preventDefault();
+  if (!reopenResult() && $('board').hidden) showBoard(true);
+});
+window.addEventListener('keyup', (e) => e.code === 'Tab' && showBoard(false));
+window.addEventListener('blur', () => showBoard(false));
+$('boardBtn').addEventListener('click', () => {
+  if (game && game.phase === 'over' && !$('result').hidden) $('result').hidden = true;
+  else if (!reopenResult()) showBoard($('board').hidden);
+});
+$('resultClose').addEventListener('click', () => ($('result').hidden = true));
+// A click on the dimmed map around the card also puts it away.
+$('result').addEventListener('click', (e) => e.target === $('result') && ($('result').hidden = true));
+$('againBtn').addEventListener('click', startGame);
+$('board').addEventListener('click', () => showBoard(false));
 $('mute').textContent = audio.isMuted() ? '🔇' : '🔊';
 $('mute').addEventListener('click', () => {
   audio.unlock();

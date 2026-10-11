@@ -48,6 +48,12 @@ test('a held bonk button waits for a hit that connects', () => {
   assert.equal(holdSwing(close.g, close.me, false), null);
 });
 
+test('a held bonk button ignores a team-mate', () => {
+  const { g, me, foe } = duel(2 * HAMSTER_R + 2);
+  me.team = foe.team = 0;
+  assert.equal(holdSwing(g, me, false), null);
+});
+
 test('with nobody around a fresh press still swings, a held one does not', () => {
   const { g, me } = duel(BONK.assist + 40);
   assert.deepEqual(holdSwing(g, me, true), { ax: 0, ay: 0, dist: 0 });

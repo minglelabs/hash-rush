@@ -3,7 +3,7 @@
 
 import { DT, SPEED, CARRY_SPEED, HAMSTER_R, BONK } from '../sim/constants.js';
 import { distToSegment, isFree } from '../sim/map.js';
-import { inHome } from '../sim/game.js';
+import { inHome, allied } from '../sim/game.js';
 import { mulberry32 } from '../sim/rng.js';
 import { getNav, blockCost } from './nav.js';
 
@@ -25,6 +25,8 @@ export const DIFFICULTY = {
 const TOUCH = 2 * HAMSTER_R;
 const DANGER_R = 110;
 const DANGER_K = 300;
+// How far outside a tunnel's edge a bot stops when it does not mean to go in.
+const RIM = 2;
 
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 
@@ -41,6 +43,7 @@ export function predictSwing(me, e, lead) {
 function snapshot(g, p) {
   return {
     id: p.id,
+    team: p.team,
     x: p.x,
     y: p.y,
     vx: p.vx,
@@ -91,7 +94,9 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
     const nav = getNav(map);
     const now = g.time;
     const f = map.flower;
-    const seen = history[0].filter((s) => s.id !== id);
+    // Everything below is about rivals; team-mates are neither targets nor obstacles.
+    const seen = history[0].filter((s) => s.id !== id && !allied(s, me));
+    const mates = history[0].filter((s) => s.id !== id && allied(s, me));
     const meHome = inHome(g, me);
     // Spots just inside the burrow that a seed carrier can aim for.
     const entries = map.rowYs.map((y) => ({ x: g.homeX - 14, y })).filter((p) => isFree(map, p.x, p.y, HAMSTER_R));
@@ -198,6 +203,27 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
         return;
       }
 
+      // A team-mate is running a seed home: clear out whoever is closest to them.
+      for (const c of mates) {
+        if (!c.carrying || c.home) continue;
+        let guard = null;
+        let guardD = 320;
+        for (const e of seen) {
+          if (e.home || e.carrying) continue;
+          const d = dist(e, c);
+          if (d < guardD) {
+            guardD = d;
+            guard = e;
+          }
+        }
+        if (guard) {
+          mem.mode = 'hunt';
+          mem.targetId = guard.id;
+          mem.path = null;
+          return;
+        }
+      }
+
       // Otherwise go for a seed. Only one hamster can nibble at a time and it has
       // to hold still, so a rival near the flower has to be dealt with first.
       const fd = dist(me, f);
@@ -291,6 +317,8 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
     }
 
     const target = mem.targetId >= 0 ? seen.find((e) => e.id === mem.targetId) : null;
+    // Only a deliberate shortcut home may step into a tunnel.
+    let tunnelling = false;
     if (mem.mode === 'home') {
       follow(mem.path);
       // Someone standing in the way: fight through rather than walk into a bonk.
@@ -306,8 +334,10 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       }
     } else if (mem.mode === 'deny' && target) {
       if (dist(me, target) < 230 && nav.clear(me, target)) engage(target);
-      else if (mem.path) follow(mem.path);
-      else engage(target);
+      else if (mem.path) {
+        follow(mem.path);
+        tunnelling = map.warps.includes(mem.path[mem.path.length - 1]);
+      } else engage(target);
     } else if (mem.mode === 'hunt' && target) {
       engage(target);
     } else if (mem.path) {
@@ -329,6 +359,27 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
     if (now < mem.nudge.until) {
       out.mx = mem.nudge.x;
       out.my = mem.nudge.y;
+    }
+
+    // A seed carrier is safe from the tunnel it stands in, and whoever follows it in
+    // is sent home. Stop at the rim, which is still within reach of anyone inside.
+    if (!me.carrying && !tunnelling) {
+      for (const w of map.warps) {
+        const rx = me.x - w.x;
+        const ry = me.y - w.y;
+        const d = Math.hypot(rx, ry) || 1;
+        const room = Math.max(0, d - w.r - RIM) / (SPEED * DT);
+        const inward = -(out.mx * rx + out.my * ry) / d;
+        if (inward <= room) continue;
+        out.mx += (rx / d) * (inward - room);
+        out.my += (ry / d) * (inward - room);
+        // Headed straight in, that leaves it standing still: go round to the target's side.
+        if (target && Math.hypot(out.mx, out.my) < 0.3 && dist(me, target) > BONK.reach - cfg.margin - cfg.jitter) {
+          const side = -ry * (target.x - me.x) + rx * (target.y - me.y) < 0 ? -1 : 1;
+          out.mx = (side * -ry) / d;
+          out.my = (side * rx) / d;
+        }
+      }
     }
 
     // Swing decision.

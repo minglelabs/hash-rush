@@ -3,7 +3,7 @@
 // Human, bot and (later) network players all feed it through the same input shape:
 //   { mx, my, bonk, ax?, ay? }   move vector, bonk button, optional aim direction
 
-import { DT, SPEED, CARRY_SPEED, HAMSTER_R, GATHER_TIME, COUNTDOWN, BONK, OVERTIME } from './constants.js';
+import { DT, SPEED, CARRY_SPEED, HAMSTER_R, gatherTime, COUNTDOWN, BONK, OVERTIME } from './constants.js';
 import { MAP, resolveCollisions, segmentClear } from './map.js';
 import { mulberry32 } from './rng.js';
 
@@ -14,6 +14,13 @@ export function inHome(g, p) {
   return p.x < g.homeX;
 }
 
+// Team-mates cannot bonk each other and walk straight through one another. A slot
+// without a team (-1) is on its own side, so a game with no teams is everyone
+// against everyone.
+export function allied(a, b) {
+  return a.team >= 0 && a.team === b.team;
+}
+
 export function createGame({ slots, map = MAP, seed = 1 }) {
   const rng = mulberry32(seed);
   const nests = (slots.length > map.nests.length ? map.bigNests : map.nests).map((n) => ({ ...n }));
@@ -21,11 +28,20 @@ export function createGame({ slots, map = MAP, seed = 1 }) {
     const j = Math.floor(rng() * (i + 1));
     [nests[i], nests[j]] = [nests[j], nests[i]];
   }
+  if (slots.some((s) => s.team >= 0)) {
+    // Team-mates start side by side. Which team gets which stretch of the arc is random.
+    const rank = new Map();
+    for (const s of slots) if (!rank.has(s.team)) rank.set(s.team, rng());
+    const order = slots.map((_, id) => id).sort((a, b) => rank.get(slots[a].team) - rank.get(slots[b].team) || a - b);
+    const byY = nests.slice(0, slots.length).sort((a, b) => a.y - b.y);
+    order.forEach((id, i) => (nests[id] = byY[i]));
+  }
   const players = slots.map((slot, id) => ({
     id,
     name: slot.name,
     kind: slot.kind,
     look: slot.look ?? id,
+    team: slot.team ?? -1,
     nest: nests[id],
     x: nests[id].x,
     y: nests[id].y,
@@ -54,6 +70,8 @@ export function createGame({ slots, map = MAP, seed = 1 }) {
     rng,
     players,
     winner: null,
+    winners: [],
+    timeout: false,
     events: [],
   };
 }
@@ -64,7 +82,7 @@ function pickAim(g, p, inp, mx, my, moveLen) {
   let best = null;
   let bestD = BONK.assist;
   for (const e of g.players) {
-    if (e === p || inHome(g, e)) continue;
+    if (e === p || allied(p, e) || inHome(g, e)) continue;
     const tx = e.x + e.vx * BONK.windup - p.x;
     const ty = e.y + e.vy * BONK.windup - p.y;
     const d = Math.hypot(tx, ty);
@@ -88,6 +106,7 @@ function separate(g) {
       for (let j = i + 1; j < players.length; j++) {
         const a = players[i];
         const b = players[j];
+        if (allied(a, b)) continue;
         let nx = b.x - a.x;
         let ny = b.y - a.y;
         const d = Math.hypot(nx, ny);
@@ -130,6 +149,25 @@ function respawn(g, p) {
   sendHome(p);
   p.deaths++;
   g.events.push({ type: 'spawn', id: p.id, x: p.x, y: p.y });
+}
+
+// Nobody brought a seed home in time: the side with the most bonks takes the
+// round, then the fewest times bonked, then the most seeds picked. Sides still
+// level after that share the win. A team counts as one side.
+function timeoutWinners(players) {
+  const sides = new Map();
+  for (const p of players) {
+    const key = p.team >= 0 ? `t${p.team}` : `p${p.id}`;
+    const side = sides.get(key) || { ids: [], kills: 0, deaths: 0, seeds: 0 };
+    side.ids.push(p.id);
+    side.kills += p.kills;
+    side.deaths += p.deaths;
+    side.seeds += p.seeds;
+    sides.set(key, side);
+  }
+  const rank = (a, b) => b.kills - a.kills || a.deaths - b.deaths || b.seeds - a.seeds;
+  const sorted = [...sides.values()].sort(rank);
+  return sorted.filter((s) => rank(s, sorted[0]) === 0).flatMap((s) => s.ids);
 }
 
 export function step(g, inputs) {
@@ -231,7 +269,7 @@ export function step(g, inputs) {
     let nearest = BONK.reach;
     if (!inHome(g, a)) {
       for (const v of players) {
-        if (v === a || bonked.has(v) || inHome(g, v)) continue;
+        if (v === a || allied(a, v) || bonked.has(v) || inHome(g, v)) continue;
         const dx = v.x - a.x;
         const dy = v.y - a.y;
         const d = Math.hypot(dx, dy);
@@ -243,9 +281,20 @@ export function step(g, inputs) {
       }
     }
     if (victim) {
-      bonked.add(victim);
-      a.kills++;
-      g.events.push({ type: 'bonk', by: a.id, id: victim.id, x: victim.x, y: victim.y, seed: victim.carrying });
+      // Team-mates can stand inside each other, and that is a risk: a hit on one
+      // of a clump takes out everyone overlapping it.
+      const clump = [victim];
+      for (const c of clump) {
+        for (const v of players) {
+          if (clump.includes(v) || !allied(c, v) || bonked.has(v) || inHome(g, v)) continue;
+          if (Math.hypot(v.x - c.x, v.y - c.y) < 2 * HAMSTER_R) clump.push(v);
+        }
+      }
+      for (const v of clump) {
+        bonked.add(v);
+        a.kills++;
+        g.events.push({ type: 'bonk', by: a.id, id: v.id, x: v.x, y: v.y, seed: v.carrying });
+      }
     }
     g.events.push({ type: 'impact', id: a.id, x: a.x, y: a.y, dx: a.swing.dx, dy: a.swing.dy, hit: !!victim });
   }
@@ -268,9 +317,19 @@ export function step(g, inputs) {
     if (p.carrying && inHome(g, p)) {
       g.phase = 'over';
       g.winner = p.id;
-      g.events.push({ type: 'win', id: p.id });
+      g.winners = players.filter((o) => o === p || allied(o, p)).map((o) => o.id);
+      g.events.push({ type: 'win', id: p.id, team: p.team });
       return g;
     }
+  }
+
+  if (g.time >= OVERTIME.end) {
+    g.phase = 'over';
+    g.timeout = true;
+    g.winners = timeoutWinners(players);
+    g.winner = g.winners[0];
+    g.events.push({ type: 'win', id: g.winner, team: players[g.winner].team, timeout: true });
+    return g;
   }
 
   // The flower feeds one hamster at a time, like a single mineral patch. Whoever
@@ -295,7 +354,7 @@ export function step(g, inputs) {
       nibbler.gather = 0;
     } else {
       nibbler.gather += DT;
-      if (nibbler.gather >= GATHER_TIME - 1e-9) {
+      if (nibbler.gather >= gatherTime(players.length) - 1e-9) {
         nibbler.gather = 0;
         nibbler.queued = -1;
         nibbler.carrying = true;

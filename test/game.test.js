@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createGame, step, inHome } from '../src/sim/game.js';
 import { createBot } from '../src/ai/bot.js';
 import { getNav, blockCost } from '../src/ai/nav.js';
-import { BONK, COUNTDOWN, GATHER_TIME, HAMSTER_R, OVERTIME, TICK_RATE } from '../src/sim/constants.js';
+import { BONK, COUNTDOWN, GATHER_TIME, gatherTime, HAMSTER_R, OVERTIME, TICK_RATE } from '../src/sim/constants.js';
 import { MAP, isFree } from '../src/sim/map.js';
 
 const IDLE = { mx: 0, my: 0, bonk: false };
@@ -292,6 +292,129 @@ test('bots of every level finish a match', () => {
       const bots = [0, 1, 2, 3].map((i) => createBot({ difficulty, seed: n * 31 + i }));
       for (let i = 0; i < 300 * TICK_RATE && g.phase !== 'over'; i++) step(g, bots.map((b, id) => b.think(g, id)));
       assert.equal(g.phase, 'over', `${difficulty} game ${n} ended`);
+    }
+  }
+});
+
+function teamGame(teams) {
+  const g = createGame({ slots: teams.map((team, i) => ({ name: `p${i}`, kind: 'human', team })), seed: 7 });
+  for (let i = 0; i < COUNTDOWN * TICK_RATE + 2 && g.phase === 'countdown'; i++) step(g, []);
+  return g;
+}
+
+test('team-mates walk through each other and cannot bonk each other', () => {
+  const g = teamGame([0, 0, 1]);
+  const [a, b, c] = g.players;
+  const y = MAP.laneYs[1];
+  place(a, 230, y);
+  place(b, 300, y);
+  place(c, 700, 100);
+  run(g, 1, [{ mx: 1, my: 0, bonk: false }, IDLE, IDLE]);
+  assert.ok(a.x > b.x + 2 * HAMSTER_R, `walked past the team-mate, x=${a.x}`);
+  place(a, 300, y);
+  place(b, 300 + 2 * HAMSTER_R, y);
+  run(g, 0.5, [{ mx: 0, my: 0, bonk: true, ax: 1, ay: 0 }, IDLE, IDLE]);
+  assert.equal(b.deaths, 0);
+  assert.equal(a.kills, 0);
+});
+
+test('a rival is still solid and can be bonked in a team game', () => {
+  const g = teamGame([0, 0, 1]);
+  const [a, , c] = g.players;
+  const y = MAP.laneYs[1];
+  place(a, 230, y);
+  place(c, 300, y);
+  run(g, 1, [{ mx: 1, my: 0, bonk: false }, IDLE, IDLE]);
+  assert.ok(a.x <= c.x - 2 * HAMSTER_R + 0.01, 'stopped behind the rival');
+  run(g, 0.5, [{ mx: 0, my: 0, bonk: true, ax: 1, ay: 0 }, IDLE, IDLE]);
+  assert.equal(c.deaths, 1);
+});
+
+test('one hamster bringing a seed home wins it for the team', () => {
+  const g = teamGame([0, 0, 0, 1, 1]);
+  const p = g.players[4];
+  p.carrying = true;
+  place(p, MAP.home.x2 - 30, MAP.laneYs[1]);
+  step(g, []);
+  assert.equal(g.phase, 'over');
+  assert.equal(g.winner, 4);
+  assert.deepEqual(g.events.at(-1), { type: 'win', id: 4, team: 1 });
+});
+
+test('team-mates start on neighbouring nests', () => {
+  for (let seed = 1; seed <= 20; seed++) {
+    const teams = [0, 1, 0, 1, 0];
+    const g = createGame({ slots: teams.map((team, i) => ({ name: `p${i}`, kind: 'bot', team })), seed });
+    const order = [...g.players].sort((a, b) => a.nest.y - b.nest.y).map((p) => p.team).join('');
+    assert.ok(order === '00011' || order === '11000', `seed ${seed}: ${order}`);
+    assert.equal(new Set(g.players.map((p) => p.nest)).size, 5);
+  }
+});
+
+test('an uneven three against two bot game finishes', () => {
+  const teams = [0, 0, 0, 1, 1];
+  const g = createGame({ slots: teams.map((team, i) => ({ name: `p${i}`, kind: 'bot', team })), seed: 3 });
+  const bots = teams.map((_, i) => createBot({ difficulty: 'hard', seed: 40 + i }));
+  while (g.phase !== 'over' && g.tick < 400 * TICK_RATE) step(g, bots.map((b, i) => b.think(g, i)));
+  assert.equal(g.phase, 'over');
+});
+
+test('more hamsters nibble a seed loose faster', () => {
+  assert.equal(gatherTime(2), GATHER_TIME);
+  assert.equal(gatherTime(4), GATHER_TIME);
+  assert.ok(Math.abs(gatherTime(6) - (GATHER_TIME * 2) / 3) < 1e-9);
+  assert.equal(gatherTime(8), GATHER_TIME / 2);
+});
+
+test('when time runs out the most bonks win, then fewest deaths, then seeds, then a shared win', () => {
+  const end = (edit) => {
+    const g = createGame({ slots: Array.from({ length: 4 }, (_, i) => ({ name: `p${i}`, kind: 'bot' })), seed: 3 });
+    run(g, COUNTDOWN + 0.1);
+    edit(g.players);
+    g.time = OVERTIME.end;
+    step(g, g.players.map(() => ({ mx: 0, my: 0, bonk: false })));
+    assert.equal(g.phase, 'over');
+    assert.equal(g.timeout, true);
+    return g.winners;
+  };
+  assert.deepEqual(end((p) => { p[2].kills = 3; p[1].kills = 2; }), [2]);
+  assert.deepEqual(end((p) => { p[2].kills = 3; p[1].kills = 3; p[2].deaths = 1; }), [1]);
+  assert.deepEqual(end((p) => { p[0].seeds = 1; p[3].seeds = 2; }), [3]);
+  assert.deepEqual(end(() => {}), [0, 1, 2, 3]);
+  assert.deepEqual(end((p) => { p[0].kills = 1; p[3].kills = 1; }), [0, 3]);
+});
+
+test('a bonk on overlapping team-mates takes the whole clump, but not one standing apart', () => {
+  const g = teamGame([0, 0, 0, 1]);
+  const [a, b, c, d] = g.players;
+  const y = MAP.laneYs[1];
+  place(d, 230, y);
+  place(a, 230 + 2 * HAMSTER_R + 2, y);
+  place(b, 230 + 2 * HAMSTER_R + 12, y);
+  place(c, 230 + 5 * HAMSTER_R, y);
+  run(g, 0.5, [IDLE, IDLE, IDLE, { mx: 0, my: 0, bonk: true, ax: 1, ay: 0 }]);
+  assert.deepEqual([a.deaths, b.deaths, c.deaths], [1, 1, 0]);
+  assert.equal(d.kills, 2);
+});
+
+test('a bot does not follow a seed carrier into a tunnel, and bonks it from the rim', () => {
+  for (const [spot, difficulty] of [[[0, 0], 'hard'], [[0, -18], 'hard'], [[20, 6], 'normal'], [[-12, 14], 'easy']]) {
+    for (const w of MAP.warps) {
+      const g = started(2);
+      const [bot, carrier] = g.players;
+      const brain = createBot({ difficulty, seed: 3 });
+      const inward = w.y < MAP.flower.y ? 1 : -1;
+      place(bot, w.x - 10, w.y + inward * 110);
+      place(carrier, w.x + spot[0], w.y + inward * spot[1]);
+      carrier.carrying = true;
+      const warped = [];
+      for (let i = 0; i < 8 * TICK_RATE && !carrier.deaths; i++) {
+        step(g, [brain.think(g, 0), IDLE]);
+        warped.push(...g.events.filter((ev) => ev.type === 'warp'));
+      }
+      assert.equal(warped.length, 0, `${difficulty} bot walked into the tunnel`);
+      // Easier bots sometimes let a carrier go, which is their choice to make.
+      if (difficulty === 'hard') assert.equal(carrier.deaths, 1, `bot never reached the carrier at ${spot}`);
     }
   }
 });

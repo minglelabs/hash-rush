@@ -1,9 +1,9 @@
 // Canvas drawing. Reads game state, never changes it.
 
 import { WORLD } from '../sim/map.js';
-import { BONK, GATHER_TIME } from '../sim/constants.js';
+import { BONK, gatherTime } from '../sim/constants.js';
 import { mulberry32 } from '../sim/rng.js';
-import { LOOKS } from './looks.js';
+import { colorOf, lookOf } from './looks.js';
 import { t as tr } from './i18n.js';
 
 const TAU = Math.PI * 2;
@@ -128,6 +128,10 @@ export function drawHamster(ctx, o) {
   if (o.carrying) drawSeed(ctx, nx, 7.5 + ly, 0.72, Math.PI / 2 + (o.fx >= 0 ? 0.25 : -0.25));
   ctx.restore();
 }
+
+// A seed carrier this close to the home edge sets off the alarm.
+const ALARM = 190;
+export const nearHome = (game, p) => p.carrying && p.x - game.homeX < ALARM;
 
 export function drawFlower(ctx, f, t) {
   ctx.save();
@@ -312,7 +316,7 @@ export function createRenderer(canvas, map) {
   }
 
   function onEvent(ev, game, meId) {
-    const color = (id) => LOOKS[game.players[id].look].color;
+    const color = (id) => colorOf(game.players[id]);
     if (ev.type === 'impact') {
       fx.push({ type: 'swoosh', x: ev.x, y: ev.y, a: Math.atan2(ev.dy, ev.dx), t: 0, life: 0.2, hit: ev.hit });
     } else if (ev.type === 'bonk') {
@@ -508,7 +512,7 @@ export function createRenderer(canvas, map) {
         oval(ctx, 0, 6, 19, 11);
         ctx.fill();
         ctx.lineWidth = 3;
-        ctx.strokeStyle = LOOKS[p.look].color;
+        ctx.strokeStyle = colorOf(p);
         ctx.stroke();
       });
     }
@@ -536,14 +540,44 @@ export function createRenderer(canvas, map) {
     const depth = (p) => (portrait ? -p.x : p.y);
     const order = [...game.players].sort((a, c) => depth(a) - depth(c));
     for (const p of order) {
-      const look = LOOKS[p.look];
+      const look = lookOf(p);
       const face = toScreenDir(p.fx, p.fy);
       upright(p.x, p.y, () => {
         if (p.carrying) {
-          ctx.strokeStyle = `rgba(255, 200, 40, ${0.6 + 0.3 * Math.sin(t * 9)})`;
-          ctx.lineWidth = 4;
-          oval(ctx, 0, 12, 22, 9);
+          // The seed carrier is the one everybody needs to find: a glow and a
+          // turning ring mark it, and close to home they turn into a red alarm.
+          const near = nearHome(game, p);
+          const beat = 0.5 + 0.5 * Math.sin(t * (near ? 14 : 7));
+          const glow = ctx.createRadialGradient(0, 0, 6, 0, 0, 46);
+          glow.addColorStop(0, near ? 'rgba(255, 60, 40, 0.5)' : 'rgba(255, 215, 60, 0.5)');
+          glow.addColorStop(1, near ? 'rgba(255, 60, 40, 0)' : 'rgba(255, 215, 60, 0)');
+          ctx.fillStyle = glow;
+          ctx.beginPath();
+          ctx.arc(0, 0, 46, 0, TAU);
+          ctx.fill();
+          ctx.save();
+          ctx.rotate(t * 2.2);
+          ctx.setLineDash([12, 8]);
+          ctx.lineWidth = 3.5;
+          ctx.strokeStyle = near ? `rgba(240, 40, 30, ${0.75 + 0.25 * beat})` : `rgba(255, 190, 30, ${0.65 + 0.3 * beat})`;
+          ctx.beginPath();
+          ctx.arc(0, 0, 27 + 2 * beat, 0, TAU);
           ctx.stroke();
+          ctx.restore();
+          if (near) {
+            // A red circle that keeps closing in on the carrier.
+            const k = (t * 1.4) % 1;
+            ctx.lineWidth = 5;
+            ctx.strokeStyle = `rgba(235, 30, 30, ${0.9 - 0.5 * k})`;
+            ctx.beginPath();
+            ctx.arc(0, 0, 62 - 26 * k, 0, TAU);
+            ctx.stroke();
+            ctx.lineWidth = 4;
+            ctx.strokeStyle = 'rgba(235, 30, 30, 0.95)';
+            ctx.beginPath();
+            ctx.arc(0, 0, 36, 0, TAU);
+            ctx.stroke();
+          }
         }
         drawHamster(ctx, {
           x: 0,
@@ -565,7 +599,7 @@ export function createRenderer(canvas, map) {
           ctx.stroke();
           ctx.strokeStyle = '#ffd23f';
           ctx.beginPath();
-          ctx.arc(0, 0, 23, -Math.PI / 2, -Math.PI / 2 + (p.gather / GATHER_TIME) * TAU);
+          ctx.arc(0, 0, 23, -Math.PI / 2, -Math.PI / 2 + (p.gather / gatherTime(game.players.length)) * TAU);
           ctx.stroke();
         }
         // In the ring but not first in line: waiting for a turn at the flower.
@@ -586,7 +620,7 @@ export function createRenderer(canvas, map) {
     }
 
     for (const p of order) {
-      const look = LOOKS[p.look];
+      const look = lookOf(p);
       const me = p.id === view.meId;
       upright(p.x, p.y, () => {
         let ly = -25;
@@ -616,7 +650,69 @@ export function createRenderer(canvas, map) {
       });
     }
 
+    // What somebody just said, in a bubble over their hamster: "name: message".
+    const now = performance.now();
+    for (const p of order) {
+      const said = view.bubbles && view.bubbles.get(p.look);
+      if (!said || said.until <= now) continue;
+      upright(p.x, p.y, () => drawBubble(p, said, now));
+    }
+
     drawFx(dt);
+  }
+
+  function drawBubble(p, said, now) {
+    const size = 13 * (portrait ? 1.45 : 1);
+    const maxW = 170 * (portrait ? 1.3 : 1);
+    const head = `${said.name}: `;
+    ctx.font = `700 ${size}px ${FONT}`;
+    // Chinese, Japanese and Korean have no spaces to break at, so wrap by character.
+    const lines = [''];
+    for (const ch of head + said.text) {
+      if (ctx.measureText(lines.at(-1) + ch).width > maxW) {
+        if (lines.length === 3) {
+          lines[2] = `${lines[2].slice(0, -1)}…`;
+          break;
+        }
+        lines.push('');
+      }
+      lines[lines.length - 1] += ch;
+    }
+    const w = Math.max(...lines.map((line) => ctx.measureText(line).width)) + 16;
+    const lh = size * 1.25;
+    const h = lines.length * lh + 10;
+    // Keep the whole bubble on screen when the hamster is near an edge.
+    const sx = portrait ? p.y : p.x;
+    const sy = portrait ? WORLD.w - p.x : p.y;
+    const vw = portrait ? WORLD.h : WORLD.w;
+    const cx = Math.min(Math.max(sx, w / 2 + 4), vw - w / 2 - 4) - sx;
+    const top = Math.max(-(p.carrying ? 58 : 34) - h, 4 - sy);
+    ctx.globalAlpha = Math.min(1, (said.until - now) / 400);
+    ctx.beginPath();
+    ctx.roundRect(cx - w / 2, top, w, h, 9);
+    ctx.moveTo(-5, top + h - 1);
+    ctx.lineTo(0, top + h + 7);
+    ctx.lineTo(5, top + h - 1);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.96)';
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = colorOf(p);
+    ctx.stroke();
+    ctx.textAlign = 'left';
+    lines.forEach((line, i) => {
+      const y = top + 5 + lh * (i + 0.78);
+      ctx.fillStyle = '#3a2a1a';
+      ctx.fillText(line, cx - w / 2 + 8, y);
+      // The name stands out in the speaker's colour.
+      if (i === 0) {
+        const shown = line.slice(0, head.length - 1);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.96)';
+        ctx.fillRect(cx - w / 2 + 7, top + 4, ctx.measureText(shown).width + 1, lh);
+        ctx.fillStyle = colorOf(p);
+        ctx.fillText(shown, cx - w / 2 + 8, y);
+      }
+    });
+    ctx.globalAlpha = 1;
   }
 
   return { resize, draw, onEvent, toWorld, toWorldDir, clear: () => (fx.length = 0) };

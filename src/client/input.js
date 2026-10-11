@@ -3,7 +3,7 @@
 // the hamster that was clicked.
 
 import { BONK } from '../sim/constants.js';
-import { inHome } from '../sim/game.js';
+import { inHome, allied } from '../sim/game.js';
 import { segmentClear } from '../sim/map.js';
 import { getNav, blockCost } from '../ai/nav.js';
 import { predictSwing } from '../ai/bot.js';
@@ -50,7 +50,7 @@ export function holdSwing(g, me, fresh) {
   let best = null;
   let near = false;
   for (const e of g.players) {
-    if (e === me || inHome(g, e)) continue;
+    if (e === me || allied(me, e) || inHome(g, e)) continue;
     const p = predictSwing(me, e, BONK.windup);
     if (p.dist < BONK.assist) near = true;
     if (p.dist > BONK.reach - 3 || (best && p.dist >= best.dist)) continue;
@@ -167,7 +167,7 @@ export function createInput({ stage, canvas, stick, knob, bonkBtn, toWorld, toWo
     let target = null;
     let best = 36;
     for (const e of g.players) {
-      if (e === me) continue;
+      if (e === me || allied(me, e)) continue;
       const d = Math.hypot(e.x - at.x, e.y - at.y);
       if (d < best) {
         best = d;
@@ -219,7 +219,7 @@ export function createInput({ stage, canvas, stick, knob, bonkBtn, toWorld, toWo
     // Like an RTS unit, walk around a lane that someone is standing in.
     const blocked = blockCost(
       g.map,
-      g.players.filter((p) => p !== me),
+      g.players.filter((p) => p !== me && !allied(me, p)),
     );
     const steer = (pt) => {
       const dx = pt.x - me.x;
