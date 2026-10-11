@@ -455,6 +455,14 @@ button.primary:active {
   font-size: clamp(20px, 3.2cqw, 34px);
 }
 
+#resultWait {
+  margin: 0 0 14px;
+  color: #a07a45;
+  font-size: clamp(12px, 1.6cqw, 16px);
+  font-weight: 700;
+  animation: pulse 0.8s ease-in-out infinite alternate;
+}
+
 #result table {
   width: 100%;
   margin-bottom: 16px;
