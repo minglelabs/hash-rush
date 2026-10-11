@@ -381,8 +381,8 @@ export const TRACKS = {
   },
 };
 
-// What plays for each screen. A round goes through its tunes in a shuffled order,
-// never the same one twice in a row.
+// What plays for each screen. A round goes through all of its tunes in a shuffled
+// order before any comes round again.
 export const PLAYLISTS = {
   game: ['game', 'hop', 'sprint', 'tango', 'boogie', 'parade'],
   lobby: ['lobby'],
@@ -567,10 +567,26 @@ export function createMusic(getCtx) {
     }
   }
 
+  // Each list is shuffled and played right through before it is shuffled again,
+  // and it keeps its place while another screen's music plays.
+  const queues = {};
+  const lastOf = {};
+
   function nextTune() {
     const list = PLAYLISTS[playing];
-    const others = list.length > 1 ? list.filter((name) => name !== trackName) : list;
-    trackName = others[Math.floor(Math.random() * others.length)];
+    let queue = queues[playing] || [];
+    if (!queue.length) {
+      queue = [...list];
+      for (let i = queue.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [queue[i], queue[j]] = [queue[j], queue[i]];
+      }
+      // A new round of the list never opens with the tune that closed the last one.
+      if (queue.length > 1 && queue[0] === lastOf[playing]) queue.push(queue.shift());
+    }
+    trackName = queue.shift();
+    queues[playing] = queue;
+    lastOf[playing] = trackName;
     track = TRACKS[trackName];
     bars = barsOf(track);
     index = 0;
