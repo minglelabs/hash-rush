@@ -515,7 +515,7 @@ function guestName(slot, raw) {
   return !name || ME_NAMES.has(name) ? defaultName(slots.indexOf(slot)) : name;
 }
 
-const roster = () => game.players.map((p) => ({ name: p.name, look: p.look, team: p.team, nest: p.nest }));
+const roster = () => game.players.map((p) => ({ name: p.name, look: p.look, team: p.team, kind: p.kind, nest: p.nest }));
 
 function guestData(conn, msg) {
   if (!msg || conn.kicked) return;
@@ -682,7 +682,7 @@ function hostData(msg) {
       winners: [],
       timeout: false,
       players: msg.players.map((p, id) => ({
-        id, name: p.name, look: p.look, team: p.team ?? -1, nest: p.nest, x: p.nest.x, y: p.nest.y, vx: 0, vy: 0, fx: 1, fy: 0,
+        id, name: p.name, look: p.look, team: p.team ?? -1, kind: p.kind, nest: p.nest, x: p.nest.x, y: p.nest.y, vx: 0, vy: 0, fx: 1, fy: 0,
         carrying: false, gather: 0, queued: -1, swing: null, cooldown: 0, kills: 0, deaths: 0, seeds: 0, supers: 0, charge: 0,
       })),
     };
