@@ -261,6 +261,7 @@ function renderLobby() {
   }
   // Chat exists only inside a room.
   syncChat();
+  showLobbyBubbles();
   $('netStatus').hidden = !guest;
   $('netStatus').textContent = net.status || (guest && net.lobby && net.you < 0 ? t('spectating') : '');
   updateStart();
@@ -703,7 +704,42 @@ function syncChat() {
   }
 }
 
+// What each slot last said, shown for a few seconds as a speech bubble over its
+// hamster: on the field during a round, on its row in the lobby.
+const bubbles = new Map();
+let bubbleTimer = 0;
+
+function showLobbyBubbles() {
+  const now = performance.now();
+  let next = Infinity;
+  [...$('slots').children].forEach((li, i) => {
+    const said = bubbles.get(i);
+    const live = said && said.until > now;
+    let el = li.querySelector('.bubble');
+    if (!live) {
+      if (el) el.remove();
+      return;
+    }
+    next = Math.min(next, said.until);
+    if (!el) {
+      el = document.createElement('div');
+      el.className = 'bubble';
+      li.append(el);
+    }
+    const who = document.createElement('b');
+    who.textContent = `${said.name}:`;
+    el.replaceChildren(who, ` ${said.text}`);
+  });
+  clearTimeout(bubbleTimer);
+  if (next < Infinity) bubbleTimer = setTimeout(showLobbyBubbles, next - now + 20);
+}
+
 function addChat({ name, look, text }) {
+  if (look >= 0) {
+    const said = cleanChat(text);
+    bubbles.set(look, { name: String(name), text: said, until: performance.now() + 3000 + 50 * said.length });
+    showLobbyBubbles();
+  }
   // Count what arrives while the box is closed, so the button can show it.
   const overlay = !$('stage').hidden && $('result').hidden;
   if (!chatOpen && !overlay) unread++;
@@ -1069,7 +1105,7 @@ function frame(now) {
       broadcast(() => msg);
     }
   }
-  renderer.draw(game, { dt, meId, marker: input.marker() });
+  renderer.draw(game, { dt, meId, marker: input.marker(), bubbles });
   updateHud();
 }
 
