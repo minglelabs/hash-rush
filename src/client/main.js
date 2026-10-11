@@ -136,9 +136,26 @@ function renderLobby() {
     }).slice(1),
   );
   const list = $('slots');
-  list.textContent = '';
+  // Rebuilding the list would replace the field someone is typing a name in,
+  // which drops focus and breaks Korean/Japanese/Chinese composition. While the
+  // rows are otherwise the same, only the other names are refreshed.
+  const typing = document.activeElement;
+  const shape = (slot, i) => `${slot.kind}:${guest ? i === net.you : ''}:${teams ? slot.team : ''}`;
+  const keep =
+    typing instanceof HTMLInputElement &&
+    list.contains(typing) &&
+    list.children.length === rows.length &&
+    rows.every((slot, i) => list.children[i].dataset.shape === shape(slot, i));
+  if (keep) {
+    rows.forEach((slot, i) => {
+      const field = list.children[i].querySelector('input');
+      if (field !== typing) field.value = slot.kind === 'open' ? '' : slot.name;
+    });
+  } else list.textContent = '';
   rows.forEach((slot, i) => {
+    if (keep) return;
     const li = document.createElement('li');
+    li.dataset.shape = shape(slot, i);
     li.style.setProperty('--c', teams && TEAMS[slot.team] ? TEAMS[slot.team].color : LOOKS[i].color);
     li.classList.toggle('teamed', teams);
     li.classList.toggle('closed', slot.kind === 'closed');
@@ -212,8 +229,6 @@ function renderLobby() {
     list.append(li);
   });
   $('addSlot').hidden = guest || slots.length >= MAX_SLOTS;
-  $('roomListBtn').hidden = guest;
-  if (guest) $('rooms').hidden = true;
 
   const inviting = net.role === 'host' || slots.some((s) => s.kind === 'open');
   $('invite').hidden = guest || !inviting;
@@ -332,7 +347,7 @@ function toggleRoomList() {
 }
 
 function renderRooms(rooms) {
-  const others = rooms.filter((r) => r.room !== net.room);
+  const others = rooms.filter((r) => r.room !== (net.room || joinId));
   $('roomsStatus').textContent = others.length ? '' : t('roomsEmpty');
   $('roomItems').replaceChildren(
     ...others.map((r) => {
