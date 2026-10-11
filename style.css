@@ -209,6 +209,42 @@ button.primary:active {
   background: var(--cream);
 }
 
+#roomPw {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  background: #fff;
+  border: 2px solid var(--line);
+  border-radius: 14px;
+  font-weight: 700;
+}
+
+#roomPw input,
+#pwForm input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-weight: 700;
+  color: var(--ink);
+  padding: 0.35em 0.6em;
+  border: 2px solid var(--line);
+  border-radius: 10px;
+  background: var(--cream);
+}
+
+#roomPw input:disabled {
+  border-color: transparent;
+  background: transparent;
+  opacity: 1;
+  -webkit-text-fill-color: var(--ink);
+}
+
+#pwForm {
+  margin: -8px 0 18px;
+}
+
 #roomListBtn {
   display: block;
   width: 100%;

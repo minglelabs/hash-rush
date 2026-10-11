@@ -90,8 +90,12 @@ const query = new URLSearchParams(location.search);
 const joinId = query.get('room');
 // Opening the watch link joins as a spectator instead of taking a slot.
 const watchOnly = query.has('watch');
+// A private room asks for its password. The host's invite link carries it; someone
+// coming in from the room list types it.
+const cleanPw = (raw) => String(raw ?? '').trim().slice(0, 12);
+let roomPw = '';
 // role: null (offline), 'host' or 'guest'.
-const net = { role: joinId ? 'guest' : null, room: null, host: null, status: '', lobby: null, teams: false, you: -1, pending: [], watchers: [] };
+const net = { role: joinId ? 'guest' : null, room: null, host: null, status: '', lobby: null, teams: false, pw: cleanPw(query.get('pw')), needPw: false, you: -1, pending: [], watchers: [] };
 
 let game = null;
 let controllers = [];
@@ -232,12 +236,18 @@ function renderLobby() {
 
   const inviting = net.role === 'host' || slots.some((s) => s.kind === 'open');
   $('invite').hidden = guest || !inviting;
+  // The password sits at the top of the room, where everyone in it can read it.
+  $('roomPw').hidden = guest ? !net.lobby || !net.pw : !inviting;
+  $('pwField').disabled = guest;
+  $('pwField').placeholder = t('pwNone');
+  if (document.activeElement !== $('pwField')) $('pwField').value = guest ? net.pw : roomPw;
+  $('pwForm').hidden = !net.needPw;
   $('inviteText').textContent = net.room ? t('invite') : net.status || t('roomCreating');
   $('inviteLink').hidden = !net.room;
   $('copy').hidden = !net.room;
   $('watchRow').hidden = !net.room;
   if (net.room) {
-    const link = `${location.origin}${location.pathname}?room=${net.room}`;
+    const link = `${location.origin}${location.pathname}?room=${net.room}${roomPw ? `&pw=${encodeURIComponent(roomPw)}` : ''}`;
     $('inviteLink').value = link;
     $('watchLink').value = `${link}&watch`;
     $('watchText').textContent = `${t('watchLink')} · ${t('spectators', net.watchers.length)}`;
@@ -353,7 +363,7 @@ function renderRooms(rooms) {
     ...others.map((r) => {
       const li = document.createElement('li');
       const title = document.createElement('b');
-      title.textContent = t('roomOf', r.name || '?');
+      title.textContent = `${r.locked ? '🔒 ' : ''}${t('roomOf', r.name || '?')}`;
       const state = document.createElement('span');
       state.className = `badge${r.playing ? ' playing' : ''}`;
       state.textContent = t(r.playing ? 'roomPlaying' : 'roomWaiting');
@@ -392,6 +402,7 @@ function announce() {
             bots: slots.filter(isPlaying).length - humans,
             open: slots.filter((s) => s.kind === 'open').length,
             state: game && !$('stage').hidden ? 'playing' : 'lobby',
+            locked: !!roomPw,
           }
         : null,
     );
@@ -427,6 +438,13 @@ async function openRoom() {
 function guestJoined() {}
 
 function welcome(conn, msg) {
+  if (roomPw && cleanPw(msg.pw) !== roomPw) {
+    // A few tries, then the connection is dropped so the password cannot be guessed at speed.
+    conn.tries = (conn.tries || 0) + 1;
+    if (conn.tries > 5) conn.close();
+    else conn.send({ t: 'pw', wrong: !!cleanPw(msg.pw) });
+    return;
+  }
   const slot = msg.watch ? null : slots.find((s) => s.kind === 'open');
   if (slot) {
     slot.kind = 'remote';
@@ -518,7 +536,7 @@ function broadcast(make) {
 function sendLobby() {
   if (net.role !== 'host') return;
   const view = slots.map((s) => ({ kind: s.kind, name: s.name, team: s.team }));
-  broadcast((slot, i) => ({ t: 'lobby', slots: view, teams: teamMode, you: i, wins }));
+  broadcast((slot, i) => ({ t: 'lobby', slots: view, teams: teamMode, pw: roomPw, you: i, wins }));
   announce();
 }
 
@@ -550,13 +568,19 @@ async function enterRoom() {
   renderLobby();
   try {
     net.host = await joinRoom(joinId, { data: hostData, close: hostGone });
-    net.host.send({ t: 'hello', name: slots[0].name, watch: watchOnly });
+    sayHello();
     net.status = '';
   } catch (err) {
     net.failed = true;
     net.status = t(err && err.noRoom ? 'noRoom' : 'joinFail');
   }
   renderLobby();
+}
+
+function sayHello() {
+  net.needPw = false;
+  net.status = '';
+  net.host.send({ t: 'hello', name: slots[0].name, watch: watchOnly, pw: net.pw });
 }
 
 function hostGone() {
@@ -573,9 +597,17 @@ function hostData(msg) {
   if (msg.t === 'lobby') {
     net.lobby = msg.slots;
     net.teams = !!msg.teams;
+    net.pw = cleanPw(msg.pw);
+    if (net.needPw) net.status = '';
+    net.needPw = false;
     net.you = msg.you;
     msg.wins.forEach((n, i) => (wins[i] = n));
     if ($('stage').hidden) renderLobby();
+  } else if (msg.t === 'pw') {
+    net.needPw = true;
+    net.status = t(msg.wrong ? 'pwWrong' : 'pwNeeded');
+    renderLobby();
+    $('pwInput').focus();
   } else if (msg.t === 'full') {
     net.status = t('roomFull');
     renderLobby();
@@ -996,6 +1028,19 @@ $('modeSolo').addEventListener('click', () => setTeamMode(false));
 $('modeTeam').addEventListener('click', () => setTeamMode(true));
 $('roomListBtn').addEventListener('click', toggleRoomList);
 $('listed').addEventListener('change', announce);
+$('pwField').addEventListener('input', () => {
+  roomPw = cleanPw($('pwField').value);
+  renderLobby();
+  sendLobby();
+});
+$('pwForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  if (!net.host) return;
+  net.pw = cleanPw($('pwInput').value);
+  $('pwInput').value = '';
+  sayHello();
+  renderLobby();
+});
 for (const id of ['back', 'quit']) {
   $(id).addEventListener('click', () => {
     // A guest leaving goes back to its own offline lobby.
