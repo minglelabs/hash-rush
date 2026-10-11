@@ -30,15 +30,26 @@ const SECOND_SEED = 0.45;
 // How far outside a tunnel's edge a bot stops when it does not mean to go in.
 const RIM = 2;
 
+// A seed carrier this close to the home edge has every rival bot drop what it is doing.
+const LAST_STAND = 260;
+
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 
 // If `me` started a swing now, how far away would `e` be when it lands?
 // `lead` is how far ahead (seconds) to extrapolate the target's movement.
 export function predictSwing(me, e, lead) {
   const drift = e.swing ? 0 : lead;
-  const dx = e.x + e.vx * drift - me.x;
-  const dy = e.y + e.vy * drift - me.y;
+  const cx = e.x - me.x;
+  const cy = e.y - me.y;
+  const cd = Math.hypot(cx, cy);
+  const dx = cx + e.vx * drift;
+  const dy = cy + e.vy * drift;
   const d = Math.hypot(dx, dy) || 1;
+  // Hamsters are solid: one charging at me stops when it touches me. Carrying its
+  // velocity on would put it behind me, and the swing would go the wrong way.
+  if (cd > 1e-6 && ((d < TOUCH && d < cd) || dx * cx + dy * cy <= 0)) {
+    return { ax: cx / cd, ay: cy / cd, dist: Math.min(cd, TOUCH) };
+  }
   return { ax: dx / d, ay: dy / d, dist: d };
 }
 
@@ -114,8 +125,37 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       out.mx = dx / d;
       out.my = dy / d;
     };
+    // Only a deliberate shortcut home may step into a tunnel.
+    let tunnelling = false;
     const follow = (points) => {
-      if (points && points.length) steerTo(nav.nextTarget(me, points));
+      if (!points || !points.length) return;
+      if (map.warps.includes(points[points.length - 1])) tunnelling = true;
+      steerTo(nav.nextTarget(me, points));
+    };
+    // A tunnel is part of the map like any lane: for a hamster without a seed it
+    // is a one-way hop from the flower's side to its own nest. Routes and travel
+    // distances count it whenever going in and walking on from the nest is shorter.
+    const tunnels = me.carrying ? [] : map.warps;
+    const travel = (to) => {
+      let best = nav.distance(me, to);
+      for (const w of tunnels) {
+        // As the crow flies is the least it could be: most targets are ruled out here.
+        if (dist(me, w) + dist(me.nest, to) >= best) continue;
+        best = Math.min(best, nav.distance(me, w) + nav.distance(me.nest, to));
+      }
+      return best;
+    };
+    const route = (to, extra) => {
+      let best = nav.findPath(me, to, extra);
+      for (const w of tunnels) {
+        // The least the tunnel way can cost; skip the search unless it could win.
+        if (dist(me, w) + dist(me.nest, to) >= best.cost) continue;
+        if (nav.distance(me, w) + nav.distance(me.nest, to) >= best.cost) continue;
+        const leg = nav.findPath(me, w, extra);
+        const after = nav.findPath(me.nest, to, extra);
+        if (leg.cost + after.cost < best.cost) best = { points: leg.points, cost: leg.cost + after.cost };
+      }
+      return best;
     };
     // Enemies loitering near a leg of the route, e.g. at a lane mouth.
     const danger = (p, q) => {
@@ -129,7 +169,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
     };
 
     // Where could I cut off a seed carrier before they get home?
-    const intercept = (c) => {
+    const intercept = (c, force) => {
       let entry = entries[0];
       let home = Infinity;
       for (const en of entries) {
@@ -149,7 +189,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
         for (let s = i === 1 ? 40 : 0; s <= seg; s += 50) {
           const P = { x: a.x + ((b.x - a.x) * s) / seg, y: a.y + ((b.y - a.y) * s) / seg };
           if (P.x < g.homeX + 20) break;
-          if (nav.distance(me, P) / SPEED <= (walked + s) / (SPEED * CARRY_SPEED)) return P;
+          if (travel(P) / SPEED <= (walked + s) / (SPEED * CARRY_SPEED)) return P;
         }
         walked += seg;
       }
@@ -158,10 +198,21 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       if (nav.distance(me, door) / SPEED <= deadline) return door;
       // Too far to run: a tunnel by the flower drops me at my nest, ahead of them.
       const fromNest = nav.distance(me.nest, door) / SPEED;
+      let viaTunnel = null;
+      let tunnelTime = Infinity;
       for (const w of map.warps) {
-        if (nav.distance(me, w) / SPEED + fromNest <= deadline) return w;
+        const time = nav.distance(me, w) / SPEED + fromNest;
+        if (time <= deadline) return w;
+        if (time < tunnelTime) {
+          tunnelTime = time;
+          viaTunnel = w;
+        }
       }
-      return null;
+      // Too late on paper. That is no reason to let it go: carriers get held up
+      // on the way and at the door, so head there anyway.
+      if (!force) return null;
+      // Running at them shows the chase; the tunnel is only worth it when clearly quicker.
+      return nav.distance(me, door) / SPEED <= tunnelTime * 1.25 ? door : viaTunnel;
     };
 
     const plan = () => {
@@ -188,11 +239,18 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       let urgent = Infinity;
       for (const c of seen) {
         if (!c.carrying || c.home) continue;
+        // A seed about to reach home is everybody's problem, whatever was rolled.
+        const lastStand = c.x - g.homeX < LAST_STAND;
         const key = c.id * 1000 + c.seeds;
         if (!mem.denyRolls.has(key)) mem.denyRolls.set(key, rng() < cfg.deny);
-        if (!mem.denyRolls.get(key)) continue;
+        if (!mem.denyRolls.get(key) && !lastStand) continue;
         const near = dist(me, c) < 230 && nav.clear(me, c);
-        const at = near ? c : intercept(c);
+        // Out of reach is no reason to shrug either: everyone keeps after the seed,
+        // except that with three or more chasers the one nearest the flower stays
+        // on it, ready to nibble the moment the seed is knocked loose.
+        const chasers = [me, ...mates, ...seen.filter((e) => e.id !== c.id && !allied(e, c))].filter((e) => !e.carrying);
+        const stays = chasers.length >= 3 && chasers.every((e) => e === me || dist(e, f) > dist(me, f));
+        const at = near ? c : intercept(c, lastStand || !stays);
         if (!at) continue;
         if (c.x < urgent) {
           urgent = c.x;
@@ -202,7 +260,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       if (target) {
         mem.mode = 'deny';
         mem.targetId = target.c.id;
-        mem.path = target.at === target.c ? null : nav.findPath(me, target.at).points;
+        mem.path = target.at === target.c ? null : route(target.at).points;
         return;
       }
 
@@ -273,7 +331,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
           else if (d < 70) crowd += 400;
         }
         if (crowd === Infinity) continue;
-        const r = nav.findPath(me, spot, blocked);
+        const r = route(spot, blocked);
         if (!best || r.cost + crowd < best.cost) best = { points: r.points, cost: r.cost + crowd };
       }
       mem.path = best ? best.points : [f];
@@ -294,7 +352,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
         };
       }
       if (!nav.clear(me, e)) {
-        follow(nav.findPath(me, e).points);
+        follow(route(e).points);
         return;
       }
       const dx = e.x - me.x;
@@ -325,8 +383,6 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
     }
 
     const target = mem.targetId >= 0 ? seen.find((e) => e.id === mem.targetId) : null;
-    // Only a deliberate shortcut home may step into a tunnel.
-    let tunnelling = false;
     if (mem.mode === 'home') {
       follow(mem.path);
       // Someone standing in the way: fight through rather than walk into a bonk.
@@ -344,7 +400,6 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       if (dist(me, target) < 230 && nav.clear(me, target)) engage(target);
       else if (mem.path) {
         follow(mem.path);
-        tunnelling = map.warps.includes(mem.path[mem.path.length - 1]);
       } else engage(target);
     } else if (mem.mode === 'hunt' && target) {
       engage(target);

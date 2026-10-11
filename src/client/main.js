@@ -55,7 +55,7 @@ function localizePage() {
   // A browser can briefly hold a newer page with an older, cached script that
   // lacks a key. Show nothing rather than the word "undefined".
   for (const el of document.querySelectorAll('[data-i18n]')) el.innerHTML = t(el.dataset.i18n) ?? '';
-  $('mute').title = t('sound');
+  for (const id of ['mute', 'muteLobby']) $(id).title = t('sound');
   $('swap').title = t('swapSides');
   // For a guest these buttons do not go to a lobby of their own: they leave the room.
   if (joinId) for (const id of ['quit', 'back']) $(id).textContent = t('leaveRoom');
@@ -109,6 +109,7 @@ let acc = 0;
 let resultTimer = 0;
 let bannerTimer = 0;
 let scoreKey = '';
+let tickBeat = -1;
 let bonkSeq = 0;
 let bonkWas = false;
 
@@ -350,6 +351,8 @@ function updateStart() {
 function show(screen) {
   $('lobby').hidden = screen !== 'lobby';
   $('stage').hidden = screen !== 'stage';
+  // The round's tune keeps going from one round to the next, result screen included.
+  audio.setMusic(screen === 'lobby' ? 'lobby' : 'game');
 }
 
 // ---------- room list ----------
@@ -378,10 +381,13 @@ function toggleRoomList() {
 }
 
 function renderRooms(rooms) {
-  const others = rooms.filter((r) => r.room !== (net.room || joinId));
-  $('roomsStatus').textContent = others.length ? '' : t('roomsEmpty');
+  // The room this player is in comes first, marked as theirs and without buttons:
+  // seeing it is how a host knows the room really is on the list.
+  const here = net.room || joinId;
+  const shown = [...rooms.filter((r) => r.room === here), ...rooms.filter((r) => r.room !== here)];
+  $('roomsStatus').textContent = shown.length ? '' : t('roomsEmpty');
   $('roomItems').replaceChildren(
-    ...others.map((r) => {
+    ...shown.map((r) => {
       const li = document.createElement('li');
       const title = document.createElement('b');
       title.textContent = `${r.locked ? '🔒 ' : ''}${t('roomOf', r.name || '?')}`;
@@ -392,6 +398,14 @@ function renderRooms(rooms) {
       who.textContent = t('roomPeople', r.humans, r.bots, r.open);
       const info = document.createElement('div');
       info.append(title, state, who);
+      if (r.room === here) {
+        const mine = document.createElement('span');
+        mine.className = 'badge mine';
+        mine.textContent = t('roomMine');
+        title.after(mine);
+        li.append(info);
+        return li;
+      }
       const link = `${location.pathname}?room=${r.room}`;
       const join = document.createElement('button');
       join.className = 'primary';
@@ -896,6 +910,7 @@ function enterStage() {
   $('gameChat').querySelector('.chatLog').textContent = '';
   $('quick').hidden = true;
   $('banner').classList.remove('show');
+  $('callout').textContent = '';
   $('again').hidden = net.role === 'guest';
   $('againBtn').hidden = true;
   $('resultWait').hidden = net.role !== 'guest';
@@ -929,6 +944,27 @@ function banner(text, alarm = false) {
   bannerTimer = setTimeout(() => el.classList.remove('show'), 2200);
 }
 
+// The shout for a big play: "Double kill!", "Super play!". Plays that land within a
+// moment of each other, like a double kill that also stops a seed, share one shout.
+let calloutAt = 0;
+let calloutLines = [];
+
+function callout(by, lines) {
+  const now = performance.now();
+  calloutLines = now - calloutAt < 400 ? [...new Set([...calloutLines, ...lines])] : lines;
+  calloutAt = now;
+  const box = document.createElement('div');
+  box.append(nameTag(by));
+  for (const line of calloutLines) {
+    const el = document.createElement('span');
+    el.textContent = line;
+    el.classList.toggle('super', line === t('superPlay'));
+    box.append(el);
+  }
+  box.addEventListener('animationend', () => box.remove());
+  $('callout').replaceChildren(box);
+}
+
 function nameTag(p) {
   const b = document.createElement('b');
   b.textContent = p.name;
@@ -960,6 +996,17 @@ function onEvent(ev) {
     $('feed').prepend(line);
     while ($('feed').children.length > 4) $('feed').lastChild.remove();
     if (ev.seed && ev.id === meId) banner(t('lostSeed'));
+    if (ev.close) {
+      callout(players[ev.by], [t('superPlay')]);
+      audio.play.superplay();
+    }
+  } else if (ev.type === 'multi') {
+    const names = t('killNames');
+    const name = names[Math.min(ev.n, names.length + 1) - 2];
+    // Three at once is a super play in its own right.
+    callout(players[ev.by], ev.n >= 3 ? [name, t('superPlay')] : [name]);
+    if (ev.n >= 3) audio.play.triple();
+    else audio.play.double();
   } else if (ev.type === 'spawn' || ev.type === 'warp') {
     if (ev.id === meId) audio.play.spawn();
   } else if (ev.type === 'seed') {
@@ -1020,6 +1067,7 @@ function fillScores(table) {
 }
 
 let boardKey = '';
+let tabResult = false;
 // Once a round is over, Tab and the chart button bring the result card back.
 function reopenResult() {
   if (!game || game.phase !== 'over' || $('stage').hidden) return false;
@@ -1064,7 +1112,7 @@ function watchCarrier() {
   if (key && key !== alarmKey) {
     const mate = meId >= 0 && allied(game.players[meId], p);
     banner(p.id === meId ? t('alarmMe') : t(mate ? 'alarmMate' : 'alarmOther', p.name), true);
-    audio.play.overtime();
+    audio.play.siren();
   }
   // Stepping back out and in again does not repeat it; a new seed does.
   if (key || !game.players.some((c) => c.carrying)) alarmKey = key || '';
@@ -1100,6 +1148,12 @@ function updateHud() {
   }
   const s = Math.floor(game.time);
   const overtime = game.time > OVERTIME.start;
+  // The clock is heard ticking all through overtime, twice a second.
+  const beat = overtime && game.phase === 'playing' ? Math.floor(game.time * 2) : -1;
+  if (beat !== tickBeat) {
+    tickBeat = beat;
+    if (beat >= 0) audio.play.tick(beat % 2);
+  }
   $('clock').textContent = `${overtime ? `${t('overtimeClock')} ` : ''}${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
   $('clock').classList.toggle('overtime', overtime);
 }
@@ -1202,12 +1256,22 @@ for (const [button, field] of [['copy', 'inviteLink'], ['copyWatch', 'watchLink'
 }
 // Hold Tab to look at the scores mid-round; phones get a button that toggles them.
 window.addEventListener('keydown', (e) => {
-  if (e.code !== 'Tab' || $('stage').hidden || !$('result').hidden) return;
-  e.preventDefault();
-  if (!reopenResult() && $('board').hidden) showBoard(true);
+  if (e.code !== 'Tab' || $('stage').hidden) return;
+  // Held down, Tab repeats: it must never move the focus around instead.
+  if (tabResult || $('result').hidden) e.preventDefault();
+  if (!$('result').hidden) return;
+  if (game && game.phase === 'over') tabResult = reopenResult();
+  else if ($('board').hidden) showBoard(true);
 });
-window.addEventListener('keyup', (e) => e.code === 'Tab' && showBoard(false));
-window.addEventListener('blur', () => showBoard(false));
+// Letting go of Tab puts the scores away again, the result card included when
+// Tab is what brought it back.
+const releaseTab = () => {
+  showBoard(false);
+  if (tabResult) $('result').hidden = true;
+  tabResult = false;
+};
+window.addEventListener('keyup', (e) => e.code === 'Tab' && releaseTab());
+window.addEventListener('blur', releaseTab);
 $('boardBtn').addEventListener('click', () => {
   if (game && game.phase === 'over' && !$('result').hidden) $('result').hidden = true;
   else if (!reopenResult()) showBoard($('board').hidden);
@@ -1217,11 +1281,16 @@ $('resultClose').addEventListener('click', () => ($('result').hidden = true));
 $('result').addEventListener('click', (e) => e.target === $('result') && ($('result').hidden = true));
 $('againBtn').addEventListener('click', startGame);
 $('board').addEventListener('click', () => showBoard(false));
-$('mute').textContent = audio.isMuted() ? '🔇' : '🔊';
-$('mute').addEventListener('click', () => {
-  audio.unlock();
-  $('mute').textContent = audio.toggle() ? '🔇' : '🔊';
-});
+// The same sound button sits in the lobby and on the field.
+const soundButtons = ['mute', 'muteLobby'].map($);
+for (const b of soundButtons) {
+  b.textContent = audio.icon();
+  b.addEventListener('click', () => {
+    audio.unlock();
+    audio.cycle();
+    for (const other of soundButtons) other.textContent = audio.icon();
+  });
+}
 // Which thumb bonks is a matter of habit, so the phone remembers the chosen side.
 const setBonkSide = (left) => document.body.classList.toggle('bonk-left', left);
 try {

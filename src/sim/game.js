@@ -3,7 +3,7 @@
 // Human, bot and (later) network players all feed it through the same input shape:
 //   { mx, my, bonk, ax?, ay? }   move vector, bonk button, optional aim direction
 
-import { DT, SPEED, CARRY_SPEED, HAMSTER_R, gatherTime, COUNTDOWN, BONK, OVERTIME } from './constants.js';
+import { DT, SPEED, CARRY_SPEED, HAMSTER_R, gatherTime, COUNTDOWN, BONK, OVERTIME, ALARM_RANGE } from './constants.js';
 import { MAP, resolveCollisions, segmentClear } from './map.js';
 import { mulberry32 } from './rng.js';
 
@@ -293,8 +293,12 @@ export function step(g, inputs) {
       for (const v of clump) {
         bonked.add(v);
         a.kills++;
-        g.events.push({ type: 'bonk', by: a.id, id: v.id, x: v.x, y: v.y, seed: v.carrying });
+        // `close` marks a seed stopped just short of home.
+        const close = v.carrying && v.x - g.homeX < ALARM_RANGE;
+        g.events.push({ type: 'bonk', by: a.id, id: v.id, x: v.x, y: v.y, seed: v.carrying, close });
       }
+      // One swing, several hamsters down.
+      if (clump.length > 1) g.events.push({ type: 'multi', by: a.id, n: clump.length });
     }
     g.events.push({ type: 'impact', id: a.id, x: a.x, y: a.y, dx: a.swing.dx, dy: a.swing.dy, hit: !!victim });
   }
