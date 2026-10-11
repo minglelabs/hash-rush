@@ -253,10 +253,22 @@ test('the simulation is deterministic', () => {
   assert.equal(play(), play());
 });
 
+test('eight hamsters start on separate nests and a bot game still finishes', () => {
+  const g = createGame({ slots: Array.from({ length: 8 }, (_, i) => ({ name: `b${i}`, kind: 'bot' })), seed: 3 });
+  for (let i = 0; i < 8; i++) {
+    const p = g.players[i];
+    assert.ok(inHome(g, p) && isFree(MAP, p.x, p.y, HAMSTER_R), `nest ${i}`);
+    for (let j = i + 1; j < 8; j++) assert.ok(Math.hypot(p.x - g.players[j].x, p.y - g.players[j].y) >= 2 * HAMSTER_R);
+  }
+  const bots = g.players.map((_, i) => createBot({ difficulty: 'hard', seed: 50 + i }));
+  for (let i = 0; i < 240 * TICK_RATE && g.phase !== 'over'; i++) step(g, bots.map((b, id) => b.think(g, id)));
+  assert.equal(g.phase, 'over');
+});
+
 test('every waypoint is walkable and the graph connects home to the flower', () => {
   const nav = getNav(MAP);
   for (const w of MAP.waypoints) assert.ok(isFree(MAP, w.x, w.y, HAMSTER_R), `waypoint ${w.x},${w.y}`);
-  for (const nest of MAP.nests) {
+  for (const nest of [...MAP.nests, ...MAP.bigNests]) {
     for (const spot of MAP.gatherSpots) assert.ok(Number.isFinite(nav.distance(nest, spot)));
   }
 });

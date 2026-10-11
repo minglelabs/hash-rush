@@ -37,7 +37,14 @@ const LANES = [
 ];
 
 // Nests sit on an arc so every hamster starts the same distance from the middle lane.
+// A bigger game spreads them over a wider arc so nobody spawns inside anybody.
 const NEST_ARC = { cx: HOME.x2, cy: FLOWER.y, r: 100, angles: [-36, -12, 12, 36] };
+const NEST_ARC_BIG = { cx: HOME.x2 + 20, cy: FLOWER.y, r: 125, angles: Array.from({ length: 8 }, (_, i) => -66 + (i * 132) / 7) };
+const arcNests = ({ cx, cy, r, angles }) =>
+  angles.map((deg) => {
+    const a = (deg * Math.PI) / 180;
+    return { x: cx - Math.cos(a) * r, y: cy + Math.sin(a) * r };
+  });
 
 const cellX = (c) => HEDGE_X1 + c * CELL + CELL / 2;
 const cellY = (r) => BOUNDS.y1 + r * CELL + CELL / 2;
@@ -121,10 +128,9 @@ export const MAP = {
   name: '해바라기 밭',
   bounds: BOUNDS,
   home: HOME,
-  nests: NEST_ARC.angles.map((deg) => {
-    const a = (deg * Math.PI) / 180;
-    return { x: NEST_ARC.cx - Math.cos(a) * NEST_ARC.r, y: NEST_ARC.cy + Math.sin(a) * NEST_ARC.r };
-  }),
+  nests: arcNests(NEST_ARC),
+  // Used once more than four hamsters play.
+  bigNests: arcNests(NEST_ARC_BIG),
   flower: FLOWER,
   warps: WARPS,
   rects: buildHedges(),

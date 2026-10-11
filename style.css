@@ -117,6 +117,15 @@ button.primary:active {
   border-radius: 16px;
 }
 
+#addSlot {
+  display: block;
+  width: 100%;
+  margin: -10px 0 18px;
+  border-style: dashed;
+  background: transparent;
+  color: #a07a45;
+}
+
 #slots li.closed {
   opacity: 0.5;
 }
@@ -253,8 +262,18 @@ button.primary:active {
   left: 50%;
   transform: translateX(-50%);
   display: flex;
-  gap: 0.6em;
+  flex-wrap: wrap;
+  justify-content: center;
+  /* Leave room for the clock; eight players wrap onto a second row. */
+  width: max-content;
+  max-width: calc(100% - 14em);
+  gap: 0.4em 0.6em;
   white-space: nowrap;
+}
+
+/* A crowded game gets smaller chips so they stay off the map's corners. */
+#scores.many {
+  font-size: 0.8em;
 }
 
 .chip {
@@ -570,6 +589,7 @@ button.primary:active {
   #scores {
     left: 1.4cqw;
     transform: none;
+    justify-content: flex-start;
   }
 
   .chip small,
@@ -596,6 +616,10 @@ button.primary:active {
 
   #big {
     font-size: 22cqw;
+  }
+
+  #scores.many {
+    font-size: 0.68em;
   }
 
   #banner {

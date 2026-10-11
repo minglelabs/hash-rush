@@ -16,7 +16,7 @@ export function inHome(g, p) {
 
 export function createGame({ slots, map = MAP, seed = 1 }) {
   const rng = mulberry32(seed);
-  const nests = map.nests.map((n) => ({ ...n }));
+  const nests = (slots.length > map.nests.length ? map.bigNests : map.nests).map((n) => ({ ...n }));
   for (let i = nests.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1));
     [nests[i], nests[j]] = [nests[j], nests[i]];
@@ -154,7 +154,9 @@ export function step(g, inputs) {
   const { map, players } = g;
   if (g.time > OVERTIME.start) {
     if (g.homeX === map.home.x2) g.events.push({ type: 'overtime' });
-    const limit = map.flower.x - map.flower.gatherR - 20;
+    // It ends up over the near half of the nibbling ring, where nobody can be bonked,
+    // so even a crowded round that has stalled into a brawl finishes.
+    const limit = map.flower.x;
     g.homeX = Math.min(limit, map.home.x2 + (g.time - OVERTIME.start) * OVERTIME.speed);
   }
   const landing = [];
