@@ -582,6 +582,42 @@ button.primary:active {
   paint-order: stroke fill;
 }
 
+#callout {
+  position: absolute;
+  top: 24%;
+  left: 0;
+  right: 0;
+  display: grid;
+  justify-items: center;
+  pointer-events: none;
+}
+
+#callout div {
+  display: grid;
+  justify-items: center;
+  line-height: 1.1;
+  animation: pop 1.6s ease-out forwards;
+}
+
+#callout b {
+  font-size: 1.3em;
+  -webkit-text-stroke: 0.25em #fff;
+  paint-order: stroke fill;
+}
+
+#callout span {
+  font-size: 6.5cqw;
+  font-weight: 900;
+  color: #fff;
+  -webkit-text-stroke: 0.09em var(--ink);
+  paint-order: stroke fill;
+}
+
+#callout span.super {
+  color: #ffd23f;
+  font-size: 5.2cqw;
+}
+
 #big span {
   animation: pop 0.9s ease-out forwards;
 }

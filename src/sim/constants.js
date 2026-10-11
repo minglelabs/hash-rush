@@ -13,6 +13,9 @@ export const GATHER_TIME = 2.2;
 // the baseline, and eight nibble in half the time.
 export const gatherTime = (players) => (GATHER_TIME * 4) / Math.max(4, players);
 export const COUNTDOWN = 3;
+// A seed carrier this close to the home edge is "almost home": the alarm goes off,
+// and stopping it there is a big play.
+export const ALARM_RANGE = 190;
 
 // Stalemate breaker: after `start` seconds the burrow's edge creeps towards the flower.
 // At `end` the round is called on bonks instead.

@@ -910,6 +910,7 @@ function enterStage() {
   $('gameChat').querySelector('.chatLog').textContent = '';
   $('quick').hidden = true;
   $('banner').classList.remove('show');
+  $('callout').textContent = '';
   $('again').hidden = net.role === 'guest';
   $('againBtn').hidden = true;
   $('resultWait').hidden = net.role !== 'guest';
@@ -943,6 +944,27 @@ function banner(text, alarm = false) {
   bannerTimer = setTimeout(() => el.classList.remove('show'), 2200);
 }
 
+// The shout for a big play: "Double kill!", "Super play!". Plays that land within a
+// moment of each other, like a double kill that also stops a seed, share one shout.
+let calloutAt = 0;
+let calloutLines = [];
+
+function callout(by, lines) {
+  const now = performance.now();
+  calloutLines = now - calloutAt < 400 ? [...new Set([...calloutLines, ...lines])] : lines;
+  calloutAt = now;
+  const box = document.createElement('div');
+  box.append(nameTag(by));
+  for (const line of calloutLines) {
+    const el = document.createElement('span');
+    el.textContent = line;
+    el.classList.toggle('super', line === t('superPlay'));
+    box.append(el);
+  }
+  box.addEventListener('animationend', () => box.remove());
+  $('callout').replaceChildren(box);
+}
+
 function nameTag(p) {
   const b = document.createElement('b');
   b.textContent = p.name;
@@ -974,6 +996,17 @@ function onEvent(ev) {
     $('feed').prepend(line);
     while ($('feed').children.length > 4) $('feed').lastChild.remove();
     if (ev.seed && ev.id === meId) banner(t('lostSeed'));
+    if (ev.close) {
+      callout(players[ev.by], [t('superPlay')]);
+      audio.play.superplay();
+    }
+  } else if (ev.type === 'multi') {
+    const names = t('killNames');
+    const name = names[Math.min(ev.n, names.length + 1) - 2];
+    // Three at once is a super play in its own right.
+    callout(players[ev.by], ev.n >= 3 ? [name, t('superPlay')] : [name]);
+    if (ev.n >= 3) audio.play.triple();
+    else audio.play.double();
   } else if (ev.type === 'spawn' || ev.type === 'warp') {
     if (ev.id === meId) audio.play.spawn();
   } else if (ev.type === 'seed') {

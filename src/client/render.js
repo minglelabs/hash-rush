@@ -1,7 +1,7 @@
 // Canvas drawing. Reads game state, never changes it.
 
 import { WORLD } from '../sim/map.js';
-import { BONK, gatherTime } from '../sim/constants.js';
+import { BONK, gatherTime, ALARM_RANGE } from '../sim/constants.js';
 import { mulberry32 } from '../sim/rng.js';
 import { colorOf, lookOf } from './looks.js';
 import { t as tr } from './i18n.js';
@@ -130,8 +130,7 @@ export function drawHamster(ctx, o) {
 }
 
 // A seed carrier this close to the home edge sets off the alarm.
-const ALARM = 190;
-export const nearHome = (game, p) => p.carrying && p.x - game.homeX < ALARM;
+export const nearHome = (game, p) => p.carrying && p.x - game.homeX < ALARM_RANGE;
 
 export function drawFlower(ctx, f, t) {
   ctx.save();
