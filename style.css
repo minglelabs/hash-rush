@@ -347,6 +347,11 @@ button.primary:active {
   cursor: default;
 }
 
+.badge.mine {
+  background: #ffe2a8;
+  color: #a06a00;
+}
+
 .badge {
   padding: 0.1em 0.6em;
   border-radius: 999px;
