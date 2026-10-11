@@ -30,5 +30,6 @@ export const BONK = {
   reach: 2 * HAMSTER_R + 10,
   arcCos: Math.cos((75 * Math.PI) / 180),
   recoveryMove: 0.15,
+  chain: 1.2, // a bonk this soon after the last one makes it a double, then a triple
   assist: 80, // auto-aim picks the nearest enemy inside this radius
 };
