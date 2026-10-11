@@ -8,7 +8,7 @@ import { createGame, step, allied } from '../sim/game.js';
 import { DT, OVERTIME, COUNTDOWN } from '../sim/constants.js';
 import { MAP } from '../sim/map.js';
 import { createBot } from '../ai/bot.js';
-import { createRenderer, drawHamster, nearHome } from './render.js';
+import { createRenderer, drawHamster, drawSeed, nearHome } from './render.js';
 import { createInput } from './input.js';
 import { MVP_POINTS, mvpScore, pickMvp } from './mvp.js';
 import { createAudio } from './audio.js';
@@ -92,6 +92,10 @@ const wins = slots.map(() => 0);
 const career = slots.map(() => [0, 0, 0, 0, 0]);
 // Rounds finished in this room.
 let rounds = 0;
+// The first to this many wins takes the championship, and the room starts over.
+const TITLE_WINS = 20;
+// Championships already decided in this room, newest last. Gone with the room.
+let seasons = [];
 const audio = createAudio();
 const renderer = createRenderer($('canvas'), MAP);
 const input = createInput({
@@ -142,6 +146,7 @@ function drawAvatar(canvas, look) {
 const isPlaying = (slot) => slot.kind !== 'closed' && slot.kind !== 'open';
 
 function renderLobby() {
+  renderSeasons();
   const guest = net.role === 'guest';
   const rows = guest ? net.lobby || [] : slots;
   const teams = guest ? net.teams : teamMode;
@@ -507,7 +512,7 @@ function welcome(conn, msg) {
   renderLobby();
   sendLobby();
   // Arriving mid-round, they watch it; a new player gets a hamster next round.
-  if (game && !$('stage').hidden) conn.send({ t: 'start', players: roster(), you: -1, wins, tot: career, rd: rounds });
+  if (game && !$('stage').hidden) conn.send({ t: 'start', players: roster(), you: -1, wins, tot: career, rd: rounds, hist: seasons });
 }
 
 function guestName(slot, raw) {
@@ -584,7 +589,7 @@ function broadcast(make) {
 function sendLobby() {
   if (net.role !== 'host') return;
   const view = slots.map((s) => ({ kind: s.kind, name: s.name, team: s.team }));
-  broadcast((slot, i) => ({ t: 'lobby', slots: view, teams: teamMode, pw: roomPw, you: i, wins, tot: career, rd: rounds }));
+  broadcast((slot, i) => ({ t: 'lobby', slots: view, teams: teamMode, pw: roomPw, you: i, wins, tot: career, rd: rounds, hist: seasons }));
   announce();
 }
 
@@ -653,6 +658,7 @@ function hostData(msg) {
     msg.wins.forEach((n, i) => (wins[i] = n));
     (msg.tot || []).forEach((v, i) => (career[i] = v));
     if (msg.rd >= 0) rounds = msg.rd;
+    if (Array.isArray(msg.hist)) seasons = msg.hist;
     if ($('stage').hidden) renderLobby();
   } else if (msg.t === 'kicked') {
     net.kicked = true;
@@ -671,6 +677,7 @@ function hostData(msg) {
     msg.wins.forEach((n, i) => (wins[i] = n));
     (msg.tot || []).forEach((v, i) => (career[i] = v));
     if (msg.rd >= 0) rounds = msg.rd;
+    if (Array.isArray(msg.hist)) seasons = msg.hist;
     game = {
       map: MAP,
       phase: 'countdown',
@@ -912,7 +919,7 @@ function startGame() {
   meId = active.findIndex((a) => a.slot.kind === 'human');
   net.pending = [];
   const players = roster();
-  broadcast((slot) => ({ t: 'start', players, you: slot.playerId, wins, tot: career, rd: rounds }));
+  broadcast((slot) => ({ t: 'start', players, you: slot.playerId, wins, tot: career, rd: rounds, hist: seasons }));
   enterStage();
   announce();
 }
@@ -920,6 +927,7 @@ function startGame() {
 function enterStage() {
   clearTimeout(resultTimer);
   $('result').hidden = true;
+  hideChampions();
   $('feed').textContent = '';
   // Lobby talk stays in the lobby log; a round starts with a clean overlay.
   $('gameChat').querySelector('.chatLog').textContent = '';
@@ -1145,8 +1153,220 @@ function showBoard(on) {
   if (on) fillScores($('boardTable'));
 }
 
+// ---------- championship ----------
+
+// Whoever has the most wins once somebody reaches the title. Wins belong to a
+// seat, not a team, so sides can be reshuffled between rounds; level at the top
+// means the title is shared.
+function champions() {
+  const top = Math.max(...game.players.map((p) => wins[p.look]));
+  return top >= TITLE_WINS ? game.players.filter((p) => wins[p.look] === top) : [];
+}
+
+let champTimer = 0;
+let champFrame = 0;
+
+// A gold cup with a sunflower seed standing in it, rays turning behind and
+// confetti coming down.
+function drawTrophy(canvas, time) {
+  const ctx = canvas.getContext('2d');
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const W = 300;
+  const H = 250;
+  if (canvas.width !== W * dpr) {
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+  }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  ctx.save();
+  ctx.translate(W / 2, 128);
+  for (let i = 0; i < 12; i++) {
+    ctx.rotate(Math.PI / 6);
+    ctx.fillStyle = `rgba(255, 205, 60, ${i % 2 ? 0.34 : 0.16})`;
+    ctx.save();
+    ctx.rotate(time * 0.35);
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(-22, -150);
+    ctx.lineTo(22, -150);
+    ctx.fill();
+    ctx.restore();
+  }
+  ctx.restore();
+
+  ctx.save();
+  ctx.translate(W / 2, 132 + Math.sin(time * 2.4) * 3);
+  const gold = ctx.createLinearGradient(-60, 0, 60, 0);
+  gold.addColorStop(0, '#c98a12');
+  gold.addColorStop(0.35, '#ffe27a');
+  gold.addColorStop(0.6, '#f6b92c');
+  gold.addColorStop(1, '#b8770a');
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = '#8a5a08';
+  ctx.lineWidth = 3;
+  // handles
+  ctx.lineWidth = 9;
+  ctx.strokeStyle = '#d99a1c';
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    ctx.arc(side * 52, -22, 22, side > 0 ? -Math.PI / 2 : Math.PI / 2, side > 0 ? Math.PI / 2 : (3 * Math.PI) / 2);
+    ctx.stroke();
+  }
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = '#8a5a08';
+  // the seed, standing in the cup
+  drawSeed(ctx, 0, -76, 4.6, Math.sin(time * 1.7) * 0.12);
+  // bowl
+  ctx.fillStyle = gold;
+  ctx.beginPath();
+  ctx.moveTo(-56, -52);
+  ctx.lineTo(56, -52);
+  ctx.quadraticCurveTo(54, 18, 12, 30);
+  ctx.lineTo(12, 52);
+  ctx.lineTo(-12, 52);
+  ctx.lineTo(-12, 30);
+  ctx.quadraticCurveTo(-54, 18, -56, -52);
+  ctx.fill();
+  ctx.stroke();
+  // rim and base
+  ctx.beginPath();
+  ctx.roundRect(-62, -60, 124, 13, 6);
+  ctx.fill();
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.roundRect(-34, 50, 68, 12, 5);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = '#6b4a2a';
+  ctx.beginPath();
+  ctx.roundRect(-46, 61, 92, 22, 6);
+  ctx.fill();
+  ctx.fillStyle = '#ffe27a';
+  ctx.font = '800 15px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(`${TITLE_WINS}`, 0, 77);
+  // shine
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+  ctx.beginPath();
+  ctx.ellipse(-30, -22, 6, 20, 0.25, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  const colors = ['#e5484d', '#3e63dd', '#f6b92c', '#30a46c', '#9b51e0', '#ff8fb1'];
+  for (let i = 0; i < 46; i++) {
+    const x = (i * 71.3 + Math.sin(time * 1.3 + i) * 14) % W;
+    const y = (time * (46 + (i % 7) * 11) + i * 37) % (H + 20) - 10;
+    ctx.save();
+    ctx.translate((x + W) % W, y);
+    ctx.rotate(time * (2 + (i % 5)) + i);
+    ctx.fillStyle = colors[i % colors.length];
+    ctx.fillRect(-4, -2.5, 8, 5);
+    ctx.restore();
+  }
+}
+
+function showChampions(champs) {
+  if (game.crowned) return;
+  game.crowned = true;
+  $('result').hidden = true;
+  $('board').hidden = true;
+  $('againBtn').hidden = true;
+  const mine = champs.some((p) => p.id === meId);
+  $('champTitle').textContent = champs.length > 1 ? t('champShared') : mine ? t('champMe') : t('champOther', champs[0].name);
+  $('champNames').replaceChildren(
+    ...champs.map((p) => {
+      const who = document.createElement('div');
+      const face = document.createElement('canvas');
+      drawAvatar(face, LOOKS[p.look]);
+      who.append(face, nameTag(p));
+      return who;
+    }),
+  );
+  const ranked = [...game.players].sort((a, b) => wins[b.look] - wins[a.look]);
+  $('champTable').replaceChildren(
+    ...ranked.map((p) => {
+      const row = document.createElement('tr');
+      row.classList.toggle('winner', champs.includes(p));
+      const name = row.insertCell();
+      name.append(champs.includes(p) ? '🏆 ' : '', nameTag(p));
+      row.insertCell().textContent = t('tally', wins[p.look]);
+      return row;
+    }),
+  );
+  $('champNote').textContent = t('champNote', rounds);
+  $('champ').hidden = false;
+  cancelAnimationFrame(champFrame);
+  const start = performance.now();
+  const loop = (now) => {
+    drawTrophy($('trophy'), (now - start) / 1000);
+    champFrame = requestAnimationFrame(loop);
+  };
+  champFrame = requestAnimationFrame(loop);
+  audio.setMusic(null);
+  audio.play.fanfare();
+  audio.play.cheer();
+  // The host closes the season; everyone else follows it back to the lobby.
+  clearTimeout(champTimer);
+  if (net.role !== 'guest') champTimer = setTimeout(endSeason, 14000);
+}
+
+function hideChampions() {
+  clearTimeout(champTimer);
+  cancelAnimationFrame(champFrame);
+  $('champ').hidden = true;
+}
+
+// The title is decided: keep the record, wipe the scores and take the room back
+// to the lobby for a fresh start.
+function endSeason() {
+  if (!game || net.role === 'guest') return;
+  const champs = champions();
+  if (champs.length) {
+    seasons.push({
+      games: rounds,
+      rows: [...game.players]
+        .sort((a, b) => wins[b.look] - wins[a.look])
+        .map((p) => ({ name: p.name, look: p.look, wins: wins[p.look], champ: champs.includes(p) })),
+    });
+    seasons = seasons.slice(-10);
+    wins.fill(0);
+    career.forEach((c) => c.fill(0));
+    rounds = 0;
+  }
+  toLobby();
+  broadcast(() => ({ t: 'lobbyscreen' }));
+  renderLobby();
+  sendLobby();
+}
+
+function renderSeasons() {
+  $('seasons').hidden = !seasons.length;
+  $('seasonList').replaceChildren(
+    ...seasons.map((season, i) => {
+      const li = document.createElement('li');
+      const head = document.createElement('b');
+      head.textContent = t('seasonNo', i + 1, season.games);
+      li.append(head);
+      for (const r of season.rows) {
+        const who = document.createElement('span');
+        who.style.color = LOOKS[r.look] ? LOOKS[r.look].color : '';
+        who.textContent = `${r.champ ? '🏆 ' : ''}${r.name} ${r.wins}`;
+        who.classList.toggle('champ', !!r.champ);
+        li.append(who);
+      }
+      return li;
+    }),
+  );
+}
+
 function showResult() {
   if (!game) return;
+  const champs = champions();
+  if (champs.length) {
+    showChampions(champs);
+    return;
+  }
   const winner = game.players[game.winner];
   const winners = game.winners.map((id) => game.players[id]);
   if (winners.some((p) => !allied(p, winner) && p !== winner)) {
@@ -1265,6 +1485,7 @@ function frame(now) {
 
 function toLobby() {
   clearTimeout(resultTimer);
+  hideChampions();
   input.enable(false);
   game = null;
   show('lobby');
@@ -1299,6 +1520,11 @@ for (const id of ['back', 'quit']) {
     // A guest leaving goes back to its own offline lobby.
     if (net.role === 'guest') {
       location.href = location.pathname;
+      return;
+    }
+    // Leaving a decided title early still closes the season.
+    if (game && game.phase === 'over' && champions().length) {
+      endSeason();
       return;
     }
     broadcast(() => ({ t: 'lobbyscreen' }));

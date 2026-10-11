@@ -83,6 +83,11 @@
 
         <button id="start" class="primary"></button>
 
+        <section id="seasons" hidden>
+          <h2 data-i18n="seasonsTitle"></h2>
+          <ul id="seasonList"></ul>
+        </section>
+
         <section class="howto">
           <h2 data-i18n="howto"></h2>
           <ul id="how"></ul>
@@ -127,6 +132,16 @@
         <div id="board" hidden>
           <div class="card">
             <table id="boardTable" class="scoreTable"></table>
+          </div>
+        </div>
+
+        <div id="champ" hidden>
+          <div class="card">
+            <canvas id="trophy"></canvas>
+            <h2 id="champTitle"></h2>
+            <div id="champNames"></div>
+            <table id="champTable"></table>
+            <p id="champNote"></p>
           </div>
         </div>
 

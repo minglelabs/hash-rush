@@ -1388,3 +1388,111 @@ button.primary:active {
 #slots li.seat input {
   pointer-events: none;
 }
+
+/* ---------- championship ---------- */
+
+#champ {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(20, 30, 10, 0.72);
+  z-index: 6;
+  animation: appear 0.4s;
+}
+
+#champ .card {
+  padding: 14px 28px 18px;
+  text-align: center;
+  min-width: min(360px, 92%);
+  max-height: 96%;
+  overflow-y: auto;
+}
+
+#trophy {
+  width: min(300px, 70vw);
+  aspect-ratio: 300 / 250;
+  display: block;
+  margin: 0 auto;
+}
+
+#champTitle {
+  margin: 0 0 8px;
+  font-size: clamp(22px, 3.6cqw, 38px);
+}
+
+#champNames {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px 18px;
+  margin-bottom: 10px;
+  font-size: clamp(18px, 2.6cqw, 28px);
+  font-weight: 800;
+}
+
+#champNames div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#champNames canvas {
+  width: 52px;
+  height: 46px;
+}
+
+#champTable {
+  margin: 0 auto 8px;
+  border-collapse: collapse;
+  font-size: clamp(13px, 1.7cqw, 17px);
+}
+
+#champTable td {
+  padding: 3px 14px;
+  text-align: left;
+  font-weight: 700;
+}
+
+#champTable td:last-child {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+#champTable tr.winner td {
+  background: #ffe9a8;
+}
+
+#champNote {
+  margin: 0;
+  color: #a07a45;
+  font-size: 13px;
+}
+
+#seasonList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 14px;
+}
+
+#seasonList li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  padding: 8px 12px;
+  margin-bottom: 6px;
+  background: #fff;
+  border: 2px solid var(--line);
+  border-radius: 12px;
+  font-weight: 600;
+}
+
+#seasonList b {
+  flex-basis: 100%;
+  color: #a07a45;
+}
+
+#seasonList .champ {
+  font-weight: 800;
+}
