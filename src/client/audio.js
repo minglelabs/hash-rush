@@ -6,16 +6,10 @@ const KEY = 'seed-rush-muted';
 
 export function createAudio() {
   let ctx = null;
-  // One button steps through three settings: everything, effects without music, silence.
-  const MODES = ['all', 'sfx', 'off'];
-  const ICONS = { all: '🔊', sfx: '🔉', off: '🔇' };
-  let mode = 'all';
   let muted = false;
   let track = null;
   try {
-    const saved = localStorage.getItem(KEY);
-    mode = saved === '1' ? 'off' : MODES.includes(saved) ? saved : 'all';
-    muted = mode === 'off';
+    muted = localStorage.getItem(KEY) === '1';
   } catch {
     // storage unavailable: start unmuted
   }
@@ -138,12 +132,11 @@ export function createAudio() {
     lose: () => [440, 370, 311, 262].forEach((f, i) => tone({ f, dur: 0.22, type: 'triangle', vol: 0.09, at: i * 0.15 })),
   };
 
-  function cycle() {
-    mode = MODES[(MODES.indexOf(mode) + 1) % MODES.length];
-    muted = mode === 'off';
-    music.set(mode === 'all' ? track : null);
+  function toggle() {
+    muted = !muted;
+    music.set(muted ? null : track);
     try {
-      localStorage.setItem(KEY, mode === 'off' ? '1' : mode);
+      localStorage.setItem(KEY, muted ? '1' : '0');
     } catch {
       // not persisted
     }
@@ -152,8 +145,8 @@ export function createAudio() {
   // Which tune suits the screen: 'lobby', 'game' or null. It starts once sound is unlocked.
   function setMusic(name) {
     track = name;
-    music.set(mode === 'all' ? track : null);
+    music.set(muted ? null : track);
   }
 
-  return { unlock, play, cycle, setMusic, icon: () => ICONS[mode], ready: () => ctx?.state === 'running' };
+  return { unlock, play, toggle, setMusic, icon: () => (muted ? '🔇' : '🔊'), ready: () => ctx?.state === 'running' };
 }

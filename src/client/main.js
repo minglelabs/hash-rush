@@ -1303,7 +1303,7 @@ for (const b of soundButtons) {
   b.textContent = audio.icon();
   b.addEventListener('click', () => {
     audio.unlock();
-    audio.cycle();
+    audio.toggle();
     for (const other of soundButtons) other.textContent = audio.icon();
   });
 }
