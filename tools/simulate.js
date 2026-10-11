@@ -23,7 +23,7 @@ for (let n = 0; n < games; n++) {
       bots.map((b, i) => b.think(g, i)),
     );
   }
-  if (g.phase === 'over') {
+  if (g.phase === 'over' && !g.timeout) {
     wins[g.winner]++;
     if (teams) teamWins[teams[g.winner]] = (teamWins[teams[g.winner]] || 0) + 1;
     lengths.push(g.time);
