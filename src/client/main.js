@@ -1020,6 +1020,7 @@ function fillScores(table) {
 }
 
 let boardKey = '';
+let tabResult = false;
 // Once a round is over, Tab and the chart button bring the result card back.
 function reopenResult() {
   if (!game || game.phase !== 'over' || $('stage').hidden) return false;
@@ -1202,12 +1203,22 @@ for (const [button, field] of [['copy', 'inviteLink'], ['copyWatch', 'watchLink'
 }
 // Hold Tab to look at the scores mid-round; phones get a button that toggles them.
 window.addEventListener('keydown', (e) => {
-  if (e.code !== 'Tab' || $('stage').hidden || !$('result').hidden) return;
-  e.preventDefault();
-  if (!reopenResult() && $('board').hidden) showBoard(true);
+  if (e.code !== 'Tab' || $('stage').hidden) return;
+  // Held down, Tab repeats: it must never move the focus around instead.
+  if (tabResult || $('result').hidden) e.preventDefault();
+  if (!$('result').hidden) return;
+  if (game && game.phase === 'over') tabResult = reopenResult();
+  else if ($('board').hidden) showBoard(true);
 });
-window.addEventListener('keyup', (e) => e.code === 'Tab' && showBoard(false));
-window.addEventListener('blur', () => showBoard(false));
+// Letting go of Tab puts the scores away again, the result card included when
+// Tab is what brought it back.
+const releaseTab = () => {
+  showBoard(false);
+  if (tabResult) $('result').hidden = true;
+  tabResult = false;
+};
+window.addEventListener('keyup', (e) => e.code === 'Tab' && releaseTab());
+window.addEventListener('blur', releaseTab);
 $('boardBtn').addEventListener('click', () => {
   if (game && game.phase === 'over' && !$('result').hidden) $('result').hidden = true;
   else if (!reopenResult()) showBoard($('board').hidden);
