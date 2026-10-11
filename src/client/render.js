@@ -130,6 +130,13 @@ export function drawHamster(ctx, o) {
   ctx.restore();
 }
 
+// How a computer's level is written under it: each level in its own colour.
+const BOT_LEVEL = {
+  'bot:easy': { key: 'easy', color: '#1f9d55' },
+  'bot:normal': { key: 'normal', color: '#e08a00' },
+  'bot:hard': { key: 'hard', color: '#d63031' },
+};
+
 // A seed carrier this close to the home edge sets off the alarm.
 export const nearHome = (game, p) => p.carrying && p.x - game.homeX < ALARM_RANGE;
 
@@ -718,6 +725,16 @@ export function createRenderer(canvas, map) {
         ctx.strokeText(p.name, 0, ly);
         ctx.fillStyle = look.color;
         ctx.fillText(p.name, 0, ly);
+        // A computer's level, small, under its feet.
+        const level = BOT_LEVEL[p.kind];
+        if (level) {
+          ctx.font = `800 ${10 * (portrait ? 1.5 : 1)}px ${FONT}`;
+          ctx.lineWidth = 3;
+          ctx.strokeText(tr('botLevels')[level.key], 0, portrait ? 36 : 31);
+          ctx.fillStyle = level.color;
+          ctx.fillText(tr('botLevels')[level.key], 0, portrait ? 36 : 31);
+          ctx.fillStyle = look.color;
+        }
         if (me) {
           const ay = ly - 15 + Math.sin(t * 6) * 2;
           ctx.beginPath();
