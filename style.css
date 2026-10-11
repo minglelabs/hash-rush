@@ -1187,3 +1187,12 @@ button.primary:active {
   padding: 0.15em 0.6em;
   font-size: 15px;
 }
+
+/* An empty or closed seat is one big button for the host. */
+#slots li.seat {
+  cursor: pointer;
+}
+
+#slots li.seat input {
+  pointer-events: none;
+}
