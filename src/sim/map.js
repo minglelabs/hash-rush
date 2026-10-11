@@ -1,7 +1,8 @@
-// The one map: burrow (home) on the left, the sunflower on the right, and a hedge
-// maze between them. Three winding lanes run through it, joined by a few cross
-// links. A lane is only one hamster wide, so nobody can squeeze past anybody: a
-// blocked lane means fighting or going around.
+// The maps: burrow (home) on the left, the sunflower on the right, and a maze of
+// walls between them. Lanes wind through it, joined by a few cross links. A lane is
+// only one hamster wide, so nobody can squeeze past anybody: a blocked lane means
+// fighting or going around. Every map shares the same frame and differs in its
+// lanes, its look and the trouble it throws at the hamsters.
 
 // Kept small on purpose: the whole map is always on screen, so fewer world pixels
 // means bigger hamsters, which matters most on a phone.
@@ -24,18 +25,6 @@ const WARPS = [
   { x: FLOWER.x, y: 496, r: 34 },
 ];
 
-// Lanes as runs of grid cells: [col, row, col, row], straight in one direction.
-const LANES = [
-  // top
-  [0, 1, 2, 1], [2, 1, 2, 3], [2, 3, 5, 3], [5, 3, 5, 1], [5, 1, 8, 1], [8, 1, 8, 3], [8, 3, 11, 3],
-  // middle
-  [0, 5, 3, 5], [3, 5, 3, 7], [3, 7, 6, 7], [6, 7, 6, 5], [6, 5, 9, 5], [9, 5, 9, 7], [9, 7, 11, 7],
-  // bottom
-  [0, 11, 2, 11], [2, 11, 2, 9], [2, 9, 5, 9], [5, 9, 5, 11], [5, 11, 8, 11], [8, 11, 8, 9], [8, 9, 11, 9],
-  // cross links
-  [3, 3, 3, 5], [4, 7, 4, 9], [8, 3, 8, 5], [10, 7, 10, 9],
-];
-
 // Nests sit on an arc so every hamster starts the same distance from the middle lane.
 // A bigger game spreads them over a wider arc so nobody spawns inside anybody.
 const NEST_ARC = { cx: HOME.x2, cy: FLOWER.y, r: 100, angles: [-36, -12, 12, 36] };
@@ -48,42 +37,8 @@ const arcNests = ({ cx, cy, r, angles }) =>
 
 const cellX = (c) => HEDGE_X1 + c * CELL + CELL / 2;
 const cellY = (r) => BOUNDS.y1 + r * CELL + CELL / 2;
-
-function carve() {
-  const open = Array.from({ length: ROWS }, () => new Array(COLS).fill(false));
-  for (const [c1, r1, c2, r2] of LANES) {
-    for (let c = Math.min(c1, c2); c <= Math.max(c1, c2); c++) {
-      for (let r = Math.min(r1, r2); r <= Math.max(r1, r2); r++) open[r][c] = true;
-    }
-  }
-  return open;
-}
-
-const OPEN = carve();
-const isOpen = (c, r) => r >= 0 && r < ROWS && c >= 0 && c < COLS && OPEN[r][c];
-
-// Every hedge cell is covered by its longest horizontal and vertical run. The two
-// sets overlap, so the union only has rounded corners where the hedge really ends.
-function buildHedges() {
-  const rects = [];
-  for (let r = 0; r < ROWS; r++) {
-    for (let c = 0; c < COLS; c++) {
-      if (OPEN[r][c] || (c > 0 && !OPEN[r][c - 1])) continue;
-      let end = c;
-      while (end + 1 < COLS && !OPEN[r][end + 1]) end++;
-      rects.push({ x: HEDGE_X1 + c * CELL, y: BOUNDS.y1 + r * CELL, w: (end - c + 1) * CELL, h: CELL });
-    }
-  }
-  for (let c = 0; c < COLS; c++) {
-    for (let r = 0; r < ROWS; r++) {
-      if (OPEN[r][c] || (r > 0 && !OPEN[r - 1][c])) continue;
-      let end = r;
-      while (end + 1 < ROWS && !OPEN[end + 1][c]) end++;
-      if (end > r) rects.push({ x: HEDGE_X1 + c * CELL, y: BOUNDS.y1 + r * CELL, w: CELL, h: (end - r + 1) * CELL });
-    }
-  }
-  return rects;
-}
+// A block of cells as a world rectangle.
+const cellRect = ([c1, r1, c2, r2]) => ({ x: HEDGE_X1 + c1 * CELL, y: BOUNDS.y1 + r1 * CELL, w: (c2 - c1 + 1) * CELL, h: (r2 - r1 + 1) * CELL });
 
 function ring(c, radius, count) {
   const pts = [];
@@ -95,55 +50,238 @@ function ring(c, radius, count) {
 }
 
 const GATHER_SPOTS = ring(FLOWER, 55, 8);
-// Rows where a lane opens into the burrow side and the flower side.
-const HOME_MOUTHS = [];
-const FLOWER_MOUTHS = [];
-for (let r = 0; r < ROWS; r++) {
-  if (OPEN[r][0]) HOME_MOUTHS.push(cellY(r));
-  if (OPEN[r][COLS - 1]) FLOWER_MOUTHS.push(cellY(r));
-}
 
-// Navigation waypoints: every bend, junction and lane mouth, plus a few points
-// in each room.
-function buildWaypoints() {
-  const pts = [];
+// Builds a map from its lanes: runs of grid cells, [col, row, col, row]. A run can
+// also be a block, which makes a room.
+function buildMap({ id, lanes, theme, hazard = null, ice = [], gates = [] }) {
+  const open = Array.from({ length: ROWS }, () => new Array(COLS).fill(false));
+  for (const [c1, r1, c2, r2] of lanes) {
+    for (let c = Math.min(c1, c2); c <= Math.max(c1, c2); c++) {
+      for (let r = Math.min(r1, r2); r <= Math.max(r1, r2); r++) open[r][c] = true;
+    }
+  }
+  const isOpen = (c, r) => r >= 0 && r < ROWS && c >= 0 && c < COLS && open[r][c];
+
+  // Every wall cell is covered by its longest horizontal and vertical run. The two
+  // sets overlap, so the union only has rounded corners where the wall really ends.
+  const rects = [];
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
-      if (!OPEN[r][c]) continue;
+      if (open[r][c] || (c > 0 && !open[r][c - 1])) continue;
+      let end = c;
+      while (end + 1 < COLS && !open[r][end + 1]) end++;
+      rects.push({ x: HEDGE_X1 + c * CELL, y: BOUNDS.y1 + r * CELL, w: (end - c + 1) * CELL, h: CELL });
+    }
+  }
+  for (let c = 0; c < COLS; c++) {
+    for (let r = 0; r < ROWS; r++) {
+      if (open[r][c] || (r > 0 && !open[r - 1][c])) continue;
+      let end = r;
+      while (end + 1 < ROWS && !open[end + 1][c]) end++;
+      if (end > r) rects.push({ x: HEDGE_X1 + c * CELL, y: BOUNDS.y1 + r * CELL, w: CELL, h: (end - r + 1) * CELL });
+    }
+  }
+
+  // Rows where a lane opens into the burrow side and the flower side.
+  const homeMouths = [];
+  const flowerMouths = [];
+  for (let r = 0; r < ROWS; r++) {
+    if (open[r][0]) homeMouths.push(cellY(r));
+    if (open[r][COLS - 1]) flowerMouths.push(cellY(r));
+  }
+
+  // Navigation waypoints: every bend, junction and lane mouth, plus a few points
+  // in each room.
+  const waypoints = [];
+  const cells = [];
+  // Where a seed cannon can pop out: a wall at its back and a lane ahead of it.
+  const cannonSpots = [];
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      if (!open[r][c]) continue;
+      cells.push({ x: cellX(c), y: cellY(r) });
       const w = isOpen(c - 1, r) || c === 0;
       const e = isOpen(c + 1, r) || c === COLS - 1;
       const n = isOpen(c, r - 1);
       const s = isOpen(c, r + 1);
       const straight = (w && e && !n && !s) || (n && s && !w && !e);
-      if (!straight) pts.push({ x: cellX(c), y: cellY(r) });
+      if (!straight) waypoints.push({ x: cellX(c), y: cellY(r) });
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const wallBehind = !isOpen(c - dx, r - dy) && c - dx >= 0 && c - dx < COLS;
+        if (wallBehind && isOpen(c + dx, r + dy)) cannonSpots.push({ x: cellX(c) - dx * 12, y: cellY(r) - dy * 12, dx, dy });
+      }
     }
   }
-  for (const y of HOME_MOUTHS) pts.push({ x: HEDGE_X1 - 30, y }, { x: 80, y });
-  for (const y of FLOWER_MOUTHS) pts.push({ x: HEDGE_X2 + 40, y });
-  pts.push(...GATHER_SPOTS);
-  return pts;
+  for (const y of homeMouths) waypoints.push({ x: HEDGE_X1 - 30, y }, { x: 80, y });
+  for (const y of flowerMouths) waypoints.push({ x: HEDGE_X2 + 40, y });
+  waypoints.push(...GATHER_SPOTS);
+
+  return {
+    id,
+    theme,
+    bounds: BOUNDS,
+    home: HOME,
+    nests: arcNests(NEST_ARC),
+    // Used once more than four hamsters play.
+    bigNests: arcNests(NEST_ARC_BIG),
+    flower: FLOWER,
+    warps: WARPS,
+    rects,
+    corner: CORNER,
+    // Where the lanes open on the burrow side, top to bottom.
+    laneYs: homeMouths,
+    laneWidth: CELL,
+    rowYs: Array.from({ length: ROWS }, (_, r) => cellY(r)),
+    // Anyone standing between these x values is inside a lane.
+    lanes: { x1: HEDGE_X1, x2: HEDGE_X2 },
+    waypoints,
+    gatherSpots: GATHER_SPOTS,
+    // Centres of the open lane cells, for things that turn up at random.
+    cells,
+    cannonSpots,
+    // What goes wrong on this map: 'trap', 'cannon', 'wave' or nothing.
+    hazard,
+    // Slippery floor, as world rectangles.
+    ice: ice.map(cellRect),
+    gates,
+  };
 }
 
-export const MAP = {
-  name: '해바라기 밭',
-  bounds: BOUNDS,
-  home: HOME,
-  nests: arcNests(NEST_ARC),
-  // Used once more than four hamsters play.
-  bigNests: arcNests(NEST_ARC_BIG),
-  flower: FLOWER,
-  warps: WARPS,
-  rects: buildHedges(),
-  corner: CORNER,
-  // Where the lanes open on the burrow side, top to bottom.
-  laneYs: HOME_MOUTHS,
-  laneWidth: CELL,
-  rowYs: Array.from({ length: ROWS }, (_, r) => cellY(r)),
-  // Anyone standing between these x values is inside a lane.
-  lanes: { x1: HEDGE_X1, x2: HEDGE_X2 },
-  waypoints: buildWaypoints(),
-  gatherSpots: GATHER_SPOTS,
+// Colours of a map: the surround, the open field, the lane floor, the burrow, the
+// walls (rim, fill, two speckles, two accents) and the flecks on the ground.
+const THEMES = {
+  meadow: { outer: '#2f7a3d', field: '#93d36f', floor: '#ecdcae', home: '#f6e6c2', rim: '#2c7438', wall: '#3c9449', dots: ['#4fb05a', '#348540'], accents: ['#ffe3ee', '#fff6c9'], flecks: ['rgba(60, 140, 60, 0.35)', 'rgba(255, 255, 255, 0.22)'] },
+  desert: { outer: '#a8732f', field: '#e9c682', floor: '#f6e3b0', home: '#fbeed0', rim: '#8a5a2b', wall: '#c08a4a', dots: ['#d3a060', '#a87438'], accents: ['#5f9e4a', '#f4d58a'], flecks: ['rgba(160, 110, 50, 0.3)', 'rgba(255, 255, 255, 0.25)'] },
+  factory: { outer: '#333a47', field: '#8d96a3', floor: '#c6ccd5', home: '#e3dccb', rim: '#272d38', wall: '#566070', dots: ['#657082', '#48515f'], accents: ['#f2b705', '#1f2430'], flecks: ['rgba(40, 50, 65, 0.25)', 'rgba(255, 255, 255, 0.18)'] },
+  ice: { outer: '#3c6c98', field: '#d6e9f3', floor: '#f0f6fa', home: '#f3ecdc', rim: '#5589b0', wall: '#97c4e0', dots: ['#b3d7ec', '#82b4d4'], accents: ['#ffffff', '#e2f4ff'], flecks: ['rgba(120, 170, 210, 0.3)', 'rgba(255, 255, 255, 0.5)'] },
+  beach: { outer: '#2a80aa', field: '#f1dda2', floor: '#f8edc6', home: '#fdf3d6', rim: '#2c7a58', wall: '#43a676', dots: ['#58bd8a', '#358f66'], accents: ['#ff8fa3', '#ffe066'], flecks: ['rgba(190, 150, 80, 0.3)', 'rgba(255, 255, 255, 0.35)'] },
+  graveyard: { outer: '#1c182a', field: '#57516c', floor: '#8a849e', home: '#b9b0a0', rim: '#1f1a30', wall: '#39324f', dots: ['#4a4265', '#2c2641'], accents: ['#ff9a1f', '#c8f060'], flecks: ['rgba(20, 15, 35, 0.3)', 'rgba(200, 190, 230, 0.2)'] },
 };
+
+// An iron gate: a bar that slides along its own length, and nobody gets past it.
+// It starts at (x, y), travels `travel` pixels along `axis` and back every `period`
+// seconds, resting for `hold` of the period at each end.
+const gate = (x, y, w, h, axis, travel, period, offset, hold) => ({ x, y, w, h, axis, travel, period, offset, hold });
+const laneX = (c) => HEDGE_X1 + c * CELL;
+const laneY = (r) => BOUNDS.y1 + r * CELL;
+
+export const MAPS = {
+  // Three winding lanes joined by four cross links.
+  meadow: buildMap({
+    id: 'meadow',
+    theme: THEMES.meadow,
+    lanes: [
+      // top
+      [0, 1, 2, 1], [2, 1, 2, 3], [2, 3, 5, 3], [5, 3, 5, 1], [5, 1, 8, 1], [8, 1, 8, 3], [8, 3, 11, 3],
+      // middle
+      [0, 5, 3, 5], [3, 5, 3, 7], [3, 7, 6, 7], [6, 7, 6, 5], [6, 5, 9, 5], [9, 5, 9, 7], [9, 7, 11, 7],
+      // bottom
+      [0, 11, 2, 11], [2, 11, 2, 9], [2, 9, 5, 9], [5, 9, 5, 11], [5, 11, 8, 11], [8, 11, 8, 9], [8, 9, 11, 9],
+      // cross links
+      [3, 3, 3, 5], [4, 7, 4, 9], [8, 3, 8, 5], [10, 7, 10, 9],
+    ],
+  }),
+  // Wide detours over the top and bottom and a stair through the middle. Moles dig.
+  desert: buildMap({
+    id: 'desert',
+    theme: THEMES.desert,
+    hazard: 'trap',
+    lanes: [
+      [0, 2, 4, 2], [4, 0, 4, 4], [4, 0, 9, 0], [9, 0, 9, 2], [9, 2, 11, 2],
+      [0, 6, 2, 6], [2, 6, 2, 4], [2, 4, 6, 4], [6, 4, 6, 8], [6, 8, 11, 8],
+      [0, 10, 3, 10], [3, 10, 3, 12], [3, 12, 8, 12], [8, 8, 8, 12], [8, 10, 11, 10],
+    ],
+  }),
+  // Three straight conveyor lanes with short connecting passages. Cannons fire down them.
+  factory: buildMap({
+    id: 'factory',
+    theme: THEMES.factory,
+    hazard: 'cannon',
+    lanes: [
+      [0, 1, 11, 1], [0, 6, 11, 6], [0, 11, 11, 11],
+      [3, 1, 3, 6], [6, 1, 6, 3], [6, 3, 9, 3], [9, 3, 9, 6],
+      [8, 6, 8, 11], [2, 6, 2, 9], [2, 9, 5, 9], [5, 9, 5, 11],
+    ],
+  }),
+  // Three lanes into a rink in the middle and three out. The rink and one way out are ice.
+  ice: buildMap({
+    id: 'ice',
+    theme: THEMES.ice,
+    ice: [[4, 4, 7, 8], [7, 2, 11, 2], [0, 10, 4, 10]],
+    lanes: [
+      [0, 2, 4, 2], [4, 2, 4, 4], [0, 6, 4, 6], [0, 10, 4, 10], [4, 8, 4, 10],
+      [4, 4, 7, 8],
+      [7, 2, 7, 4], [7, 2, 11, 2], [7, 6, 11, 6], [7, 8, 7, 10], [7, 10, 11, 10],
+    ],
+  }),
+  // Lanes that swing wide like the tide line. Waves roll in.
+  beach: buildMap({
+    id: 'beach',
+    theme: THEMES.beach,
+    hazard: 'wave',
+    lanes: [
+      [0, 2, 2, 2], [2, 0, 2, 2], [2, 0, 6, 0], [6, 0, 6, 4], [6, 2, 9, 2], [9, 2, 9, 4], [9, 4, 11, 4],
+      [0, 6, 4, 6], [4, 4, 4, 8], [4, 4, 7, 4], [7, 4, 7, 7], [7, 7, 11, 7], [10, 4, 10, 7],
+      [0, 10, 2, 10], [2, 10, 2, 12], [2, 12, 6, 12], [6, 8, 6, 12], [4, 8, 6, 8], [6, 10, 9, 10], [9, 9, 9, 10], [9, 9, 11, 9],
+    ],
+  }),
+  // A straight avenue, two looping paths and a long alley across them, all behind iron gates.
+  graveyard: buildMap({
+    id: 'graveyard',
+    theme: THEMES.graveyard,
+    lanes: [
+      [0, 3, 3, 3], [3, 1, 3, 3], [3, 1, 8, 1], [8, 1, 8, 3], [8, 3, 11, 3],
+      [0, 6, 11, 6],
+      [0, 9, 3, 9], [3, 9, 3, 11], [3, 11, 8, 11], [8, 9, 8, 11], [8, 9, 11, 9],
+      [5, 1, 5, 11],
+    ],
+    gates: [
+      // Two long gates patrol the wide gap in front of the burrow, one after the other.
+      gate(175, BOUNDS.y1 + 10, 10, 150, 'y', 340, 9, 0, 0.04),
+      gate(175, BOUNDS.y1 + 10, 10, 150, 'y', 340, 9, 4.5, 0.04),
+      // Doors across the avenue slide up into the wall and back.
+      gate(laneX(3) - 5, laneY(6), 10, CELL, 'y', -CELL, 6, 0, 0.36),
+      gate(laneX(9) - 5, laneY(6), 10, CELL, 'y', -CELL, 6, 3, 0.36),
+      // Doors across the alley slide sideways into the wall.
+      gate(laneX(5), laneY(4) - 5, CELL, 10, 'x', CELL, 7, 1.5, 0.36),
+      gate(laneX(5), laneY(9) - 5, CELL, 10, 'x', CELL, 7, 5, 0.36),
+    ],
+  }),
+};
+
+export const MAP_IDS = Object.keys(MAPS);
+// The default map.
+export const MAP = MAPS.meadow;
+
+// Where each gate of a map is at a given time, as rectangles.
+export function gatesAt(map, time) {
+  return map.gates.map((g) => {
+    const ph = (((time + g.offset) % g.period) + g.period) % g.period / g.period;
+    const move = 0.5 - g.hold;
+    const k = ph < g.hold ? 0 : ph < g.hold + move ? (ph - g.hold) / move : ph < 2 * g.hold + move ? 1 : 1 - (ph - 2 * g.hold - move) / move;
+    const d = g.travel * k;
+    return { x: g.x + (g.axis === 'x' ? d : 0), y: g.y + (g.axis === 'y' ? d : 0), w: g.w, h: g.h, axis: g.axis };
+  });
+}
+
+// Keeps a circle out of a plain rectangle: a gate.
+export function pushOutRect(p, r, rect) {
+  const cx = Math.max(rect.x, Math.min(p.x, rect.x + rect.w));
+  const cy = Math.max(rect.y, Math.min(p.y, rect.y + rect.h));
+  const dx = p.x - cx;
+  const dy = p.y - cy;
+  const d2 = dx * dx + dy * dy;
+  if (d2 >= r * r) return;
+  if (d2 > 1e-9) {
+    const d = Math.sqrt(d2);
+    p.x = cx + (dx / d) * r;
+    p.y = cy + (dy / d) * r;
+    return;
+  }
+  // Centre inside the bar: out through its thin side, which is across its travel.
+  if (rect.w < rect.h) p.x = p.x < rect.x + rect.w / 2 ? rect.x - r : rect.x + rect.w + r;
+  else p.y = p.y < rect.y + rect.h / 2 ? rect.y - r : rect.y + rect.h + r;
+}
 
 // Hedges collide as rounded rectangles: a core rect grown by the corner radius.
 function pushOutHedge(p, r, rect, corner) {
@@ -214,7 +352,7 @@ export function isFree(map, x, y, pad = 0) {
   return Math.hypot(x - map.flower.x, y - map.flower.y) >= map.flower.r + pad;
 }
 
-function segmentHitsRect(ax, ay, bx, by, x1, y1, x2, y2) {
+export function segmentHitsRect(ax, ay, bx, by, x1, y1, x2, y2) {
   let t0 = 0;
   let t1 = 1;
   const dx = bx - ax;

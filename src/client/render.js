@@ -1,6 +1,7 @@
 // Canvas drawing. Reads game state, never changes it.
 
-import { WORLD } from '../sim/map.js';
+import { WORLD, gatesAt } from '../sim/map.js';
+import { HAZARD } from '../sim/hazards.js';
 import { BONK, gatherTime, ALARM_RANGE, THROW } from '../sim/constants.js';
 import { lastStretch } from '../sim/game.js';
 import { mulberry32 } from '../sim/rng.js';
@@ -183,9 +184,10 @@ function buildGround(w, h, base, map) {
   const rnd = mulberry32(11);
   const b = map.bounds;
 
-  ctx.fillStyle = '#2f7a3d';
+  const th = map.theme;
+  ctx.fillStyle = th.outer;
   ctx.fillRect(0, 0, WORLD.w, WORLD.h);
-  ctx.fillStyle = '#93d36f';
+  ctx.fillStyle = th.field;
   ctx.beginPath();
   ctx.roundRect(b.x1, b.y1, b.x2 - b.x1, b.y2 - b.y1, 14);
   ctx.fill();
@@ -193,7 +195,7 @@ function buildGround(w, h, base, map) {
   // Sandy floor under the hedge block: only the lanes stay visible once the
   // hedges are drawn on top.
   const f = map.flower;
-  ctx.fillStyle = '#ecdcae';
+  ctx.fillStyle = th.floor;
   ctx.fillRect(map.lanes.x1 - 6, b.y1, map.lanes.x2 - map.lanes.x1 + 12, b.y2 - b.y1);
   ctx.fillStyle = 'rgba(255, 244, 200, 0.4)';
   circle(ctx, f.x, f.y, 116);
@@ -201,12 +203,34 @@ function buildGround(w, h, base, map) {
   for (let i = 0; i < 520; i++) {
     const x = b.x1 + rnd() * (b.x2 - b.x1);
     const y = b.y1 + rnd() * (b.y2 - b.y1);
-    ctx.strokeStyle = rnd() < 0.5 ? 'rgba(60, 140, 60, 0.35)' : 'rgba(255, 255, 255, 0.22)';
+    ctx.strokeStyle = th.flecks[rnd() < 0.5 ? 0 : 1];
     ctx.lineWidth = 1.4;
     ctx.beginPath();
     ctx.moveTo(x, y);
     ctx.lineTo(x + (rnd() - 0.5) * 4, y - 3 - rnd() * 4);
     ctx.stroke();
+  }
+
+  // Ice: a pale blue sheet with a few glints, so the slippery part is plain to see.
+  for (const r of map.ice) {
+    ctx.fillStyle = 'rgba(150, 215, 255, 0.85)';
+    ctx.fillRect(r.x, r.y, r.w, r.h);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(r.x, r.y, r.w, r.h);
+    ctx.clip();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+    ctx.lineWidth = 2;
+    for (let i = 0; i < (r.w * r.h) / 900; i++) {
+      const x = r.x + rnd() * r.w;
+      const y = r.y + rnd() * r.h;
+      const len = 8 + rnd() * 14;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + len, y - len * 0.6);
+      ctx.stroke();
+    }
+    ctx.restore();
   }
   return c;
 }
@@ -229,10 +253,11 @@ function buildObstacles(w, h, base, map) {
   all(1, 5);
   ctx.fill();
   ctx.lineWidth = 6;
-  ctx.strokeStyle = '#2c7438';
+  const th = map.theme;
+  ctx.strokeStyle = th.rim;
   all(0, 0);
   ctx.stroke();
-  ctx.fillStyle = '#3c9449';
+  ctx.fillStyle = th.wall;
   ctx.fill();
   ctx.save();
   ctx.clip();
@@ -241,15 +266,15 @@ function buildObstacles(w, h, base, map) {
   const y1 = map.bounds.y1;
   const bh = map.bounds.y2 - y1;
   for (let i = 0; i < (bw * bh) / 520; i++) {
-    ctx.fillStyle = rnd() < 0.5 ? '#4fb05a' : '#348540';
+    ctx.fillStyle = th.dots[rnd() < 0.5 ? 0 : 1];
     circle(ctx, x1 + rnd() * bw, y1 + rnd() * bh, 9 + rnd() * 9);
   }
   for (let i = 0; i < (bw * bh) / 4200; i++) {
     const x = x1 + rnd() * bw;
     const y = y1 + rnd() * bh;
-    ctx.fillStyle = rnd() < 0.5 ? '#ffe3ee' : '#fff6c9';
+    ctx.fillStyle = th.accents[rnd() < 0.5 ? 0 : 1];
     for (let k = 0; k < 5; k++) circle(ctx, x + Math.cos((k / 5) * TAU) * 3, y + Math.sin((k / 5) * TAU) * 3, 2.2);
-    ctx.fillStyle = '#f7b500';
+    ctx.fillStyle = map.id === 'meadow' ? '#f7b500' : th.rim;
     circle(ctx, x, y, 1.6);
   }
   ctx.restore();
@@ -257,7 +282,8 @@ function buildObstacles(w, h, base, map) {
   return c;
 }
 
-export function createRenderer(canvas, map) {
+export function createRenderer(canvas, firstMap) {
+  let map = firstMap;
   const ctx = canvas.getContext('2d');
   const fx = [];
   // Puffs kicked up behind a hamster slowed by its seed, drawn under the hamsters.
@@ -317,6 +343,119 @@ export function createRenderer(canvas, map) {
     return portrait ? { x: (1 - v) * WORLD.w, y: u * WORLD.h } : { x: u * WORLD.w, y: v * WORLD.h };
   }
 
+  // Gates, pits, cannons and waves. Everything that can hurt is shown before it
+  // does: a pit as a shaking mound, a cannon with its line of fire, a wave as a
+  // ring closing in.
+  function drawTrouble(game, t) {
+    for (const r of gatesAt(map, game.time)) {
+      ctx.fillStyle = 'rgba(10, 8, 20, 0.35)';
+      ctx.fillRect(r.x + 2, r.y + 4, r.w, r.h);
+      ctx.fillStyle = '#2a2833';
+      ctx.fillRect(r.x, r.y, r.w, r.h);
+      ctx.strokeStyle = '#8d8a9c';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      // Bars across the gate, a spike at each.
+      const long = Math.max(r.w, r.h);
+      for (let d = 6; d < long; d += 12) {
+        if (r.w > r.h) {
+          ctx.moveTo(r.x + d, r.y - 3);
+          ctx.lineTo(r.x + d, r.y + r.h + 3);
+        } else {
+          ctx.moveTo(r.x - 3, r.y + d);
+          ctx.lineTo(r.x + r.w + 3, r.y + d);
+        }
+      }
+      ctx.stroke();
+    }
+
+    for (const h of game.hazards || []) {
+      const spec = HAZARD[h.kind];
+      const k = Math.min(1, h.age / spec.warn);
+      const live = h.age >= spec.warn;
+      if (h.kind === 'trap') {
+        if (!live) {
+          // The mole is digging: a mound that grows and shakes.
+          const wob = Math.sin(t * 40) * 1.5;
+          ctx.fillStyle = 'rgba(120, 80, 40, 0.9)';
+          oval(ctx, h.x + wob, h.y + 2, 8 + 12 * k, 5 + 7 * k);
+          ctx.fill();
+          ctx.strokeStyle = `rgba(230, 60, 40, ${0.5 + 0.5 * Math.sin(t * 16)})`;
+          ctx.lineWidth = 2.5;
+          ctx.beginPath();
+          ctx.arc(h.x, h.y, spec.r + 6 * (1 - k), 0, TAU);
+          ctx.stroke();
+        } else {
+          ctx.fillStyle = '#7a5226';
+          circle(ctx, h.x, h.y, spec.r);
+          ctx.fillStyle = '#1b1108';
+          circle(ctx, h.x, h.y, spec.r - 4);
+          // About to cave in: it blinks before it goes.
+          const left = spec.warn + spec.live - h.age;
+          ctx.strokeStyle = `rgba(255, 255, 255, ${left < 1.5 ? 0.3 + 0.5 * Math.abs(Math.sin(t * 10)) : 0.35})`;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(h.x, h.y, spec.r - 4, 0, TAU);
+          ctx.stroke();
+        }
+      } else if (h.kind === 'cannon') {
+        const ex = h.x + h.dx * spec.range;
+        const ey = h.y + h.dy * spec.range;
+        if (!live) {
+          // The line it will fire down, flashing faster as the shot nears.
+          ctx.strokeStyle = `rgba(240, 40, 30, ${0.25 + 0.35 * Math.abs(Math.sin(t * (6 + 18 * k)))})`;
+          ctx.lineCap = 'butt';
+          ctx.lineWidth = 2 * spec.width * (0.35 + 0.65 * k);
+          ctx.beginPath();
+          ctx.moveTo(h.x, h.y);
+          ctx.lineTo(ex, ey);
+          ctx.stroke();
+        }
+        // The barrel, poking out of the wall behind it.
+        ctx.save();
+        ctx.translate(h.x - h.dx * 10, h.y - h.dy * 10);
+        ctx.rotate(Math.atan2(h.dy, h.dx));
+        ctx.fillStyle = '#20242c';
+        ctx.fillRect(-6, -8, 10 + 14 * Math.min(1, k * 2), 16);
+        ctx.fillStyle = '#f2b705';
+        ctx.fillRect(2 + 14 * Math.min(1, k * 2), -9, 4, 18);
+        ctx.restore();
+      } else if (h.kind === 'wave') {
+        if (!live) {
+          // Where the wave will land: a ring closing in on a darkening patch.
+          ctx.fillStyle = `rgba(60, 150, 220, ${0.1 + 0.25 * k})`;
+          circle(ctx, h.x, h.y, spec.r);
+          ctx.strokeStyle = `rgba(255, 255, 255, ${0.5 + 0.4 * Math.sin(t * 12)})`;
+          ctx.lineWidth = 3;
+          ctx.setLineDash([10, 8]);
+          ctx.beginPath();
+          ctx.arc(h.x, h.y, spec.r * (1.5 - 0.5 * k), 0, TAU);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        } else {
+          const fade = Math.min(1, (spec.warn + spec.live - h.age) / 0.8);
+          ctx.fillStyle = `rgba(50, 150, 225, ${0.55 * fade})`;
+          circle(ctx, h.x, h.y, spec.r);
+          ctx.strokeStyle = `rgba(255, 255, 255, ${0.8 * fade})`;
+          ctx.lineWidth = 4;
+          ctx.beginPath();
+          ctx.arc(h.x, h.y, spec.r - 3 + 2 * Math.sin(t * 5), 0, TAU);
+          ctx.stroke();
+        }
+      }
+    }
+
+    // Wet hamsters drip.
+    for (const p of game.players) {
+      if (!(p.wet > 0)) continue;
+      ctx.fillStyle = 'rgba(70, 160, 235, 0.55)';
+      oval(ctx, p.x, p.y + 9, 20, 9);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(120, 200, 255, 0.95)';
+      for (let i = 0; i < 3; i++) circle(ctx, p.x - 12 + i * 12, p.y - 20 - ((t * 30 + i * 9) % 12), 2.2);
+    }
+  }
+
   function burst(x, y, count, color, speed) {
     for (let i = 0; i < count; i++) {
       const a = Math.random() * TAU;
@@ -338,6 +477,15 @@ export function createRenderer(canvas, map) {
     } else if (ev.type === 'warp') {
       fx.push({ type: 'ring', x: ev.fromX, y: ev.fromY, color: '#ffdc96', t: 0, life: 0.45 });
       fx.push({ type: 'ring', x: ev.x, y: ev.y, color: color(ev.id), t: 0, life: 0.45 });
+    } else if (ev.type === 'zap') {
+      burst(ev.x, ev.y, 10, ev.kind === 'trap' ? '#b98a4a' : '#ffe066', 190);
+      fx.push({ type: 'poof', x: ev.x, y: ev.y, t: 0, life: 0.4 });
+      if (ev.seed) fx.push({ type: 'seed', x: ev.x, y: ev.y, t: 0, life: 0.8 });
+      if (ev.id === meId) shake = 7;
+    } else if (ev.type === 'cannon') {
+      fx.push({ type: 'toss', x: ev.x, y: ev.y, dx: ev.dx, dy: ev.dy, t: 0, life: 0.22 });
+    } else if (ev.type === 'splash') {
+      fx.push({ type: 'ring', x: ev.x, y: ev.y, color: '#ffffff', t: 0, life: 0.6 });
     } else if (ev.type === 'throw') {
       fx.push({ type: 'toss', x: ev.x, y: ev.y, dx: ev.dx, dy: ev.dy, t: 0, life: 0.22 });
     } else if (ev.type === 'spawn') {
@@ -474,7 +622,7 @@ export function createRenderer(canvas, map) {
     base(ctx, ox, oy);
 
     // Burrow floor. In overtime it spreads towards the flower.
-    ctx.fillStyle = '#f6e6c2';
+    ctx.fillStyle = map.theme.home;
     ctx.beginPath();
     ctx.roundRect(b.x1, b.y1, game.homeX - b.x1, b.y2 - b.y1, [14, 0, 0, 14]);
     ctx.fill();
@@ -541,6 +689,8 @@ export function createRenderer(canvas, map) {
         ctx.stroke();
       });
     }
+
+    drawTrouble(game, t);
 
     // Winding up a throw: the path the seed will take grows out of the hamster and
     // turns gold once it is ready to let go.
@@ -814,5 +964,12 @@ export function createRenderer(canvas, map) {
     ctx.globalAlpha = 1;
   }
 
-  return { resize, draw, onEvent, toWorld, toWorldDir, clear: () => (fx.length = dust.length = 0) };
+  // Switches to another map: the ground and the walls are drawn afresh.
+  function setMap(next) {
+    if (next === map) return;
+    map = next;
+    ground = null;
+  }
+
+  return { resize, setMap, draw, onEvent, toWorld, toWorldDir, clear: () => (fx.length = dust.length = 0) };
 }
