@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createGame, step, inHome } from '../src/sim/game.js';
 import { createBot } from '../src/ai/bot.js';
 import { getNav, blockCost } from '../src/ai/nav.js';
-import { BONK, COUNTDOWN, GATHER_TIME, HAMSTER_R, OVERTIME, TICK_RATE } from '../src/sim/constants.js';
+import { BONK, COUNTDOWN, GATHER_TIME, gatherTime, HAMSTER_R, OVERTIME, TICK_RATE } from '../src/sim/constants.js';
 import { MAP, isFree } from '../src/sim/map.js';
 
 const IDLE = { mx: 0, my: 0, bonk: false };
@@ -357,4 +357,11 @@ test('an uneven three against two bot game finishes', () => {
   const bots = teams.map((_, i) => createBot({ difficulty: 'hard', seed: 40 + i }));
   while (g.phase !== 'over' && g.tick < 400 * TICK_RATE) step(g, bots.map((b, i) => b.think(g, i)));
   assert.equal(g.phase, 'over');
+});
+
+test('more hamsters nibble a seed loose faster', () => {
+  assert.equal(gatherTime(2), GATHER_TIME);
+  assert.equal(gatherTime(4), GATHER_TIME);
+  assert.ok(Math.abs(gatherTime(6) - (GATHER_TIME * 2) / 3) < 1e-9);
+  assert.equal(gatherTime(8), GATHER_TIME / 2);
 });

@@ -9,6 +9,9 @@ export const SPEED = 185;
 export const CARRY_SPEED = 0.93;
 
 export const GATHER_TIME = 2.2;
+// The more hamsters crowd the flower, the quicker a seed comes loose: four is
+// the baseline, and eight nibble in half the time.
+export const gatherTime = (players) => (GATHER_TIME * 4) / Math.max(4, players);
 export const COUNTDOWN = 3;
 
 // Stalemate breaker: after `start` seconds the burrow's edge creeps towards the flower.

@@ -3,7 +3,7 @@
 // Human, bot and (later) network players all feed it through the same input shape:
 //   { mx, my, bonk, ax?, ay? }   move vector, bonk button, optional aim direction
 
-import { DT, SPEED, CARRY_SPEED, HAMSTER_R, GATHER_TIME, COUNTDOWN, BONK, OVERTIME } from './constants.js';
+import { DT, SPEED, CARRY_SPEED, HAMSTER_R, gatherTime, COUNTDOWN, BONK, OVERTIME } from './constants.js';
 import { MAP, resolveCollisions, segmentClear } from './map.js';
 import { mulberry32 } from './rng.js';
 
@@ -312,7 +312,7 @@ export function step(g, inputs) {
       nibbler.gather = 0;
     } else {
       nibbler.gather += DT;
-      if (nibbler.gather >= GATHER_TIME - 1e-9) {
+      if (nibbler.gather >= gatherTime(players.length) - 1e-9) {
         nibbler.gather = 0;
         nibbler.queued = -1;
         nibbler.carrying = true;

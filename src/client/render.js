@@ -1,7 +1,7 @@
 // Canvas drawing. Reads game state, never changes it.
 
 import { WORLD } from '../sim/map.js';
-import { BONK, GATHER_TIME } from '../sim/constants.js';
+import { BONK, gatherTime } from '../sim/constants.js';
 import { mulberry32 } from '../sim/rng.js';
 import { colorOf, lookOf } from './looks.js';
 import { t as tr } from './i18n.js';
@@ -565,7 +565,7 @@ export function createRenderer(canvas, map) {
           ctx.stroke();
           ctx.strokeStyle = '#ffd23f';
           ctx.beginPath();
-          ctx.arc(0, 0, 23, -Math.PI / 2, -Math.PI / 2 + (p.gather / GATHER_TIME) * TAU);
+          ctx.arc(0, 0, 23, -Math.PI / 2, -Math.PI / 2 + (p.gather / gatherTime(game.players.length)) * TAU);
           ctx.stroke();
         }
         // In the ring but not first in line: waiting for a turn at the flower.
