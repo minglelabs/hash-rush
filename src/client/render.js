@@ -1,7 +1,7 @@
 // Canvas drawing. Reads game state, never changes it.
 
 import { WORLD } from '../sim/map.js';
-import { BONK, gatherTime, ALARM_RANGE } from '../sim/constants.js';
+import { BONK, gatherTime, ALARM_RANGE, THROW } from '../sim/constants.js';
 import { lastStretch } from '../sim/game.js';
 import { mulberry32 } from '../sim/rng.js';
 import { colorOf, lookOf } from './looks.js';
@@ -331,6 +331,8 @@ export function createRenderer(canvas, map) {
     } else if (ev.type === 'warp') {
       fx.push({ type: 'ring', x: ev.fromX, y: ev.fromY, color: '#ffdc96', t: 0, life: 0.45 });
       fx.push({ type: 'ring', x: ev.x, y: ev.y, color: color(ev.id), t: 0, life: 0.45 });
+    } else if (ev.type === 'throw') {
+      fx.push({ type: 'toss', x: ev.x, y: ev.y, dx: ev.dx, dy: ev.dy, t: 0, life: 0.22 });
     } else if (ev.type === 'spawn') {
       fx.push({ type: 'ring', x: ev.x, y: ev.y, color: color(ev.id), t: 0, life: 0.45 });
     } else if (ev.type === 'seed') {
@@ -396,6 +398,19 @@ export function createRenderer(canvas, map) {
         ctx.beginPath();
         ctx.arc(e.x, e.y, 12 + 30 * k, 0, TAU);
         ctx.stroke();
+      } else if (e.type === 'toss') {
+        // The thrown seed streaks along its path.
+        const at = THROW.range * Math.min(1, k * 1.3);
+        ctx.globalAlpha = 1 - k;
+        ctx.strokeStyle = '#fff3b0';
+        ctx.lineCap = 'round';
+        ctx.lineWidth = 7;
+        ctx.beginPath();
+        ctx.moveTo(e.x + e.dx * at * 0.4, e.y + e.dy * at * 0.4);
+        ctx.lineTo(e.x + e.dx * at, e.y + e.dy * at);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+        upright(e.x + e.dx * at, e.y + e.dy * at, () => drawSeed(ctx, 0, 0, 1.3, k * 14));
       } else if (e.type === 'swoosh') {
         ctx.globalAlpha = (e.hit ? 0.95 : 0.6) * (1 - k);
         ctx.strokeStyle = e.hit ? '#fff3b0' : '#ffffff';
@@ -518,6 +533,20 @@ export function createRenderer(canvas, map) {
         ctx.strokeStyle = colorOf(p);
         ctx.stroke();
       });
+    }
+
+    // Winding up a throw: the path the seed will take grows out of the hamster and
+    // turns gold once it is ready to let go.
+    for (const p of game.players) {
+      if (!p.carrying || !(p.charge > 0)) continue;
+      const k = Math.min(1, p.charge / THROW.charge);
+      ctx.strokeStyle = k < 1 ? 'rgba(255, 255, 255, 0.6)' : `rgba(255, 200, 40, ${0.75 + 0.2 * Math.sin(t * 14)})`;
+      ctx.lineCap = 'round';
+      ctx.lineWidth = 2 * THROW.width * (k < 1 ? 0.35 : 0.5);
+      ctx.beginPath();
+      ctx.moveTo(p.x + p.fx * 18, p.y + p.fy * 18);
+      ctx.lineTo(p.x + p.fx * THROW.range * k, p.y + p.fy * THROW.range * k);
+      ctx.stroke();
     }
 
     // Nibbling ring around the flower.

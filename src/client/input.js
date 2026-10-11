@@ -60,11 +60,12 @@ export function holdSwing(g, me, fresh) {
   return fresh && !near ? { ax: 0, ay: 0, dist: 0 } : null;
 }
 
-export function createInput({ stage, canvas, stick, knob, bonkBtn, toWorld, toWorldDir }) {
+export function createInput({ stage, canvas, stick, knob, bonkBtn, throwBtn, toWorld, toWorldDir }) {
   const down = new Set();
   let enabled = false;
   let touch = null;
   let button = false;
+  let throwHeld = false;
   let buttonWas = false;
   let pulsed = false;
   let click = null;
@@ -78,6 +79,7 @@ export function createInput({ stage, canvas, stick, knob, bonkBtn, toWorld, toWo
     touch = null;
     button = false;
     buttonWas = false;
+    throwHeld = false;
     click = null;
     order = null;
     stick.hidden = true;
@@ -160,6 +162,13 @@ export function createInput({ stage, canvas, stick, knob, bonkBtn, toWorld, toWo
     e.preventDefault();
   });
   for (const type of ['pointerup', 'pointercancel', 'pointerleave']) bonkBtn.addEventListener(type, () => (button = false));
+  // On a phone the bonk button is held to wait for a hit, so throwing a seed gets
+  // a button of its own: hold it, turn, let go.
+  throwBtn.addEventListener('pointerdown', (e) => {
+    throwHeld = true;
+    e.preventDefault();
+  });
+  for (const type of ['pointerup', 'pointercancel', 'pointerleave']) throwBtn.addEventListener(type, () => (throwHeld = false));
 
   function resolveClick(g, me) {
     const at = click;
@@ -188,7 +197,8 @@ export function createInput({ stage, canvas, stick, knob, bonkBtn, toWorld, toWo
 
   function read(g, id) {
     const me = g.players[id];
-    const out = { mx: 0, my: 0, bonk: held('bonk'), ax: 0, ay: 0 };
+    // On the keyboard the bonk key doubles as the throw: keep it held with a seed.
+    const out = { mx: 0, my: 0, bonk: held('bonk'), ax: 0, ay: 0, throw: held('bonk') || throwHeld };
     if (held('left')) out.mx -= 1;
     if (held('right')) out.mx += 1;
     if (held('up')) out.my -= 1;

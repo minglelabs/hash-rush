@@ -79,6 +79,11 @@ export function createAudio() {
       tone({ f: 190, to: 70, dur: 0.09, vol: 0.12 });
       noise({ dur: 0.025, vol: 0.06, cutoff: 2500 });
     },
+    // A seed thrown: a quick whistle through the air.
+    toss: () => {
+      tone({ f: 1400, to: 500, dur: 0.16, type: 'triangle', vol: 0.07 });
+      noise({ dur: 0.12, vol: 0.05, cutoff: 3000 });
+    },
     // Two down with one swing: a bright pair of notes after the hit.
     double: () => [1319, 1760].forEach((f, i) => tone({ f, dur: 0.2, type: 'triangle', vol: 0.08, at: 0.09 + i * 0.09 })),
     // Three or more: a rising fanfare with a sparkle on top.

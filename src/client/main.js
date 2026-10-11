@@ -99,6 +99,7 @@ const input = createInput({
   stick: $('stick'),
   knob: $('knob'),
   bonkBtn: $('bonk'),
+  throwBtn: $('throw'),
   toWorld: renderer.toWorld,
   toWorldDir: renderer.toWorldDir,
 });
@@ -545,7 +546,7 @@ function guestData(conn, msg) {
     sendLobby();
   } else if (msg.t === 'i') {
     const n = (v) => Math.max(-1, Math.min(1, Number(v) || 0));
-    slot.input = { mx: n(msg.mx), my: n(msg.my), ax: n(msg.ax), ay: n(msg.ay), seq: Number(msg.seq) || 0 };
+    slot.input = { mx: n(msg.mx), my: n(msg.my), ax: n(msg.ax), ay: n(msg.ay), seq: Number(msg.seq) || 0, th: !!msg.th };
   }
 }
 
@@ -600,7 +601,7 @@ function snapshot(events) {
     to: game.timeout,
     p: game.players.map((p) => [
       r(p.x), r(p.y), r(p.vx), r(p.vy), p.fx, p.fy, p.carrying ? 1 : 0, p.gather, p.queued,
-      p.swing ? [p.swing.phase, p.swing.t, p.swing.dx, p.swing.dy] : 0, p.cooldown, p.kills, p.deaths, p.seeds, p.supers,
+      p.swing ? [p.swing.phase, p.swing.t, p.swing.dx, p.swing.dy] : 0, p.cooldown, p.kills, p.deaths, p.seeds, p.supers, p.charge,
     ]),
     ev: events,
   };
@@ -681,7 +682,7 @@ function hostData(msg) {
       timeout: false,
       players: msg.players.map((p, id) => ({
         id, name: p.name, look: p.look, team: p.team ?? -1, nest: p.nest, x: p.nest.x, y: p.nest.y, vx: 0, vy: 0, fx: 1, fy: 0,
-        carrying: false, gather: 0, queued: -1, swing: null, cooldown: 0, kills: 0, deaths: 0, seeds: 0, supers: 0,
+        carrying: false, gather: 0, queued: -1, swing: null, cooldown: 0, kills: 0, deaths: 0, seeds: 0, supers: 0, charge: 0,
       })),
     };
     meId = msg.you;
@@ -702,7 +703,7 @@ function hostData(msg) {
       p.gather = s[7];
       p.queued = s[8];
       p.swing = s[9] ? { phase: s[9][0], t: s[9][1], dx: s[9][2], dy: s[9][3] } : null;
-      [p.cooldown, p.kills, p.deaths, p.seeds, p.supers = 0] = s.slice(10);
+      [p.cooldown, p.kills, p.deaths, p.seeds, p.supers = 0, p.charge = 0] = s.slice(10);
     });
     for (const ev of msg.ev) onEvent(ev);
   } else if (msg.t === 'lobbyscreen') {
@@ -901,7 +902,7 @@ function startGame() {
         const i = slot.input;
         const bonk = i.seq !== seen;
         seen = i.seq;
-        return { mx: i.mx, my: i.my, ax: i.ax, ay: i.ay, bonk };
+        return { mx: i.mx, my: i.my, ax: i.ax, ay: i.ay, bonk, throw: i.th };
       };
     }
     const bot = createBot({ difficulty: slot.kind.split(':')[1], seed: seed + id * 7919 });
@@ -1013,6 +1014,8 @@ function onEvent(ev) {
       callout(players[ev.by], [t('superPlay')]);
       audio.play.superplay();
     }
+  } else if (ev.type === 'throw') {
+    audio.play.toss();
   } else if (ev.type === 'multi') {
     const names = t('killNames');
     const name = names[Math.min(ev.n, names.length + 1) - 2];
@@ -1152,6 +1155,8 @@ function watchCarrier() {
 
 function updateHud() {
   watchCarrier();
+  // The throw button is only there while this player has a seed to throw.
+  $('throw').hidden = !(meId >= 0 && game.phase === 'playing' && game.players[meId].carrying);
   if (!$('board').hidden) {
     const now = game.players.map((p) => `${p.kills},${p.deaths},${p.seeds}`).join();
     if (now !== boardKey) {
@@ -1202,7 +1207,7 @@ function frame(now) {
       const i = input.read(game, meId);
       if (i.bonk && !bonkWas) bonkSeq++;
       bonkWas = i.bonk;
-      if (net.host) net.host.send({ t: 'i', mx: i.mx, my: i.my, ax: i.ax, ay: i.ay, seq: bonkSeq });
+      if (net.host) net.host.send({ t: 'i', mx: i.mx, my: i.my, ax: i.ax, ay: i.ay, seq: bonkSeq, th: i.throw ? 1 : 0 });
     }
   } else {
     acc += dt;
