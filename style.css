@@ -1239,6 +1239,15 @@ button.primary:active {
   text-align: center;
 }
 
+.scoreTable .prize {
+  padding-left: 0.2em;
+  text-align: left;
+}
+
+.scoreTable .prize .mvp {
+  margin-left: 0;
+}
+
 /* The MVP badge is meant to be loud: gold that shimmers, wobbles and sparkles. */
 .mvp {
   position: relative;
