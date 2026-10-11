@@ -47,6 +47,7 @@
             </div>
           </div>
           <p id="netStatus" hidden></p>
+          <button id="lobbyChatBtn" hidden></button>
           <div id="lobbyChat" class="chat" hidden>
             <div class="chatLog"></div>
             <div class="quick"></div>
@@ -91,7 +92,7 @@
           </div>
           <div id="tools">
             <button id="mute">🔊</button>
-            <button id="chatBtn" hidden>💬</button>
+            <button id="chatBtn" data-i18n="chatLabel" hidden></button>
             <button id="quit" data-i18n="lobby"></button>
           </div>
         </div>
@@ -101,6 +102,15 @@
             <h2 id="resultTitle"></h2>
             <table id="resultTable"></table>
             <p id="resultWait" data-i18n="waitingRematch" hidden></p>
+            <button id="resultChatBtn" hidden></button>
+            <div id="resultChat" class="chat" hidden>
+              <div class="chatLog"></div>
+              <div class="quick"></div>
+              <form class="chatForm">
+                <input maxlength="80" autocomplete="off" />
+                <button data-i18n="chatSend"></button>
+              </form>
+            </div>
             <div class="row">
               <button id="again" class="primary" data-i18n="again"></button>
               <button id="back" data-i18n="lobby"></button>
