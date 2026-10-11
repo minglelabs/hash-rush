@@ -53,7 +53,7 @@ const GATHER_SPOTS = ring(FLOWER, 55, 8);
 
 // Builds a map from its lanes: runs of grid cells, [col, row, col, row]. A run can
 // also be a block, which makes a room.
-export function buildMap({ id, lanes, theme, hazard = null, ice = [], gates = [] }) {
+export function buildMap({ id, lanes, theme, hazard = null, ice = [], gates = [], cycle = false }) {
   const open = Array.from({ length: ROWS }, () => new Array(COLS).fill(false));
   for (const [c1, r1, c2, r2] of lanes) {
     for (let c = Math.min(c1, c2); c <= Math.max(c1, c2); c++) {
@@ -150,6 +150,8 @@ export function buildMap({ id, lanes, theme, hazard = null, ice = [], gates = []
     // Slippery floor, as world rectangles.
     ice: ice.map(cellRect),
     gates,
+    // Day and night take turns, and the trouble changes with them (the sky map).
+    cycle,
   };
 }
 
@@ -161,6 +163,7 @@ const THEMES = {
   factory: { outer: '#333a47', field: '#8d96a3', floor: '#c6ccd5', home: '#e3dccb', rim: '#272d38', wall: '#566070', dots: ['#657082', '#48515f'], accents: ['#f2b705', '#1f2430'], flecks: ['rgba(40, 50, 65, 0.25)', 'rgba(255, 255, 255, 0.18)'] },
   ice: { outer: '#3c6c98', field: '#d6e9f3', floor: '#f0f6fa', home: '#f3ecdc', rim: '#5589b0', wall: '#97c4e0', dots: ['#b3d7ec', '#82b4d4'], accents: ['#ffffff', '#e2f4ff'], flecks: ['rgba(120, 170, 210, 0.3)', 'rgba(255, 255, 255, 0.5)'] },
   beach: { outer: '#2a80aa', field: '#f1dda2', floor: '#f8edc6', home: '#fdf3d6', rim: '#f4fbff', wall: '#35a3d6', dots: ['#4fb6e4', '#2b93c8'], accents: ['#ff8fa3', '#ffe066'], flecks: ['rgba(190, 150, 80, 0.3)', 'rgba(255, 255, 255, 0.35)'] },
+  sky: { outer: '#4f9fdc', field: '#bfe3fb', floor: '#bfe3fb', home: '#fbfdff', rim: '#bcd3e8', wall: '#ffffff', dots: ['#ffffff', '#e6f1fa'], accents: ['#ffffff', '#ffffff'], flecks: ['rgba(255, 255, 255, 0.0)', 'rgba(255, 255, 255, 0.0)'], sky: true },
   graveyard: { outer: '#1c182a', field: '#57516c', floor: '#8a849e', home: '#b9b0a0', rim: '#1f1a30', wall: '#39324f', dots: ['#4a4265', '#2c2641'], accents: ['#ff9a1f', '#c8f060'], flecks: ['rgba(20, 15, 35, 0.3)', 'rgba(200, 190, 230, 0.2)'] },
 };
 
@@ -259,6 +262,27 @@ export const MAPS = {
       gate(laneX(6), laneY(5) + 15, CELL, 10, 'x', CELL, 7, 1.5, 0.36),
       gate(laneX(4), laneY(3) + 15, CELL, 10, 'x', CELL, 6, 4, 0.36),
       gate(laneX(8), laneY(9) + 15, CELL, 10, 'x', CELL, 7, 5, 0.36),
+    ],
+  }),
+  // Paths between the clouds, high over the land. Day brings pits and waves, night
+  // brings gates and ice, and the cannons never stop.
+  sky: buildMap({
+    id: 'sky',
+    theme: THEMES.sky,
+    cycle: true,
+    ice: [[0, 2, 11, 2], [6, 4, 6, 12], [0, 12, 10, 12]],
+    lanes: [
+      [4, 0, 4, 2], [4, 0, 8, 0], [6, 0, 6, 2], [8, 0, 8, 8], [0, 2, 11, 2], [2, 2, 2, 4], [0, 4, 2, 4],
+      [6, 4, 6, 12], [6, 4, 11, 4], [10, 4, 10, 12], [4, 6, 4, 8], [4, 6, 6, 6], [8, 6, 11, 6],
+      [0, 8, 6, 8], [2, 8, 2, 10], [8, 8, 10, 8], [2, 10, 8, 10], [8, 10, 8, 12], [0, 12, 10, 12],
+    ],
+    gates: [
+      gate(laneX(3) + 15, laneY(2), 10, CELL, 'y', -CELL, 6, 0, 0.36),
+      gate(laneX(9) + 15, laneY(4), 10, CELL, 'y', -CELL, 6, 3, 0.36),
+      gate(laneX(5) + 15, laneY(10), 10, CELL, 'y', -CELL, 7, 1, 0.36),
+      gate(laneX(3) + 15, laneY(8), 10, CELL, 'y', -CELL, 7, 4, 0.36),
+      gate(laneX(6), laneY(5) + 15, CELL, 10, 'x', CELL, 7, 1.5, 0.36),
+      gate(laneX(10), laneY(9) + 15, CELL, 10, 'x', CELL, 6, 4.5, 0.36),
     ],
   }),
 };

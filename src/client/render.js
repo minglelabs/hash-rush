@@ -1,7 +1,7 @@
 // Canvas drawing. Reads game state, never changes it.
 
-import { WORLD, gatesAt } from '../sim/map.js';
-import { HAZARD } from '../sim/hazards.js';
+import { WORLD, gatesAt, isFree } from '../sim/map.js';
+import { HAZARD, SKY, gatesNow, iceNow, isNight, untilNight, shotAt } from '../sim/hazards.js';
 import { DECO, SCENERY } from './deco.js';
 import { BONK, gatherTime, ALARM_RANGE, THROW } from '../sim/constants.js';
 import { lastStretch } from '../sim/game.js';
@@ -186,7 +186,57 @@ function shuffled(list, rnd) {
   return out;
 }
 
-function buildGround(w, h, base, map, up) {
+// The view from the sky map: a pale sky, and far below it, faint in the haze,
+// mountains and a village. Drawn the right way up whichever way the map is turned.
+function drawFarLand(ctx, vw, vh) {
+  const sky = ctx.createLinearGradient(0, -vh / 2, 0, vh / 2);
+  sky.addColorStop(0, '#8ecbf7');
+  sky.addColorStop(0.6, '#c9e8fb');
+  sky.addColorStop(1, '#eef8ff');
+  ctx.fillStyle = sky;
+  ctx.fillRect(-vw / 2, -vh / 2, vw, vh);
+  const rnd = mulberry32(77);
+  // Two ranges of mountains, the further one paler.
+  for (const [base, height, fill] of [[vh * 0.2, vh * 0.34, 'rgba(110, 140, 185, 0.2)'], [vh * 0.3, vh * 0.26, 'rgba(95, 130, 175, 0.26)']]) {
+    ctx.fillStyle = fill;
+    ctx.beginPath();
+    ctx.moveTo(-vw / 2, vh / 2);
+    for (let x = -vw / 2; x <= vw / 2 + 40; x += 46) ctx.lineTo(x, base - rnd() * height * (0.4 + 0.6 * Math.abs(Math.sin(x * 0.011 + base))));
+    ctx.lineTo(vw / 2, vh / 2);
+    ctx.closePath();
+    ctx.fill();
+  }
+  // Snow on a few peaks, and a village at the foot: houses, a church, a few trees.
+  const ground = vh * 0.36;
+  ctx.fillStyle = 'rgba(120, 160, 120, 0.2)';
+  ctx.fillRect(-vw / 2, ground, vw, vh / 2 - ground);
+  for (let i = 0; i < 26; i++) {
+    const x = -vw * 0.42 + rnd() * vw * 0.84;
+    const y = ground + 4 + rnd() * (vh / 2 - ground - 22);
+    const sz = 7 + rnd() * 6;
+    if (i % 5 === 0) {
+      ctx.fillStyle = 'rgba(70, 120, 90, 0.3)';
+      ctx.beginPath();
+      ctx.arc(x, y, sz * 0.7, 0, TAU);
+      ctx.fill();
+      continue;
+    }
+    ctx.fillStyle = 'rgba(245, 240, 230, 0.34)';
+    ctx.fillRect(x - sz / 2, y - sz * 0.5, sz, sz * 0.6);
+    ctx.fillStyle = i % 7 === 3 ? 'rgba(90, 110, 150, 0.36)' : 'rgba(190, 95, 80, 0.34)';
+    ctx.beginPath();
+    ctx.moveTo(x - sz * 0.65, y - sz * 0.5);
+    ctx.lineTo(x, y - sz * (i % 7 === 3 ? 1.9 : 1.1));
+    ctx.lineTo(x + sz * 0.65, y - sz * 0.5);
+    ctx.closePath();
+    ctx.fill();
+  }
+  // Haze over all of it, so it stays far away.
+  ctx.fillStyle = 'rgba(215, 238, 255, 0.3)';
+  ctx.fillRect(-vw / 2, -vh / 2, vw, vh);
+}
+
+function buildGround(w, h, base, map, up, portrait) {
   const c = document.createElement('canvas');
   c.width = w;
   c.height = h;
@@ -211,7 +261,18 @@ function buildGround(w, h, base, map, up) {
   ctx.fillStyle = 'rgba(255, 244, 200, 0.4)';
   circle(ctx, f.x, f.y, 116);
 
-  for (let i = 0; i < 520; i++) {
+  if (th.sky) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(b.x1, b.y1, b.x2 - b.x1, b.y2 - b.y1, 14);
+    ctx.clip();
+    const bw = b.x2 - b.x1;
+    const bh = b.y2 - b.y1;
+    up(ctx, (b.x1 + b.x2) / 2, (b.y1 + b.y2) / 2, () => drawFarLand(ctx, portrait ? bh : bw, portrait ? bw : bh));
+    ctx.restore();
+  }
+
+  for (let i = 0; i < (th.sky ? 0 : 520); i++) {
     const x = b.x1 + rnd() * (b.x2 - b.x1);
     const y = b.y1 + rnd() * (b.y2 - b.y1);
     ctx.strokeStyle = th.flecks[rnd() < 0.5 ? 0 : 1];
@@ -237,7 +298,8 @@ function buildGround(w, h, base, map, up) {
   spots.forEach((s, i) => up(ctx, s.x, s.y, () => DECO[kinds[i % kinds.length]](ctx)));
 
   // Ice: a pale blue sheet with a few glints, so the slippery part is plain to see.
-  for (const r of map.ice) {
+  // Where it comes and goes with the night it is drawn every frame instead.
+  for (const r of map.cycle ? [] : map.ice) {
     ctx.fillStyle = 'rgba(150, 215, 255, 0.85)';
     ctx.fillRect(r.x, r.y, r.w, r.h);
     ctx.save();
@@ -376,7 +438,7 @@ export function createRenderer(canvas, firstMap) {
       fn();
       c.restore();
     };
-    ground = buildGround(w, h, base, map, up);
+    ground = buildGround(w, h, base, map, up, portrait);
     obstacles = buildObstacles(w, h, base, map, up);
   }
 
@@ -390,27 +452,94 @@ export function createRenderer(canvas, firstMap) {
   // Gates, pits, cannons and waves. Everything that can hurt is shown before it
   // does: a pit as a shaking mound, a cannon with its line of fire, a wave as a
   // ring closing in.
-  function drawTrouble(game, t) {
-    for (const r of gatesAt(map, game.time)) {
-      ctx.fillStyle = 'rgba(10, 8, 20, 0.35)';
-      ctx.fillRect(r.x + 2, r.y + 4, r.w, r.h);
-      ctx.fillStyle = '#2a2833';
-      ctx.fillRect(r.x, r.y, r.w, r.h);
-      ctx.strokeStyle = '#8d8a9c';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      // Bars across the gate, a spike at each.
-      const long = Math.max(r.w, r.h);
-      for (let d = 6; d < long; d += 12) {
-        if (r.w > r.h) {
-          ctx.moveTo(r.x + d, r.y - 3);
-          ctx.lineTo(r.x + d, r.y + r.h + 3);
-        } else {
-          ctx.moveTo(r.x - 3, r.y + d);
-          ctx.lineTo(r.x + r.w + 3, r.y + d);
+  // Day and night over the sky map: ice forming on the paths as evening comes, the
+  // light going orange, then dark with stars, then pink again before morning.
+  let stars = null;
+  function drawSky(game, t) {
+    const b = map.bounds;
+    const clock = ((game.time % SKY.period) + SKY.period) % SKY.period;
+    const dusk = SKY.night;
+    const dawn = SKY.period;
+    const dark = clock < dusk - 4 ? 0 : clock < dusk ? (clock - (dusk - 4)) / 4 : clock < dawn - 4 ? 1 : (dawn - clock) / 4;
+    const glow = Math.max(0, 1 - Math.abs(clock - (dusk - 2)) / 3, 1 - Math.abs(clock - (dawn - 2)) / 3);
+
+    // Ice shows a little before it is slippery, and goes with the morning.
+    const icy = isNight(map, game.time) ? 1 : Math.max(0, 1 - untilNight(map, game.time) / 3);
+    if (icy > 0) {
+      for (const r of map.ice) {
+        ctx.fillStyle = `rgba(150, 215, 255, ${0.8 * icy})`;
+        ctx.fillRect(r.x, r.y, r.w, r.h);
+        ctx.strokeStyle = `rgba(255, 255, 255, ${0.8 * icy})`;
+        ctx.lineWidth = 2;
+        for (let d = 12; d < Math.max(r.w, r.h); d += 26) {
+          const x = r.w > r.h ? r.x + d : r.x + r.w / 2 - 6;
+          const y = r.w > r.h ? r.y + r.h / 2 + 5 : r.y + d;
+          ctx.beginPath();
+          ctx.moveTo(x, y);
+          ctx.lineTo(x + 11, y - 8);
+          ctx.stroke();
         }
       }
-      ctx.stroke();
+    }
+
+    if (glow > 0) {
+      const evening = clock < dawn - 6;
+      const g = ctx.createLinearGradient(b.x1, b.y1, b.x2, b.y2);
+      g.addColorStop(0, evening ? `rgba(255, 120, 60, ${0.42 * glow})` : `rgba(255, 170, 200, ${0.36 * glow})`);
+      g.addColorStop(1, evening ? `rgba(180, 70, 140, ${0.36 * glow})` : `rgba(255, 215, 150, ${0.4 * glow})`);
+      ctx.fillStyle = g;
+      ctx.fillRect(b.x1, b.y1, b.x2 - b.x1, b.y2 - b.y1);
+    }
+    if (dark > 0) {
+      ctx.fillStyle = `rgba(12, 18, 62, ${0.66 * dark})`;
+      ctx.fillRect(b.x1, b.y1, b.x2 - b.x1, b.y2 - b.y1);
+      // Stars twinkle in the open sky between the clouds.
+      if (!stars) {
+        const rnd = mulberry32(41);
+        stars = [];
+        for (let i = 0; i < 400 && stars.length < 70; i++) {
+          const x = b.x1 + 8 + rnd() * (b.x2 - b.x1 - 16);
+          const y = b.y1 + 8 + rnd() * (b.y2 - b.y1 - 16);
+          if (x > map.home.x2 + 6 && isFree(map, x, y, 3)) stars.push({ x, y, r: 0.8 + rnd() * 1.4, f: 1.5 + rnd() * 3 });
+        }
+      }
+      for (const s of stars) {
+        ctx.fillStyle = `rgba(255, 250, 220, ${dark * (0.35 + 0.65 * Math.abs(Math.sin(t * s.f + s.x)))})`;
+        circle(ctx, s.x, s.y, s.r);
+      }
+    }
+  }
+
+  const drawGate = (r) => {
+    ctx.fillStyle = '#2a2833';
+    ctx.fillRect(r.x, r.y, r.w, r.h);
+    ctx.strokeStyle = '#8d8a9c';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    const long = Math.max(r.w, r.h);
+    for (let d = 6; d < long; d += 12) {
+      if (r.w > r.h) {
+        ctx.moveTo(r.x + d, r.y - 3);
+        ctx.lineTo(r.x + d, r.y + r.h + 3);
+      } else {
+        ctx.moveTo(r.x - 3, r.y + d);
+        ctx.lineTo(r.x + r.w + 3, r.y + d);
+      }
+    }
+    ctx.stroke();
+  };
+
+  function drawTrouble(game, t) {
+    // Gates that are about to drop in with the night flicker first.
+    if (untilNight(map, game.time) < SKY.omen) {
+      ctx.globalAlpha = 0.25 + 0.35 * Math.abs(Math.sin(t * 12));
+      for (const r of gatesAt(map, game.time)) drawGate(r);
+      ctx.globalAlpha = 1;
+    }
+    for (const r of gatesNow(map, game.time, game.homeX)) {
+      ctx.fillStyle = 'rgba(10, 8, 20, 0.35)';
+      ctx.fillRect(r.x + 2, r.y + 4, r.w, r.h);
+      drawGate(r);
     }
 
     for (const h of game.hazards || []) {
@@ -454,6 +583,18 @@ export function createRenderer(canvas, firstMap) {
           ctx.moveTo(h.x, h.y);
           ctx.lineTo(ex, ey);
           ctx.stroke();
+        }
+        // The seed in flight, exactly where it can hit.
+        const flown = shotAt(h);
+        if (flown >= 0) {
+          ctx.strokeStyle = 'rgba(255, 243, 176, 0.8)';
+          ctx.lineCap = 'round';
+          ctx.lineWidth = 7;
+          ctx.beginPath();
+          ctx.moveTo(h.x + h.dx * flown * 0.5, h.y + h.dy * flown * 0.5);
+          ctx.lineTo(h.x + h.dx * flown, h.y + h.dy * flown);
+          ctx.stroke();
+          upright(h.x + h.dx * flown, h.y + h.dy * flown, () => drawSeed(ctx, 0, 0, 1.3, t * 30));
         }
         // The barrel, poking out of the wall behind it.
         ctx.save();
@@ -526,8 +667,6 @@ export function createRenderer(canvas, firstMap) {
       fx.push({ type: 'poof', x: ev.x, y: ev.y, t: 0, life: 0.4 });
       if (ev.seed) fx.push({ type: 'seed', x: ev.x, y: ev.y, t: 0, life: 0.8 });
       if (ev.id === meId) shake = 7;
-    } else if (ev.type === 'cannon') {
-      fx.push({ type: 'toss', x: ev.x, y: ev.y, dx: ev.dx, dy: ev.dy, t: 0, life: 0.22 });
     } else if (ev.type === 'splash') {
       fx.push({ type: 'ring', x: ev.x, y: ev.y, color: '#ffffff', t: 0, life: 0.6 });
     } else if (ev.type === 'throw') {
@@ -675,6 +814,7 @@ export function createRenderer(canvas, firstMap) {
     ctx.setTransform(1, 0, 0, 1, ox * scale, oy * scale);
     ctx.drawImage(obstacles, 0, 0);
     base(ctx, ox, oy);
+    if (map.cycle) drawSky(game, t);
 
     // In overtime everything that now counts as home, hedges included, is washed
     // in a warm colour so the moved finish line is impossible to miss.
@@ -1013,6 +1153,7 @@ export function createRenderer(canvas, firstMap) {
     if (next === map) return;
     map = next;
     ground = null;
+    stars = null;
   }
 
   return { resize, setMap, draw, onEvent, toWorld, toWorldDir, clear: () => (fx.length = dust.length = 0) };

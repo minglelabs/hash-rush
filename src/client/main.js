@@ -167,17 +167,24 @@ function renderLobby() {
   $('modeNow').textContent = t('modeNow', t(teams ? 'modeTeam' : 'modeSolo'));
   $('modeNow').classList.toggle('team', teams);
   // The host chooses the map; a guest sees which one it is.
+  // Each map is a tile with a picture for its theme.
   const sel = $('mapSel');
-  if (!sel.options.length) {
+  if (!sel.children.length) {
     for (const id of MAP_IDS) {
-      const opt = document.createElement('option');
-      opt.value = id;
-      opt.textContent = t('mapNames')[id];
-      sel.append(opt);
+      const tile = document.createElement('button');
+      tile.type = 'button';
+      tile.dataset.map = id;
+      const icon = document.createElement('i');
+      icon.textContent = MAP_ICONS[id];
+      tile.append(icon, t('mapNames')[id]);
+      tile.addEventListener('click', () => pickMap(id));
+      sel.append(tile);
     }
   }
-  sel.value = guest ? net.map : mapId;
-  sel.disabled = guest;
+  for (const tile of sel.children) {
+    tile.classList.toggle('on', tile.dataset.map === (guest ? net.map : mapId));
+    tile.disabled = guest;
+  }
   // The line-up at a glance, e.g. "Red 3 : Blue 2".
   const sizes = TEAMS.map((_, k) => rows.filter((s) => s.kind !== 'closed' && s.kind !== 'open' && s.team === k).length);
   $('teamInfo').replaceChildren(
@@ -337,6 +344,20 @@ function setKind(slot, kind) {
   slot.kind = kind;
   if (kind === 'open') openRoom();
   saveSlots();
+  renderLobby();
+  sendLobby();
+}
+
+const MAP_ICONS = { meadow: '🌻', desert: '🌵', factory: '🏭', ice: '🧊', beach: '🏖️', graveyard: '👻', sky: '☁️' };
+
+function pickMap(id) {
+  if (net.role === 'guest' || !MAP_IDS.includes(id) || id === mapId) return;
+  mapId = id;
+  try {
+    localStorage.setItem(MAP_STORE, mapId);
+  } catch {
+    // not persisted
+  }
   renderLobby();
   sendLobby();
 }
@@ -1546,16 +1567,6 @@ $('start').addEventListener('click', () => {
 });
 $('again').addEventListener('click', startGame);
 $('modeSolo').addEventListener('click', () => setTeamMode(false));
-$('mapSel').addEventListener('change', () => {
-  if (net.role === 'guest' || !MAP_IDS.includes($('mapSel').value)) return;
-  mapId = $('mapSel').value;
-  try {
-    localStorage.setItem(MAP_STORE, mapId);
-  } catch {
-    // not persisted
-  }
-  sendLobby();
-});
 $('modeTeam').addEventListener('click', () => setTeamMode(true));
 $('roomListBtn').addEventListener('click', toggleRoomList);
 $('listed').addEventListener('change', announce);

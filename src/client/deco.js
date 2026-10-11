@@ -416,6 +416,37 @@ export const DECO = {
       ctx.stroke();
     }
   },
+
+  // ---------- sky ----------
+  bird(ctx) {
+    for (const [x, y, k] of [[-6, 0, 1], [6, -5, 0.7]]) {
+      ctx.strokeStyle = 'rgba(70, 90, 120, 0.75)';
+      ctx.lineWidth = 1.6;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.arc(x - 4 * k, y, 4 * k, Math.PI * 1.15, Math.PI * 1.9);
+      ctx.arc(x + 4 * k, y, 4 * k, Math.PI * 1.1, Math.PI * 1.85);
+      ctx.stroke();
+    }
+  },
+  balloon(ctx) {
+    for (let i = 0; i < 5; i++) {
+      ctx.fillStyle = ['#ff6b6b', '#ffd23f', '#5ec8e0', '#ffd23f', '#ff6b6b'][i];
+      ctx.beginPath();
+      ctx.ellipse(0, -5, 10 - Math.abs(i - 2) * 3.4, 11, 0, 0, TAU);
+      ctx.fill();
+    }
+    line(ctx, [[-5, 4], [-2.5, 10]], '#7a5226', 1);
+    line(ctx, [[5, 4], [2.5, 10]], '#7a5226', 1);
+    ctx.fillStyle = '#a0622d';
+    ctx.fillRect(-3, 10, 6, 4.5);
+  },
+  kite(ctx) {
+    poly(ctx, [[0, -13], [8, -3], [0, 9], [-8, -3]], '#ff8fa3');
+    line(ctx, [[0, -13], [0, 9]], '#fff', 1);
+    line(ctx, [[-8, -3], [8, -3]], '#fff', 1);
+    line(ctx, [[0, 9], [3, 12], [-2, 15]], '#ffd23f', 1.4);
+  },
 };
 
 // What goes on the walls and on the open ground of each map. A name listed more
@@ -426,5 +457,6 @@ export const SCENERY = {
   factory: { walls: ['gear', 'crate', 'pipe', 'stripes', 'barrel', 'gear', 'crate'], share: 0.3, ground: ['chevron', 'oil', 'bolt', 'chevron', 'bolt'] },
   ice: { walls: ['pine', 'snowman', 'crystal', 'pine', 'crystal'], share: 0.24, ground: ['snowflake', 'snowpile', 'snowflake', 'snowpile'] },
   beach: { walls: ['boat', 'crest', 'buoy', 'crest', 'fin', 'crest', 'boat', 'crest'], share: 0.34, ground: ['shell', 'starfish', 'crab', 'parasol', 'shell', 'sandcastle', 'crab', 'starfish', 'parasol'] },
+  sky: { walls: ['balloon', 'bird', 'kite', 'bird'], share: 0.16, ground: ['bird', 'bird', 'balloon', 'bird', 'kite'] },
   graveyard: { walls: ['tombstone', 'grave', 'crow', 'scarecrow', 'skull', 'tombstone', 'deadTree', 'pumpkin', 'grave'], share: 0.34, ground: ['bones', 'cobweb', 'pumpkin', 'skull', 'cobweb', 'bones'] },
 };

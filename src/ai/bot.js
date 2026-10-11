@@ -429,7 +429,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       const ahead = { x: me.x + out.mx * 26, y: me.y + out.my * 26 };
       for (const h of g.hazards) {
         const pit = h.kind === 'trap' && Math.hypot(ahead.x - h.x, ahead.y - h.y) < HAZARD.trap.r + 8 && Math.hypot(me.x - h.x, me.y - h.y) >= HAZARD.trap.r;
-        const shot = h.kind === 'cannon' && h.age < HAZARD.cannon.warn && inCannonLine(map, h, ahead) && !inCannonLine(map, h, me);
+        const shot = h.kind === 'cannon' && inCannonLine(map, h, ahead) && !inCannonLine(map, h, me);
         if (pit || shot) {
           out.mx = 0;
           out.my = 0;

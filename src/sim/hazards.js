@@ -1,22 +1,51 @@
 // What a map throws at the hamsters: mole traps in the desert, seed cannons in the
-// factory, waves on the beach. Each one gives a warning first (`warn` seconds) so it
-// can be seen coming, then does its thing. Gates and ice are part of the map itself
-// and live with the movement code.
+// factory, waves on the beach, and in the sky all of them by turns. Each one gives
+// a warning first (`warn` seconds) so it can be seen coming, then does its thing.
+// Gates and ice belong to the map; this file only says when they are there.
 
 import { DT, HAMSTER_R, THROW } from './constants.js';
-import { segmentClear, distToSegment } from './map.js';
+import { segmentClear, distToSegment, gatesAt } from './map.js';
 
 export const HAZARD = {
   // A mole's pit. Whoever steps in goes home, and that fills it in. Two at a time.
   trap: { warn: 1.6, live: 7, max: 2, every: [1.2, 2.8], r: 20 },
-  // A cannon pokes out of a wall and fires a seed down the lane, as far as a hamster throws.
-  cannon: { warn: 1.5, live: 0.35, max: 3, every: [0.7, 1.6], range: THROW.range, width: THROW.width },
-  // A wave washes over a patch of ground and leaves it wet for a while.
-  wave: { warn: 1.5, live: 3.2, max: 2, every: [1.8, 3.6], r: 78, wet: 3, slow: 0.9 },
+  // A cannon pokes out of a wall and fires a seed down the lane, as far as a hamster
+  // throws. The seed is a real thing in flight: it takes whoever it touches, when
+  // it touches them.
+  cannon: { warn: 1.5, speed: 480, max: 3, every: [0.7, 1.6], range: THROW.range, width: THROW.width },
+  // A wave washes over a patch of ground. Whoever it catches stays wet, and slow,
+  // for `wet` seconds after getting out of the water.
+  wave: { warn: 1.5, live: 3.2, max: 4, every: [0.7, 1.5], r: 78, wet: 5, slow: 0.8 },
 };
+
+// The sky map turns from day to night and back. By day it has pits and waves, by
+// night gates and ice; cannons never stop. `omen` is how long before nightfall the
+// gates and the ice show themselves.
+export const SKY = { period: 48, night: 24, omen: 1.5 };
+const skyClock = (time) => ((time % SKY.period) + SKY.period) % SKY.period;
+export const isNight = (map, time) => !!map.cycle && skyClock(time) >= SKY.night;
+// Seconds until night falls, for the warning; Infinity on maps without a sky.
+export const untilNight = (map, time) => (map.cycle && skyClock(time) < SKY.night ? SKY.night - skyClock(time) : Infinity);
+
+// Which kinds of trouble turn up on this map right now.
+export function kindsNow(map, time) {
+  if (map.cycle) return isNight(map, time) ? ['cannon'] : ['cannon', 'trap', 'wave'];
+  return map.hazard ? [map.hazard] : [];
+}
+
+// The slippery patches right now.
+export const iceNow = (map, time) => (map.cycle && !isNight(map, time) ? [] : map.ice);
+
+// The gates that are in the way right now. A gate the burrow has swallowed in
+// overtime is gone: nothing gets in a hamster's way at home.
+export function gatesNow(map, time, homeX) {
+  if (!map.gates.length || (map.cycle && !isNight(map, time))) return [];
+  return gatesAt(map, time).filter((r) => r.x + r.w / 2 >= homeX);
+}
 
 const between = (rng, [a, b]) => a + rng() * (b - a);
 const outside = (g, p) => p.x >= g.homeX;
+const life = (kind) => (kind === 'cannon' ? HAZARD.cannon.range / HAZARD.cannon.speed + 0.05 : HAZARD[kind].live);
 
 function place(g, kind) {
   const { map, rng } = g;
@@ -49,38 +78,55 @@ export function inCannonLine(map, h, p) {
   return Math.abs(dx * h.dy - dy * h.dx) <= HAZARD.cannon.width && segmentClear(map, h.x, h.y, p.x, p.y, 0);
 }
 
+// How far along its line a cannon's seed has flown, or -1 before it is fired.
+export function shotAt(h) {
+  const spec = HAZARD.cannon;
+  return h.age < spec.warn ? -1 : Math.min(spec.range, (h.age - spec.warn) * spec.speed);
+}
+
 // Advances the hazards by one tick and returns the hamsters they knocked out.
 export function stepHazards(g) {
   const { map, players } = g;
   const out = [];
-  const kind = map.hazard;
   for (const p of players) p.wet = Math.max(0, (p.wet || 0) - DT);
-  if (!kind) return out;
-  const spec = HAZARD[kind];
 
-  if (g.hazards.length < spec.max && g.time >= g.hazardAt) {
+  for (const kind of g.calm ? [] : kindsNow(map, g.time)) {
+    const spec = HAZARD[kind];
+    if (g.hazards.filter((h) => h.kind === kind).length >= spec.max || g.time < (g.hazardAt[kind] ?? 2)) continue;
     const h = place(g, kind);
     if (h) {
       g.hazards.push(h);
       g.events.push({ type: 'omen', kind, x: h.x, y: h.y });
     }
-    g.hazardAt = g.time + between(g.rng, spec.every);
+    g.hazardAt[kind] = g.time + between(g.rng, spec.every);
   }
 
   for (const h of g.hazards) {
+    const { kind } = h;
+    const spec = HAZARD[kind];
+    const before = kind === 'cannon' ? shotAt(h) : 0;
     const was = h.age;
     h.age += DT;
     const live = h.age >= spec.warn - 1e-9;
+    if (!live) continue;
+    const fresh = was < spec.warn - 1e-9;
     if (kind === 'cannon') {
-      // It fires once, the moment the warning is over.
-      if (live && was < spec.warn - 1e-9) {
-        const hit = players.filter((p) => outside(g, p) && !out.includes(p) && inCannonLine(map, h, p));
-        out.push(...hit);
-        g.events.push({ type: 'cannon', x: h.x, y: h.y, dx: h.dx, dy: h.dy, hit: hit.length });
-        for (const p of hit) g.events.push({ type: 'zap', kind, id: p.id, x: p.x, y: p.y, seed: p.carrying });
+      if (fresh) g.events.push({ type: 'cannon', x: h.x, y: h.y, dx: h.dx, dy: h.dy });
+      // The stretch the seed covered this tick. A hamster it passed over is hit;
+      // one that steps into the line behind it, or ahead of where it has got to, is not.
+      const from = Math.max(0, before);
+      const to = shotAt(h);
+      for (const p of players) {
+        if (!outside(g, p) || out.includes(p)) continue;
+        const dx = p.x - h.x;
+        const dy = p.y - h.y;
+        const along = dx * h.dx + dy * h.dy;
+        if (along < from - HAMSTER_R || along > to + HAMSTER_R || Math.abs(dx * h.dy - dy * h.dx) > spec.width) continue;
+        if (!segmentClear(map, h.x, h.y, p.x, p.y, 0)) continue;
+        out.push(p);
+        g.events.push({ type: 'zap', kind, id: p.id, x: p.x, y: p.y, seed: p.carrying });
       }
     } else if (kind === 'trap') {
-      if (!live) continue;
       const victim = players.find((p) => outside(g, p) && !out.includes(p) && Math.hypot(p.x - h.x, p.y - h.y) < spec.r);
       if (victim) {
         out.push(victim);
@@ -89,11 +135,11 @@ export function stepHazards(g) {
         g.events.push({ type: 'zap', kind, id: victim.id, x: victim.x, y: victim.y, seed: victim.carrying });
       }
     } else if (kind === 'wave') {
-      if (live && was < spec.warn - 1e-9) g.events.push({ type: 'splash', x: h.x, y: h.y });
-      if (live) for (const p of players) if (outside(g, p) && Math.hypot(p.x - h.x, p.y - h.y) < spec.r) p.wet = spec.wet;
+      if (fresh) g.events.push({ type: 'splash', x: h.x, y: h.y });
+      for (const p of players) if (outside(g, p) && Math.hypot(p.x - h.x, p.y - h.y) < spec.r) p.wet = spec.wet;
     }
   }
-  g.hazards = g.hazards.filter((h) => h.age < spec.warn + spec.live);
+  g.hazards = g.hazards.filter((h) => h.age < HAZARD[h.kind].warn + life(h.kind));
   return out;
 }
 
@@ -108,7 +154,7 @@ export function hazardCost(g) {
     for (const h of g.hazards) {
       if (h.kind === 'trap') {
         if (distToSegment(h.x, h.y, p.x, p.y, q.x, q.y) < HAZARD.trap.r + 6) c += 2500;
-      } else if (h.kind === 'cannon' && h.age < HAZARD.cannon.warn) {
+      } else if (h.kind === 'cannon') {
         const ex = h.x + h.dx * HAZARD.cannon.range;
         const ey = h.y + h.dy * HAZARD.cannon.range;
         const near = Math.min(distToSegment(p.x, p.y, h.x, h.y, ex, ey), distToSegment(q.x, q.y, h.x, h.y, ex, ey), distToSegment(h.x, h.y, p.x, p.y, q.x, q.y), distToSegment(ex, ey, p.x, p.y, q.x, q.y));
