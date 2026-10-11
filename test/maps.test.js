@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createGame, step } from '../src/sim/game.js';
 import { createBot } from '../src/ai/bot.js';
 import { getNav } from '../src/ai/nav.js';
-import { HAZARD } from '../src/sim/hazards.js';
+import { HAZARD, SKY, gatesNow, kindsNow, iceNow } from '../src/sim/hazards.js';
 import { COUNTDOWN, HAMSTER_R, ICE, SPEED, TICK_RATE } from '../src/sim/constants.js';
 import { MAPS, MAP_IDS, MAP, gatesAt, isFree } from '../src/sim/map.js';
 
@@ -14,7 +14,7 @@ const IDLE = { mx: 0, my: 0, bonk: false };
 function playing(map, count = 2, quiet = true) {
   const g = createGame({ slots: Array.from({ length: count }, (_, i) => ({ name: `p${i}`, kind: 'human' })), seed: 5, map });
   for (let i = 0; i < COUNTDOWN * TICK_RATE + 2 && g.phase === 'countdown'; i++) step(g, []);
-  if (quiet) g.hazardAt = Infinity;
+  if (quiet) g.calm = true;
   return g;
 }
 
@@ -24,7 +24,7 @@ const run = (g, seconds, inputs = []) => {
 
 test('the meadow is the default map and every map has its own lanes', () => {
   assert.equal(MAP, MAPS.meadow);
-  assert.deepEqual(MAP_IDS, ['meadow', 'desert', 'factory', 'ice', 'beach', 'graveyard']);
+  assert.deepEqual(MAP_IDS, ['meadow', 'desert', 'factory', 'ice', 'beach', 'graveyard', 'sky']);
   const shapes = MAP_IDS.map((id) => MAPS[id].rects.map((r) => `${r.x},${r.y},${r.w},${r.h}`).join());
   assert.equal(new Set(shapes).size, MAP_IDS.length);
 });
@@ -48,15 +48,19 @@ test('a bot round runs to the end on every map, and what the map throws stays ou
     const map = MAPS[id];
     const g = createGame({ slots: Array.from({ length: 4 }, (_, i) => ({ name: `b${i}`, kind: 'bot' })), seed: 9, map });
     const bots = g.players.map((_, i) => createBot({ difficulty: 'normal', seed: 31 + i }));
-    let most = 0;
+    const most = {};
     while (g.phase !== 'over') {
       step(g, bots.map((b, i) => b.think(g, i)));
-      most = Math.max(most, g.hazards.length);
-      for (const h of g.hazards) assert.ok(h.x > map.home.x2 + 30, `${id}: ${h.kind} at x=${h.x}`);
+      for (const h of g.hazards) {
+        assert.ok(h.x > map.home.x2 + 30, `${id}: ${h.kind} at x=${h.x}`);
+        const now = g.hazards.filter((o) => o.kind === h.kind).length;
+        most[h.kind] = Math.max(most[h.kind] || 0, now);
+      }
     }
     assert.equal(g.phase, 'over');
-    if (map.hazard) assert.ok(most >= 1 && most <= HAZARD[map.hazard].max, `${id}: ${most} at once`);
-    else assert.equal(most, 0);
+    const kinds = map.cycle ? ['cannon', 'trap', 'wave'] : map.hazard ? [map.hazard] : [];
+    assert.deepEqual(Object.keys(most).sort(), [...kinds].sort(), id);
+    for (const kind of kinds) assert.ok(most[kind] <= HAZARD[kind].max, `${id}: ${most[kind]} ${kind}s at once`);
   }
 });
 
@@ -131,13 +135,31 @@ test('a cannon warns first, then knocks out everyone in its line of fire and nob
   g.hazards.push(h);
   run(g, HAZARD.cannon.warn - 0.1);
   assert.deepEqual(g.players.map((p) => p.deaths), [0, 0, 0, 0]);
-  let fired = null;
-  for (let i = 0; i < 0.3 * TICK_RATE && !fired; i++) {
+  // The seed takes each hamster as it reaches it: the near one first.
+  const order = [];
+  for (let i = 0; i < 0.6 * TICK_RATE; i++) {
     step(g, []);
-    fired = g.events.find((e) => e.type === 'cannon');
+    for (const e of g.events) if (e.type === 'zap') order.push(e.id);
   }
-  assert.equal(fired.hit, 2);
+  assert.deepEqual(order, [0, 1]);
   assert.deepEqual(g.players.map((p) => p.deaths), [1, 1, 0, 0]);
+  assert.equal(g.hazards.length, 0, 'the cannon is gone once its seed has landed');
+
+  // Stepping into the line behind the seed is safe; standing where it has yet to
+  // get to is not.
+  const g2 = playing(map, 2);
+  const [late, ahead] = g2.players;
+  late.x = 60;
+  ahead.x = x0 + HAZARD.cannon.range - 10;
+  ahead.y = y;
+  g2.hazards.push({ kind: 'cannon', x: x0, y, dx: 1, dy: 0, age: 0 });
+  run(g2, HAZARD.cannon.warn + 0.12);
+  assert.equal(ahead.deaths, 0, 'the seed has not got that far yet');
+  late.x = x0 + 20;
+  late.y = y;
+  run(g2, 0.4);
+  assert.equal(late.deaths, 0, 'it had already gone past');
+  assert.equal(ahead.deaths, 1);
 });
 
 test('a wave leaves hamsters wet and a tenth slower for a while', () => {
@@ -151,13 +173,20 @@ test('a wave leaves hamsters wet and a tenth slower for a while', () => {
   run(g, HAZARD.wave.warn - 0.1, [{ mx: 0, my: 0, bonk: false }]);
   assert.equal(a.wet, 0, 'dry until it lands');
   run(g, 0.3);
-  assert.ok(a.wet > 0);
+  assert.ok(Math.abs(a.wet - HAZARD.wave.wet) < 0.02, 'wet for the full five seconds while in the water');
+  assert.equal(HAZARD.wave.wet, 5);
+  assert.equal(HAZARD.wave.slow, 0.8);
   assert.equal(b.wet, 0);
   step(g, [{ mx: 0, my: -1, bonk: false }, { mx: 0, my: 1, bonk: false }]);
   assert.ok(Math.abs(Math.abs(a.vy) - SPEED * HAZARD.wave.slow) < 1e-6, `wet speed ${a.vy}`);
   assert.ok(Math.abs(b.vy - SPEED) < 1e-6);
-  a.x = 60;
-  run(g, HAZARD.wave.wet + HAZARD.wave.live + 0.2);
+  // Out of the water it lasts five more seconds, not for ever.
+  run(g, HAZARD.wave.live);
+  assert.equal(g.hazards.length, 0);
+  const left = a.wet;
+  run(g, left - 0.2);
+  assert.ok(a.wet > 0);
+  run(g, 0.4);
   assert.equal(a.wet, 0, 'dries off');
 });
 
@@ -191,4 +220,55 @@ test('a gate slides only along its own length, and nobody walks or bonks through
   b.y = 60;
   run(g, 0.6, [{ mx: 1, my: 0, bonk: false }]);
   assert.ok(a.x > door.x + door.w, `through: x=${a.x}`);
+});
+
+test('a gate the burrow has grown over in overtime is gone', () => {
+  const map = MAPS.graveyard;
+  assert.equal(gatesNow(map, 3, map.home.x2).length, map.gates.length);
+  const strip = map.gates[0];
+  const grown = gatesNow(map, 3, strip.x + strip.w + 1);
+  assert.equal(grown.length, map.gates.length - 2, 'both gates in front of the burrow are swallowed');
+  assert.ok(grown.every((r) => r.x + r.w / 2 >= strip.x + strip.w + 1));
+  // In a round: a hamster walks straight across where the gate was.
+  const g = playing(map, 1);
+  g.time = 60;
+  const p = g.players[0];
+  for (let i = 0; i < 20 * TICK_RATE && g.homeX < strip.x + strip.w + 20; i++) step(g, []);
+  p.x = strip.x - 30;
+  p.y = map.laneYs[2];
+  run(g, 0.6, [{ mx: 1, my: 0, bonk: false }]);
+  assert.ok(p.x > strip.x + strip.w + 20, `walked through: x=${p.x}`);
+});
+
+test('the sky has pits and waves by day, gates and ice by night, and cannons all the time', () => {
+  const map = MAPS.sky;
+  const day = SKY.night / 2;
+  const night = SKY.night + 5;
+  assert.deepEqual(kindsNow(map, day), ['cannon', 'trap', 'wave']);
+  assert.deepEqual(kindsNow(map, night), ['cannon']);
+  assert.deepEqual(kindsNow(map, SKY.period + day), ['cannon', 'trap', 'wave'], 'and round again');
+  assert.equal(iceNow(map, day).length, 0);
+  assert.equal(iceNow(map, night).length, map.ice.length);
+  assert.equal(gatesNow(map, day, map.home.x2).length, 0);
+  assert.equal(gatesNow(map, night, map.home.x2).length, map.gates.length);
+  // Other maps keep theirs the whole time.
+  assert.equal(iceNow(MAPS.ice, day).length, MAPS.ice.ice.length);
+  assert.equal(gatesNow(MAPS.graveyard, day, 150).length, MAPS.graveyard.gates.length);
+
+  // The same patch of floor: ordinary by day, slippery by night.
+  const g = playing(map, 1);
+  const p = g.players[0];
+  const patch = map.ice[0];
+  const stand = () => {
+    p.x = patch.x + 60;
+    p.y = patch.y + patch.h / 2;
+    p.vx = 0;
+  };
+  stand();
+  step(g, [{ mx: 1, my: 0, bonk: false }]);
+  assert.equal(p.vx, SPEED);
+  g.time = night;
+  stand();
+  step(g, [{ mx: 1, my: 0, bonk: false }]);
+  assert.ok(p.vx > 0 && p.vx < SPEED / 4, `still getting going: ${p.vx}`);
 });

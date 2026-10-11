@@ -5,8 +5,8 @@
 //   direction, and whether the throw button is held
 
 import { DT, SPEED, CARRY_SPEED, LAST_STRETCH, HAMSTER_R, gatherTime, COUNTDOWN, BONK, OVERTIME, ALARM_RANGE, THROW, ICE } from './constants.js';
-import { MAP, resolveCollisions, segmentClear, segmentHitsRect, gatesAt, pushOutRect } from './map.js';
-import { HAZARD, stepHazards } from './hazards.js';
+import { MAP, resolveCollisions, segmentClear, segmentHitsRect, pushOutRect } from './map.js';
+import { HAZARD, stepHazards, gatesNow, iceNow } from './hazards.js';
 import { mulberry32 } from './rng.js';
 
 export const EMPTY_INPUT = Object.freeze({ mx: 0, my: 0, bonk: false });
@@ -37,7 +37,7 @@ function sight(g, a, b) {
   return !g.gates.some((r) => segmentHitsRect(a.x, a.y, b.x, b.y, r.x, r.y, r.x + r.w, r.y + r.h));
 }
 
-const onIce = (map, p) => map.ice.some((r) => p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h);
+const onIce = (g, p) => iceNow(g.map, g.time).some((r) => p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h);
 
 
 // Team-mates cannot bonk each other and walk straight through one another. A slot
@@ -93,8 +93,8 @@ export function createGame({ slots, map = MAP, seed = 1 }) {
     homeX: map.home.x2,
     // Trouble on the map right now, and when the next lot is due.
     hazards: [],
-    hazardAt: 2,
-    gates: gatesAt(map, 0),
+    hazardAt: {},
+    gates: gatesNow(map, 0, map.home.x2),
     nibbler: -1,
     rng,
     players,
@@ -243,7 +243,7 @@ export function step(g, inputs) {
   }
 
   g.time += DT;
-  if (g.map.gates.length) g.gates = gatesAt(g.map, g.time);
+  if (g.map.gates.length) g.gates = gatesNow(g.map, g.time, g.homeX);
   const { map, players } = g;
   if (g.time > OVERTIME.start) {
     if (g.homeX === map.home.x2) g.events.push({ type: 'overtime' });
@@ -328,7 +328,7 @@ export function step(g, inputs) {
       p.fy = my / len;
     }
 
-    const slippery = map.ice.length > 0 && onIce(map, p);
+    const slippery = map.ice.length > 0 && onIce(g, p);
     if (slippery) {
       // Inertia: the speed creeps towards what is asked for, so starting, stopping
       // and turning round all take time.
