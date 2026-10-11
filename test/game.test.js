@@ -397,6 +397,36 @@ test('a bonk on overlapping team-mates takes the whole clump, but not one standi
   assert.equal(d.kills, 2);
 });
 
+test('several hamsters down in one swing is reported, and so is a seed stopped near home', () => {
+  const seen = [];
+  const swing = (g, n) => {
+    for (let i = 0; i < 0.5 * TICK_RATE; i++) {
+      step(g, [...Array(n - 1).fill(IDLE), { mx: 0, my: 0, bonk: true, ax: 1, ay: 0 }]);
+      seen.push(...g.events.map((e) => ({ ...e })));
+    }
+  };
+  const g = teamGame([0, 0, 0, 1]);
+  const [a, b, c, d] = g.players;
+  const y = MAP.laneYs[1];
+  place(d, 230, y);
+  for (const p of [a, b, c]) place(p, 230 + 2 * HAMSTER_R + 2, y);
+  a.carrying = true;
+  swing(g, 4);
+  assert.deepEqual(seen.filter((e) => e.type === 'multi'), [{ type: 'multi', by: 3, n: 3 }]);
+  // Only the one with the seed counts as stopped at the door.
+  assert.deepEqual(seen.filter((e) => e.type === 'bonk' && e.close).map((e) => e.id), [0]);
+
+  // One rival carrying a seed far from home: an ordinary bonk.
+  seen.length = 0;
+  const far = teamGame([0, 1]);
+  place(far.players[1], 720, 200);
+  place(far.players[0], 720 + 2 * HAMSTER_R + 2, 200);
+  far.players[0].carrying = true;
+  swing(far, 2);
+  assert.deepEqual(seen.filter((e) => e.type === 'bonk').map((e) => e.close), [false]);
+  assert.equal(seen.filter((e) => e.type === 'multi').length, 0);
+});
+
 test('a bot does not follow a seed carrier into a tunnel, and bonks it from the rim', () => {
   for (const [spot, difficulty] of [[[0, 0], 'hard'], [[0, -18], 'hard'], [[20, 6], 'normal'], [[-12, 14], 'easy']]) {
     for (const w of MAP.warps) {

@@ -77,9 +77,30 @@ export function createAudio() {
 
   const play = {
     swing: () => noise({ dur: 0.07, vol: 0.05, cutoff: 1800 }),
+    // A toy hammer: a squeaky chirp up and back, a soft thump under it for weight
+    // and a tiny click on top for the contact.
     bonk: () => {
-      tone({ f: 330, to: 80, dur: 0.15, type: 'square', vol: 0.1 });
-      noise({ dur: 0.06, vol: 0.14, cutoff: 400 });
+      tone({ f: 520, to: 1500, dur: 0.07, type: 'triangle', vol: 0.11 });
+      tone({ f: 1500, to: 900, dur: 0.09, vol: 0.07, at: 0.06 });
+      tone({ f: 190, to: 70, dur: 0.09, vol: 0.12 });
+      noise({ dur: 0.025, vol: 0.06, cutoff: 2500 });
+    },
+    // Two down with one swing: a bright pair of notes after the hit.
+    double: () => [1319, 1760].forEach((f, i) => tone({ f, dur: 0.2, type: 'triangle', vol: 0.08, at: 0.09 + i * 0.09 })),
+    // Three or more: a rising fanfare with a sparkle on top.
+    triple: () => {
+      [1047, 1319, 1568, 2093].forEach((f, i) => {
+        tone({ f, dur: 0.2, type: 'triangle', vol: 0.08, at: 0.09 + i * 0.075 });
+        tone({ f: f / 2, dur: 0.2, type: 'square', vol: 0.025, at: 0.09 + i * 0.075 });
+      });
+      tone({ f: 3136, dur: 0.55, vol: 0.04, at: 0.39 });
+      tone({ f: 2637, dur: 0.55, vol: 0.035, at: 0.39 });
+    },
+    // A seed stopped at the door: a quick run up into a held chord.
+    superplay: () => {
+      [784, 988, 1175, 1568, 1976, 2349].forEach((f, i) => tone({ f, dur: 0.1, type: 'triangle', vol: 0.07, at: 0.08 + i * 0.045 }));
+      for (const f of [1568, 1976, 2349]) tone({ f, dur: 0.6, vol: 0.045, at: 0.36 });
+      tone({ f: 3136, dur: 0.6, vol: 0.03, at: 0.36 });
     },
     spawn: () => tone({ f: 300, to: 640, dur: 0.1, vol: 0.05 }),
     // A bright run up the scale: somebody got a seed.
