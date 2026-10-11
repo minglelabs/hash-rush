@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createGame, step, inHome } from '../src/sim/game.js';
 import { createBot, predictSwing } from '../src/ai/bot.js';
 import { getNav, blockCost } from '../src/ai/nav.js';
-import { BONK, COUNTDOWN, GATHER_TIME, gatherTime, HAMSTER_R, OVERTIME, TICK_RATE } from '../src/sim/constants.js';
+import { BONK, CARRY_SPEED, COUNTDOWN, GATHER_TIME, gatherTime, HAMSTER_R, LAST_STRETCH, OVERTIME, SPEED, TICK_RATE } from '../src/sim/constants.js';
 import { MAP, isFree } from '../src/sim/map.js';
 
 const IDLE = { mx: 0, my: 0, bonk: false };
@@ -227,6 +227,23 @@ test('in overtime the burrow edge creeps towards the flower', () => {
   run(g, 10);
   assert.ok(Math.abs(g.homeX - (MAP.home.x2 + 10 * OVERTIME.speed)) < 1);
   assert.ok(inHome(g, { x: MAP.home.x2 + 20 }));
+});
+
+test('a seed slows its carrier, and slows it more on the last stretch home', () => {
+  const g = started(2);
+  const [a, b] = g.players;
+  const y = MAP.rowYs[0];
+  const pace = (p, x, carrying) => {
+    place(p, x, y);
+    p.carrying = carrying;
+    place(p === a ? b : a, 600, MAP.rowYs[2]);
+    step(g, p === a ? [{ mx: -1, my: 0, bonk: false }] : [IDLE, { mx: -1, my: 0, bonk: false }]);
+    return -p.vx / SPEED;
+  };
+  assert.equal(pace(a, g.homeX + LAST_STRETCH.range + 40, false), 1);
+  assert.equal(pace(a, g.homeX + LAST_STRETCH.range + 40, true), CARRY_SPEED);
+  assert.equal(pace(b, g.homeX + LAST_STRETCH.range - 10, true), LAST_STRETCH.speed);
+  assert.equal(pace(b, g.homeX + LAST_STRETCH.range - 10, false), 1);
 });
 
 test('a tunnel sends an empty-handed hamster home, but not one carrying a seed', () => {

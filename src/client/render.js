@@ -2,6 +2,7 @@
 
 import { WORLD } from '../sim/map.js';
 import { BONK, gatherTime, ALARM_RANGE } from '../sim/constants.js';
+import { lastStretch } from '../sim/game.js';
 import { mulberry32 } from '../sim/rng.js';
 import { colorOf, lookOf } from './looks.js';
 import { t as tr } from './i18n.js';
@@ -252,6 +253,9 @@ function buildObstacles(w, h, base, map) {
 export function createRenderer(canvas, map) {
   const ctx = canvas.getContext('2d');
   const fx = [];
+  // Puffs kicked up behind a hamster slowed by its seed, drawn under the hamsters.
+  const dust = [];
+  const dustAt = new Map();
   let scale = 1;
   let ground = null;
   let obstacles = null;
@@ -535,6 +539,36 @@ export function createRenderer(canvas, map) {
       ctx.stroke();
     }
 
+    // A seed carrier labours along: its feet kick up dust, thicker on the last stretch.
+    for (const p of game.players) {
+      const v = Math.hypot(p.vx, p.vy);
+      if (!p.carrying || v < 20 || p.swing || t < (dustAt.get(p.id) || 0)) continue;
+      const heavy = lastStretch(game, p);
+      dustAt.set(p.id, t + (heavy ? 0.06 : 0.1));
+      const side = (Math.random() - 0.5) * 12;
+      dust.push({
+        x: p.x - (p.vx / v) * 17 - (p.vy / v) * side,
+        y: p.y - (p.vy / v) * 17 + (p.vx / v) * side,
+        r: heavy ? 8 : 6,
+        t: 0,
+        life: heavy ? 0.7 : 0.5,
+      });
+    }
+    for (let i = dust.length - 1; i >= 0; i--) {
+      const e = dust[i];
+      e.t += dt;
+      if (e.t >= e.life) {
+        dust.splice(i, 1);
+        continue;
+      }
+      const k = e.t / e.life;
+      ctx.fillStyle = `rgba(255, 248, 228, ${0.85 * (1 - k)})`;
+      ctx.strokeStyle = `rgba(120, 90, 60, ${0.4 * (1 - k)})`;
+      ctx.lineWidth = 1.2;
+      circle(ctx, e.x, e.y, e.r * (0.6 + 0.9 * k));
+      ctx.stroke();
+    }
+
     // Draw back to front as seen on screen.
     const depth = (p) => (portrait ? -p.x : p.y);
     const order = [...game.players].sort((a, c) => depth(a) - depth(c));
@@ -589,6 +623,24 @@ export function createRenderer(canvas, map) {
           look,
           t: t + p.id * 1.7,
         });
+        if (lastStretch(game, p) && Math.hypot(p.vx, p.vy) > 20) {
+          // So close, and so heavy: sweat flies off its brow.
+          for (let i = 0; i < 4; i++) {
+            const k = (t * 1.9 + i / 4 + p.id * 0.37) % 1;
+            const side = i % 2 ? 1 : -1;
+            const sx = side * (12 + 16 * k);
+            const sy = -16 - 18 * k + 24 * k * k;
+            ctx.fillStyle = `rgba(120, 200, 255, ${0.95 * (1 - k)})`;
+            ctx.strokeStyle = `rgba(255, 255, 255, ${0.9 * (1 - k)})`;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(sx - side * 3, sy - 8);
+            ctx.quadraticCurveTo(sx + 5.5, sy, sx, sy + 4);
+            ctx.quadraticCurveTo(sx - 5.5, sy, sx - side * 3, sy - 8);
+            ctx.fill();
+            ctx.stroke();
+          }
+        }
         if (p.gather > 0) {
           ctx.lineCap = 'round';
           ctx.lineWidth = 5;
@@ -714,5 +766,5 @@ export function createRenderer(canvas, map) {
     ctx.globalAlpha = 1;
   }
 
-  return { resize, draw, onEvent, toWorld, toWorldDir, clear: () => (fx.length = 0) };
+  return { resize, draw, onEvent, toWorld, toWorldDir, clear: () => (fx.length = dust.length = 0) };
 }
