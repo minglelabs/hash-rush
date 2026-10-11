@@ -20,6 +20,9 @@ const STORE = 'seed-rush-slots';
 // What the host can set a slot to. 'remote' is an open slot a friend has taken.
 const KINDS = ['human', 'bot:easy', 'bot:normal', 'bot:hard', 'closed', 'open'];
 const DEFAULT_SLOTS = ['human', 'bot:hard', 'bot:hard', 'bot:hard'].map((kind, i) => ({ kind, name: t('names')[i] }));
+// The host can add slots up to MAX_SLOTS; extra ones start as a hard computer.
+const MAX_SLOTS = LOOKS.length;
+const defaultName = (i) => t('names')[i] ?? t('fallbackName', i + 1);
 const IDLE = { mx: 0, my: 0, ax: 0, ay: 0, seq: 0 };
 // A guest who never renamed itself is still called "Me" in its own language.
 const ME_NAMES = new Set(LANGUAGES.map((code) => stringsFor(code).names[0]));
@@ -27,10 +30,10 @@ const ME_NAMES = new Set(LANGUAGES.map((code) => stringsFor(code).names[0]));
 function loadSlots() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORE));
-    if (Array.isArray(saved) && saved.length === DEFAULT_SLOTS.length) {
-      return DEFAULT_SLOTS.map((d, i) => ({
-        kind: i === 0 ? 'human' : KINDS.some((k) => k === saved[i].kind && k !== 'human' && k !== 'open') ? saved[i].kind : d.kind,
-        name: String(saved[i].name || d.name).slice(0, 8),
+    if (Array.isArray(saved) && saved.length >= DEFAULT_SLOTS.length && saved.length <= MAX_SLOTS) {
+      return saved.map((s, i) => ({
+        kind: i === 0 ? 'human' : KINDS.some((k) => k === s.kind && k !== 'human' && k !== 'open') ? s.kind : 'bot:hard',
+        name: String(s.name || defaultName(i)).slice(0, 8),
       }));
     }
   } catch {
@@ -139,6 +142,8 @@ function renderLobby() {
     const person = guest ? (i === net.you ? 'human' : 'remote') : slot.kind;
     const shown = slot.kind === 'human' || slot.kind === 'remote' ? person : slot.kind;
     const options = guest || i === 0 || slot.kind === 'remote' ? [shown, ...(slot.kind === 'remote' && !guest ? ['open', 'closed'] : [])] : KINDS.filter((k) => k !== 'human');
+    // Slots beyond the default four can be taken away again.
+    if (!guest && i >= DEFAULT_SLOTS.length) options.push('remove');
     for (const value of options) {
       const opt = document.createElement('option');
       opt.value = value;
@@ -147,11 +152,12 @@ function renderLobby() {
     }
     kind.value = shown;
     kind.disabled = guest || i === 0;
-    kind.addEventListener('change', () => setKind(slot, kind.value));
+    kind.addEventListener('change', () => (kind.value === 'remove' ? removeSlot(slot) : setKind(slot, kind.value)));
 
     li.append(avatar, name, kind);
     list.append(li);
   });
+  $('addSlot').hidden = guest || slots.length >= MAX_SLOTS;
 
   const inviting = net.role === 'host' || slots.some((s) => s.kind === 'open');
   $('invite').hidden = guest || !inviting;
@@ -177,6 +183,26 @@ function setKind(slot, kind) {
   }
   slot.kind = kind;
   if (kind === 'open') openRoom();
+  saveSlots();
+  renderLobby();
+  sendLobby();
+}
+
+function addSlot() {
+  if (slots.length >= MAX_SLOTS) return;
+  slots.push({ kind: 'bot:hard', name: defaultName(slots.length) });
+  wins.push(0);
+  saveSlots();
+  renderLobby();
+  sendLobby();
+}
+
+function removeSlot(slot) {
+  const i = slots.indexOf(slot);
+  if (i < DEFAULT_SLOTS.length) return;
+  if (slot.conn) slot.conn.close();
+  slots.splice(i, 1);
+  wins.splice(i, 1);
   saveSlots();
   renderLobby();
   sendLobby();
@@ -249,7 +275,7 @@ function welcome(conn, msg) {
 
 function guestName(slot, raw) {
   const name = String(raw || '').trim().slice(0, 8);
-  return !name || ME_NAMES.has(name) ? DEFAULT_SLOTS[slots.indexOf(slot)].name : name;
+  return !name || ME_NAMES.has(name) ? defaultName(slots.indexOf(slot)) : name;
 }
 
 const roster = () => game.players.map((p) => ({ name: p.name, look: p.look, nest: p.nest }));
@@ -283,7 +309,7 @@ function guestLeft(conn) {
   if (!slot) return;
   slot.conn = null;
   slot.kind = 'open';
-  slot.name = DEFAULT_SLOTS[slots.indexOf(slot)].name;
+  slot.name = defaultName(slots.indexOf(slot));
   // Mid-game, a computer takes over the hamster so the round can finish.
   if (game && game.phase !== 'over' && slot.playerId >= 0) {
     const id = slot.playerId;
@@ -538,6 +564,7 @@ function updateHud() {
   const key = game.players.map((p) => `${p.carrying ? 1 : 0}${wins[p.look]}`).join();
   if (key !== scoreKey) {
     scoreKey = key;
+    $('scores').classList.toggle('many', game.players.length > 4);
     $('scores').replaceChildren(
       ...game.players.map((p) => {
         const chip = document.createElement('span');
@@ -612,6 +639,7 @@ $('start').addEventListener('click', () => {
   else startGame();
 });
 $('again').addEventListener('click', startGame);
+$('addSlot').addEventListener('click', addSlot);
 for (const id of ['back', 'quit']) {
   $(id).addEventListener('click', () => {
     // A guest leaving goes back to its own offline lobby.
