@@ -413,6 +413,7 @@ test('several hamsters down in one swing is reported, and so is a seed stopped n
   a.carrying = true;
   swing(g, 4);
   assert.deepEqual(seen.filter((e) => e.type === 'multi'), [{ type: 'multi', by: 3, n: 3 }]);
+  assert.equal(d.supers, 1, 'three at once that also stops a seed is still one super play');
   // Only the one with the seed counts as stopped at the door.
   assert.deepEqual(seen.filter((e) => e.type === 'bonk' && e.close).map((e) => e.id), [0]);
 
@@ -520,6 +521,7 @@ test('bonks in quick succession chain into a double and a triple, and a pause or
   bonk(d, BONK.cooldown - 0.25);
   assert.deepEqual(multis, [2, 3]);
   assert.equal(a.kills, 3);
+  assert.equal(a.supers, 1, 'the triple is a super play');
   bonk(b, BONK.chain + 0.5);
   assert.deepEqual(multis, [2, 3], 'too late to carry on the chain');
   bonk(c, BONK.cooldown - 0.25);

@@ -88,7 +88,7 @@ try {
 }
 const wins = slots.map(() => 0);
 // Bonks, times bonked and seeds added up over every round in this room.
-const career = slots.map(() => [0, 0, 0, 0]);
+const career = slots.map(() => [0, 0, 0, 0, 0]);
 // Rounds finished in this room.
 let rounds = 0;
 const audio = createAudio();
@@ -600,7 +600,7 @@ function snapshot(events) {
     to: game.timeout,
     p: game.players.map((p) => [
       r(p.x), r(p.y), r(p.vx), r(p.vy), p.fx, p.fy, p.carrying ? 1 : 0, p.gather, p.queued,
-      p.swing ? [p.swing.phase, p.swing.t, p.swing.dx, p.swing.dy] : 0, p.cooldown, p.kills, p.deaths, p.seeds,
+      p.swing ? [p.swing.phase, p.swing.t, p.swing.dx, p.swing.dy] : 0, p.cooldown, p.kills, p.deaths, p.seeds, p.supers,
     ]),
     ev: events,
   };
@@ -681,7 +681,7 @@ function hostData(msg) {
       timeout: false,
       players: msg.players.map((p, id) => ({
         id, name: p.name, look: p.look, team: p.team ?? -1, nest: p.nest, x: p.nest.x, y: p.nest.y, vx: 0, vy: 0, fx: 1, fy: 0,
-        carrying: false, gather: 0, queued: -1, swing: null, cooldown: 0, kills: 0, deaths: 0, seeds: 0,
+        carrying: false, gather: 0, queued: -1, swing: null, cooldown: 0, kills: 0, deaths: 0, seeds: 0, supers: 0,
       })),
     };
     meId = msg.you;
@@ -702,7 +702,7 @@ function hostData(msg) {
       p.gather = s[7];
       p.queued = s[8];
       p.swing = s[9] ? { phase: s[9][0], t: s[9][1], dx: s[9][2], dy: s[9][3] } : null;
-      [p.cooldown, p.kills, p.deaths, p.seeds] = s.slice(10);
+      [p.cooldown, p.kills, p.deaths, p.seeds, p.supers = 0] = s.slice(10);
     });
     for (const ev of msg.ev) onEvent(ev);
   } else if (msg.t === 'lobbyscreen') {
@@ -1043,14 +1043,14 @@ function onEvent(ev) {
 // A finished round goes into the running totals once.
 // A goal is a seed brought home: one hamster's, in a round that did not run out of time.
 const goal = (p) => (game.phase === 'over' && !game.timeout && game.winner === p.id ? 1 : 0);
-const roundOf = (p) => [p.kills, p.deaths, p.seeds, goal(p)];
+const roundOf = (p) => [p.kills, p.deaths, p.seeds, goal(p), p.supers];
 
 function addCareer() {
   if (game.counted) return;
   game.counted = true;
   rounds++;
   for (const p of game.players) {
-    const c = career[p.look] || (career[p.look] = [0, 0, 0, 0]);
+    const c = career[p.look] || (career[p.look] = [0, 0, 0, 0, 0]);
     roundOf(p).forEach((v, k) => (c[k] = (c[k] || 0) + v));
   }
 }
