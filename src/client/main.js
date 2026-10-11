@@ -110,9 +110,26 @@ function renderLobby() {
   const guest = net.role === 'guest';
   const rows = guest ? net.lobby || [] : slots;
   const list = $('slots');
-  list.textContent = '';
+  // Rebuilding the list would replace the field someone is typing a name in,
+  // which drops focus and breaks Korean/Japanese/Chinese composition. While the
+  // rows are otherwise the same, only the other names are refreshed.
+  const typing = document.activeElement;
+  const shape = (slot, i) => `${slot.kind}:${guest ? i === net.you : ''}`;
+  const keep =
+    typing instanceof HTMLInputElement &&
+    list.contains(typing) &&
+    list.children.length === rows.length &&
+    rows.every((slot, i) => list.children[i].dataset.shape === shape(slot, i));
+  if (keep) {
+    rows.forEach((slot, i) => {
+      const field = list.children[i].querySelector('input');
+      if (field !== typing) field.value = slot.kind === 'open' ? '' : slot.name;
+    });
+  } else list.textContent = '';
   rows.forEach((slot, i) => {
+    if (keep) return;
     const li = document.createElement('li');
+    li.dataset.shape = shape(slot, i);
     li.style.setProperty('--c', LOOKS[i].color);
     li.classList.toggle('closed', slot.kind === 'closed');
 
