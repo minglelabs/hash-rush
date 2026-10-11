@@ -19,13 +19,19 @@ const $ = (id) => document.getElementById(id);
 const STORE = 'seed-rush-slots';
 const SIDE_STORE = 'hash-rush-bonk-left';
 const MODE_STORE = 'seed-rush-teams';
-// What the host can set a slot to. 'remote' is an open slot a friend has taken.
-const KINDS = ['human', 'bot:easy', 'bot:normal', 'bot:hard', 'closed', 'open'];
+// What the host can set a slot to. 'open' is an empty seat anyone with the link
+// can take, and 'remote' is one a friend has taken.
+const KINDS = ['human', 'open', 'bot:easy', 'bot:normal', 'bot:hard', 'closed'];
 // Every slot keeps a team, used only while team play is on. Teams need not be even: 3 v 2 is fine.
-const DEFAULT_SLOTS = ['human', 'bot:hard', 'bot:hard', 'bot:hard'].map((kind, i) => ({ kind, name: t('names')[i], team: i % 2 }));
-// The host can add slots up to MAX_SLOTS; extra ones start as a hard computer.
+// The lobby always shows every seat, the way old kart lobbies did: the host, three
+// computers, and the rest empty for friends. An empty seat can be closed.
 const MAX_SLOTS = LOOKS.length;
 const defaultName = (i) => t('names')[i] ?? t('fallbackName', i + 1);
+const DEFAULT_SLOTS = Array.from({ length: MAX_SLOTS }, (_, i) => ({
+  kind: i === 0 ? 'human' : i < 4 ? 'bot:hard' : 'open',
+  name: defaultName(i),
+  team: i % 2,
+}));
 const IDLE = { mx: 0, my: 0, ax: 0, ay: 0, seq: 0 };
 // A guest who never renamed itself is still called "Me" in its own language.
 const ME_NAMES = new Set(LANGUAGES.map((code) => stringsFor(code).names[0]));
@@ -36,11 +42,16 @@ function loadSlots() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORE));
     if (Array.isArray(saved) && saved.length >= 1 && saved.length <= MAX_SLOTS) {
-      return saved.map((s, i) => ({
-        kind: i === 0 ? 'human' : KINDS.some((k) => k === s.kind && k !== 'human' && k !== 'open') ? s.kind : 'bot:hard',
-        name: String(s.name || defaultName(i)).slice(0, 8),
-        team: validTeam(s.team) ? s.team : i % 2,
-      }));
+      // Lists saved before every seat was shown are shorter: the rest start empty.
+      return DEFAULT_SLOTS.map((d, i) => {
+        const s = saved[i];
+        if (!s) return { ...d };
+        return {
+          kind: i === 0 ? 'human' : KINDS.some((k) => k === s.kind && k !== 'human') ? s.kind : 'open',
+          name: String(s.name || defaultName(i)).slice(0, 8),
+          team: validTeam(s.team) ? s.team : i % 2,
+        };
+      });
     }
   } catch {
     // fall through to defaults
@@ -138,7 +149,7 @@ function renderLobby() {
   $('modeNow').textContent = t('modeNow', t(teams ? 'modeTeam' : 'modeSolo'));
   $('modeNow').classList.toggle('team', teams);
   // The line-up at a glance, e.g. "Red 3 : Blue 2".
-  const sizes = TEAMS.map((_, k) => rows.filter((s) => s.kind !== 'closed' && s.team === k).length);
+  const sizes = TEAMS.map((_, k) => rows.filter((s) => s.kind !== 'closed' && s.kind !== 'open' && s.team === k).length);
   $('teamInfo').replaceChildren(
     ...(teams ? TEAMS : []).flatMap((team, k) => {
       if (!sizes[k]) return [];
@@ -162,7 +173,7 @@ function renderLobby() {
   if (keep) {
     rows.forEach((slot, i) => {
       const field = list.children[i].querySelector('input');
-      if (field !== typing) field.value = slot.kind === 'open' ? '' : slot.name;
+      if (field !== typing) field.value = slot.kind === 'open' || slot.kind === 'closed' ? '' : slot.name;
     });
   } else list.textContent = '';
   rows.forEach((slot, i) => {
@@ -179,9 +190,9 @@ function renderLobby() {
     const mine = guest ? i === net.you : slot.kind !== 'remote';
     const name = document.createElement('input');
     // An open slot has nobody in it yet, so it shows no name.
-    const empty = slot.kind === 'open';
+    const empty = slot.kind === 'open' || slot.kind === 'closed';
     name.value = empty ? '' : slot.name;
-    name.placeholder = empty ? t('waitingFriend') : '';
+    name.placeholder = slot.kind === 'open' ? t(guest ? 'waitingFriend' : 'emptySeat') : slot.kind === 'closed' ? t('kinds').closed : '';
     name.maxLength = 8;
     name.disabled = !mine || empty;
     name.setAttribute('aria-label', t('slotName', i + 1));
@@ -201,8 +212,6 @@ function renderLobby() {
     const person = guest ? (i === net.you ? 'human' : 'remote') : slot.kind;
     const shown = slot.kind === 'human' || slot.kind === 'remote' ? person : slot.kind;
     const options = guest || i === 0 || slot.kind === 'remote' ? [shown, ...(slot.kind === 'remote' && !guest ? ['kick', 'closed'] : [])] : KINDS.filter((k) => k !== 'human');
-    // Any slot but the host's own can be taken away, whoever is in it.
-    if (!guest && i > 0) options.push('remove');
     for (const value of options) {
       const opt = document.createElement('option');
       opt.value = value;
@@ -211,8 +220,16 @@ function renderLobby() {
     }
     kind.value = shown;
     kind.disabled = guest || i === 0;
-    // Kicking a friend leaves the slot open for somebody else.
-    kind.addEventListener('change', () => (kind.value === 'remove' ? removeSlot(slot) : setKind(slot, kind.value === 'kick' ? 'open' : kind.value)));
+    // Kicking a friend leaves the seat empty for somebody else.
+    kind.addEventListener('change', () => setKind(slot, kind.value === 'kick' ? 'open' : kind.value));
+    // A tap on an empty seat closes it, and a tap on a closed one opens it again.
+    if (!guest && (slot.kind === 'open' || slot.kind === 'closed')) {
+      li.classList.add('seat');
+      li.addEventListener('click', (e) => {
+        if (e.target === kind || kind.contains(e.target)) return;
+        setKind(slot, slot.kind === 'open' ? 'closed' : 'open');
+      });
+    }
 
     li.append(avatar, name);
     if (teams) {
@@ -242,7 +259,6 @@ function renderLobby() {
     li.append(kind);
     list.append(li);
   });
-  $('addSlot').hidden = guest || slots.length >= MAX_SLOTS;
 
   const inviting = net.role === 'host' || slots.some((s) => s.kind === 'open');
   $('invite').hidden = guest || !inviting;
@@ -299,28 +315,6 @@ function setTeamMode(on) {
   } catch {
     // not persisted
   }
-  renderLobby();
-  sendLobby();
-}
-
-function addSlot() {
-  if (slots.length >= MAX_SLOTS) return;
-  slots.push({ kind: 'bot:hard', name: defaultName(slots.length), team: slots.length % 2 });
-  wins.push(0);
-  career.push([0, 0, 0]);
-  saveSlots();
-  renderLobby();
-  sendLobby();
-}
-
-function removeSlot(slot) {
-  const i = slots.indexOf(slot);
-  if (i < 1) return;
-  kick(slot);
-  slots.splice(i, 1);
-  wins.splice(i, 1);
-  career.splice(i, 1);
-  saveSlots();
   renderLobby();
   sendLobby();
 }
@@ -1212,7 +1206,6 @@ $('start').addEventListener('click', () => {
   else startGame();
 });
 $('again').addEventListener('click', startGame);
-$('addSlot').addEventListener('click', addSlot);
 $('modeSolo').addEventListener('click', () => setTeamMode(false));
 $('modeTeam').addEventListener('click', () => setTeamMode(true));
 $('roomListBtn').addEventListener('click', toggleRoomList);
@@ -1351,6 +1344,8 @@ document.addEventListener('visibilitychange', () => {
 });
 
 localizePage();
+// The room exists from the start, so the invite link is always there to share.
+if (!joinId) openRoom();
 renderLobby();
 show('lobby');
 if (net.role === 'guest') enterRoom();
