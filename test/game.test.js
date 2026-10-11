@@ -500,4 +500,27 @@ test('a bot sometimes fetches a second seed while a team-mate carries one, and s
   }
   assert.ok(both > 0, 'no team ever carried two seeds at once');
   assert.ok(escorted > 0, 'every game had a team carrying two seeds');
+
+test('bonks in quick succession chain into a double and a triple, and a pause or a knock-out ends the chain', () => {
+  const g = started(4);
+  const [a, b, c, d] = g.players;
+  const multis = [];
+  const bonk = (victim, wait) => {
+    run(g, wait);
+    place(a, 720, 200);
+    place(victim, 720 + 2 * HAMSTER_R + 2, 200);
+    for (let i = 0; i < 0.3 * TICK_RATE; i++) {
+      step(g, [{ mx: 0, my: 0, bonk: i === 0, ax: 1, ay: 0 }]);
+      multis.push(...g.events.filter((e) => e.type === 'multi').map((e) => e.n));
+    }
+  };
+  bonk(b, 0);
+  bonk(c, BONK.cooldown - 0.25);
+  bonk(d, BONK.cooldown - 0.25);
+  assert.deepEqual(multis, [2, 3]);
+  assert.equal(a.kills, 3);
+  bonk(b, BONK.chain + 0.5);
+  assert.deepEqual(multis, [2, 3], 'too late to carry on the chain');
+  bonk(c, BONK.cooldown - 0.25);
+  assert.deepEqual(multis, [2, 3, 2]);
 });

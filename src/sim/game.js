@@ -55,6 +55,8 @@ export function createGame({ slots, map = MAP, seed = 1 }) {
     swing: null,
     cooldown: 0,
     bonkHeld: false,
+    chain: 0,
+    chainUntil: 0,
     kills: 0,
     deaths: 0,
     seeds: 0,
@@ -147,6 +149,8 @@ function sendHome(p) {
 
 function respawn(g, p) {
   sendHome(p);
+  p.chain = 0;
+  p.chainUntil = 0;
   p.deaths++;
   g.events.push({ type: 'spawn', id: p.id, x: p.x, y: p.y });
 }
@@ -297,8 +301,10 @@ export function step(g, inputs) {
         const close = v.carrying && v.x - g.homeX < ALARM_RANGE;
         g.events.push({ type: 'bonk', by: a.id, id: v.id, x: v.x, y: v.y, seed: v.carrying, close });
       }
-      // One swing, several hamsters down.
-      if (clump.length > 1) g.events.push({ type: 'multi', by: a.id, n: clump.length });
+      // Several down in one swing, or one after another in quick succession.
+      a.chain = (g.time <= a.chainUntil ? a.chain : 0) + clump.length;
+      a.chainUntil = g.time + BONK.chain;
+      if (a.chain > 1) g.events.push({ type: 'multi', by: a.id, n: a.chain });
     }
     g.events.push({ type: 'impact', id: a.id, x: a.x, y: a.y, dx: a.swing.dx, dy: a.swing.dy, hit: !!victim });
   }
