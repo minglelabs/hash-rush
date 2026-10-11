@@ -94,11 +94,16 @@ function buildMap({ id, lanes, theme, hazard = null, ice = [], gates = [] }) {
   // in each room.
   const waypoints = [];
   const cells = [];
+  // Centres of the wall cells, where the scenery goes.
+  const walls = [];
   // Where a seed cannon can pop out: a wall at its back and a lane ahead of it.
   const cannonSpots = [];
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
-      if (!open[r][c]) continue;
+      if (!open[r][c]) {
+        walls.push({ x: cellX(c), y: cellY(r) });
+        continue;
+      }
       cells.push({ x: cellX(c), y: cellY(r) });
       const w = isOpen(c - 1, r) || c === 0;
       const e = isOpen(c + 1, r) || c === COLS - 1;
@@ -138,6 +143,7 @@ function buildMap({ id, lanes, theme, hazard = null, ice = [], gates = [] }) {
     gatherSpots: GATHER_SPOTS,
     // Centres of the open lane cells, for things that turn up at random.
     cells,
+    walls,
     cannonSpots,
     // What goes wrong on this map: 'trap', 'cannon', 'wave' or nothing.
     hazard,
@@ -154,7 +160,7 @@ const THEMES = {
   desert: { outer: '#a8732f', field: '#e9c682', floor: '#f6e3b0', home: '#fbeed0', rim: '#8a5a2b', wall: '#c08a4a', dots: ['#d3a060', '#a87438'], accents: ['#5f9e4a', '#f4d58a'], flecks: ['rgba(160, 110, 50, 0.3)', 'rgba(255, 255, 255, 0.25)'] },
   factory: { outer: '#333a47', field: '#8d96a3', floor: '#c6ccd5', home: '#e3dccb', rim: '#272d38', wall: '#566070', dots: ['#657082', '#48515f'], accents: ['#f2b705', '#1f2430'], flecks: ['rgba(40, 50, 65, 0.25)', 'rgba(255, 255, 255, 0.18)'] },
   ice: { outer: '#3c6c98', field: '#d6e9f3', floor: '#f0f6fa', home: '#f3ecdc', rim: '#5589b0', wall: '#97c4e0', dots: ['#b3d7ec', '#82b4d4'], accents: ['#ffffff', '#e2f4ff'], flecks: ['rgba(120, 170, 210, 0.3)', 'rgba(255, 255, 255, 0.5)'] },
-  beach: { outer: '#2a80aa', field: '#f1dda2', floor: '#f8edc6', home: '#fdf3d6', rim: '#2c7a58', wall: '#43a676', dots: ['#58bd8a', '#358f66'], accents: ['#ff8fa3', '#ffe066'], flecks: ['rgba(190, 150, 80, 0.3)', 'rgba(255, 255, 255, 0.35)'] },
+  beach: { outer: '#2a80aa', field: '#f1dda2', floor: '#f8edc6', home: '#fdf3d6', rim: '#f4fbff', wall: '#35a3d6', dots: ['#4fb6e4', '#2b93c8'], accents: ['#ff8fa3', '#ffe066'], flecks: ['rgba(190, 150, 80, 0.3)', 'rgba(255, 255, 255, 0.35)'] },
   graveyard: { outer: '#1c182a', field: '#57516c', floor: '#8a849e', home: '#b9b0a0', rim: '#1f1a30', wall: '#39324f', dots: ['#4a4265', '#2c2641'], accents: ['#ff9a1f', '#c8f060'], flecks: ['rgba(20, 15, 35, 0.3)', 'rgba(200, 190, 230, 0.2)'] },
 };
 
