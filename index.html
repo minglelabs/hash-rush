@@ -28,12 +28,20 @@
           <p data-i18n="tagline"></p>
         </header>
 
+        <button id="roomListBtn" data-i18n="roomList"></button>
+        <section id="rooms" hidden>
+          <h2 data-i18n="roomsTitle"></h2>
+          <p id="roomsStatus"></p>
+          <ul id="roomItems"></ul>
+        </section>
+
         <section>
           <h2 data-i18n="players"></h2>
           <ul id="slots"></ul>
           <button id="addSlot" data-i18n="addSlot"></button>
           <div id="invite" hidden>
             <span id="inviteText"></span>
+            <label class="listed"><input type="checkbox" id="listed" checked /> <span data-i18n="listed"></span></label>
             <div class="row">
               <input id="inviteLink" readonly />
               <button id="copy" data-i18n="copy"></button>
