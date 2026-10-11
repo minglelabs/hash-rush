@@ -85,6 +85,11 @@ button.primary:active {
   letter-spacing: -0.02em;
 }
 
+#muteLobby {
+  float: right;
+  padding: 0.35em 0.6em;
+}
+
 #lobby header p {
   margin: 0 0 18px;
   line-height: 1.55;
