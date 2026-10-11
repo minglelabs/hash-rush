@@ -129,7 +129,7 @@ export function drawHamster(ctx, o) {
   ctx.restore();
 }
 
-function drawFlower(ctx, f, t) {
+export function drawFlower(ctx, f, t) {
   ctx.save();
   ctx.translate(f.x, f.y);
   ctx.fillStyle = 'rgba(30, 50, 20, 0.2)';
