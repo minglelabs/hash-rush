@@ -7,17 +7,17 @@ export const HAMSTER_R = 15;
 export const SPEED = 185;
 // A hamster with a seed in its cheeks is a touch slower, so chasers stay relevant.
 export const CARRY_SPEED = 0.9;
-// On the last stretch, this close to the home edge, the seed weighs heavier still.
-export const LAST_STRETCH = { range: 90, speed: 0.8 };
+// A seed carrier this close to the home edge is "almost home": the alarm goes off,
+// and stopping it there is a big play.
+export const ALARM_RANGE = 190;
+// From where the alarm goes off, the seed weighs heavier still.
+export const LAST_STRETCH = { range: ALARM_RANGE, speed: 0.8 };
 
 export const GATHER_TIME = 2.2;
 // The more hamsters crowd the flower, the quicker a seed comes loose: four is
 // the baseline, and eight nibble in half the time.
 export const gatherTime = (players) => (GATHER_TIME * 4) / Math.max(4, players);
 export const COUNTDOWN = 3;
-// A seed carrier this close to the home edge is "almost home": the alarm goes off,
-// and stopping it there is a big play.
-export const ALARM_RANGE = 190;
 
 // Stalemate breaker: after `start` seconds the burrow's edge creeps towards the flower.
 // At `end` the round is called on bonks instead.
