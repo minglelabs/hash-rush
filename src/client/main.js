@@ -34,7 +34,7 @@ const validTeam = (v) => Number.isInteger(v) && v >= 0 && v < TEAMS.length;
 function loadSlots() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORE));
-    if (Array.isArray(saved) && saved.length >= DEFAULT_SLOTS.length && saved.length <= MAX_SLOTS) {
+    if (Array.isArray(saved) && saved.length >= 1 && saved.length <= MAX_SLOTS) {
       return saved.map((s, i) => ({
         kind: i === 0 ? 'human' : KINDS.some((k) => k === s.kind && k !== 'human' && k !== 'open') ? s.kind : 'bot:hard',
         name: String(s.name || defaultName(i)).slice(0, 8),
@@ -195,9 +195,9 @@ function renderLobby() {
     // A guest only sees who is in each slot; the host chooses.
     const person = guest ? (i === net.you ? 'human' : 'remote') : slot.kind;
     const shown = slot.kind === 'human' || slot.kind === 'remote' ? person : slot.kind;
-    const options = guest || i === 0 || slot.kind === 'remote' ? [shown, ...(slot.kind === 'remote' && !guest ? ['open', 'closed'] : [])] : KINDS.filter((k) => k !== 'human');
-    // Slots beyond the default four can be taken away again.
-    if (!guest && i >= DEFAULT_SLOTS.length) options.push('remove');
+    const options = guest || i === 0 || slot.kind === 'remote' ? [shown, ...(slot.kind === 'remote' && !guest ? ['kick', 'closed'] : [])] : KINDS.filter((k) => k !== 'human');
+    // Any slot but the host's own can be taken away, whoever is in it.
+    if (!guest && i > 0) options.push('remove');
     for (const value of options) {
       const opt = document.createElement('option');
       opt.value = value;
@@ -206,7 +206,8 @@ function renderLobby() {
     }
     kind.value = shown;
     kind.disabled = guest || i === 0;
-    kind.addEventListener('change', () => (kind.value === 'remove' ? removeSlot(slot) : setKind(slot, kind.value)));
+    // Kicking a friend leaves the slot open for somebody else.
+    kind.addEventListener('change', () => (kind.value === 'remove' ? removeSlot(slot) : setKind(slot, kind.value === 'kick' ? 'open' : kind.value)));
 
     li.append(avatar, name);
     if (teams) {
@@ -263,11 +264,20 @@ function renderLobby() {
   updateStart();
 }
 
+// Tells a friend the host has taken them out, then drops the connection. The
+// close waits a moment so the message gets through first.
+function kick(slot) {
+  const conn = slot.conn;
+  if (!conn) return;
+  slot.conn = null;
+  slot.name = defaultName(slots.indexOf(slot));
+  conn.kicked = true;
+  if (conn.open) conn.send({ t: 'kicked' });
+  setTimeout(() => conn.close(), 300);
+}
+
 function setKind(slot, kind) {
-  if (slot.conn) {
-    slot.conn.close();
-    slot.conn = null;
-  }
+  kick(slot);
   slot.kind = kind;
   if (kind === 'open') openRoom();
   saveSlots();
@@ -298,8 +308,8 @@ function addSlot() {
 
 function removeSlot(slot) {
   const i = slots.indexOf(slot);
-  if (i < DEFAULT_SLOTS.length) return;
-  if (slot.conn) slot.conn.close();
+  if (i < 1) return;
+  kick(slot);
   slots.splice(i, 1);
   wins.splice(i, 1);
   saveSlots();
@@ -474,7 +484,7 @@ function guestName(slot, raw) {
 const roster = () => game.players.map((p) => ({ name: p.name, look: p.look, team: p.team, nest: p.nest }));
 
 function guestData(conn, msg) {
-  if (!msg) return;
+  if (!msg || conn.kicked) return;
   if (msg.t === 'hello') {
     if (!slots.some((s) => s.conn === conn) && !net.watchers.includes(conn)) welcome(conn, msg);
     return;
@@ -569,6 +579,7 @@ function snapshot(events) {
 async function enterRoom() {
   net.status = t('connecting');
   net.failed = false;
+  net.kicked = false;
   renderLobby();
   try {
     net.host = await joinRoom(joinId, { data: hostData, close: hostGone });
@@ -591,7 +602,7 @@ function hostGone() {
   net.host = null;
   net.lobby = null;
   net.failed = true;
-  net.status = t('hostLeft');
+  net.status = t(net.kicked ? 'kicked' : 'hostLeft');
   toLobby();
   renderLobby();
 }
@@ -607,6 +618,11 @@ function hostData(msg) {
     net.you = msg.you;
     msg.wins.forEach((n, i) => (wins[i] = n));
     if ($('stage').hidden) renderLobby();
+  } else if (msg.t === 'kicked') {
+    net.kicked = true;
+    const host = net.host;
+    hostGone();
+    if (host) host.close();
   } else if (msg.t === 'pw') {
     net.needPw = true;
     net.status = t(msg.wrong ? 'pwWrong' : 'pwNeeded');
