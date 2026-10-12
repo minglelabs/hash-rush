@@ -137,6 +137,7 @@ const BOT_LEVEL = {
   'bot:easy': { key: 'easy', color: '#1f9d55' },
   'bot:normal': { key: 'normal', color: '#e08a00' },
   'bot:hard': { key: 'hard', color: '#d63031' },
+  'bot:ace': { key: 'ace', color: '#8e44ad' },
 };
 
 // A seed carrier this close to the home edge sets off the alarm.

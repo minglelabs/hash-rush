@@ -7,6 +7,7 @@ import { inHome, allied } from '../sim/game.js';
 import { mulberry32 } from '../sim/rng.js';
 import { getNav, blockCost } from './nav.js';
 import { HAZARD, hazardCost, inCannonLine } from '../sim/hazards.js';
+import { createPlanner, SEARCH } from './search.js';
 
 export const DIFFICULTY = {
   // reaction: how stale the bot's view of others is (seconds)
@@ -26,8 +27,11 @@ export const DIFFICULTY = {
   //   seed, and every few seconds for no reason at all (seconds)
   easy: { reaction: 0.45, lead: 0, margin: 0, jitter: 9, bait: 0, hold: 0.1, deny: 0.5, hunt: 0.5, opportunism: 0.3, caution: 0.2, freeze: 0.3, rally: false, daze: 1.2, toss: 0.1, volley: 0.4 },
   normal: { reaction: 0.24, lead: 0.4, margin: 2, jitter: 4, bait: 0.25, hold: 0.5, deny: 0.7, hunt: 0.7, opportunism: 0.8, caution: 0.8, freeze: 0.09, rally: true, daze: 0.15, toss: 0.3, volley: 0.8 },
+  // search: instead of the fixed rules below, it plays each plan forward in a copy
+  //   of the game and picks the best (see search.js). Hands as good as hard's.
   hard: { reaction: 0.12, lead: 0.9, margin: 3, jitter: 1, bait: 0.55, hold: 1, deny: 1, hunt: 1, opportunism: 1.5, caution: 1.2, freeze: 0, rally: true, daze: 0, toss: 0.5, volley: 1 },
 };
+DIFFICULTY.ace = { ...DIFFICULTY.hard, search: true };
 
 const TOUCH = 2 * HAMSTER_R;
 const DANGER_R = 110;
@@ -82,6 +86,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
   const cfg = { ...(DIFFICULTY[difficulty] || DIFFICULTY.normal) };
   for (const k of ['bait', 'hold', 'deny', 'hunt']) cfg[k] = Math.max(0, Math.min(1, cfg[k] + (rng() - 0.5) * 0.3));
   const delayTicks = Math.max(1, Math.round(cfg.reaction / DT));
+  const planner = cfg.search ? createPlanner({ seed }) : null;
   const history = [];
   const mem = {
     replanAt: 0,
@@ -394,8 +399,20 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
     };
 
     if (now >= mem.replanAt) {
+      // The thinking bot weighs its plans by playing them forward; if it comes up
+      // with nothing, the rules below still apply.
       plan();
       mem.replanAt = now + 0.16 + rng() * 0.08;
+      if (planner) {
+        const rules = { mode: mem.mode, targetId: mem.targetId, path: mem.path, entryY: mem.entryY };
+        const idea = planner.choose(g, id, (p, q) => blocked(p, q) + (me.carrying ? danger(p, q) : 0), rules);
+        if (idea && idea !== rules) {
+          mem.mode = idea.mode;
+          mem.targetId = idea.targetId ?? -1;
+          mem.path = idea.path || null;
+          if (idea.entryY !== undefined) mem.entryY = idea.entryY;
+        }
+      }
     }
 
     const target = mem.targetId >= 0 ? seen.find((e) => e.id === mem.targetId) : null;
