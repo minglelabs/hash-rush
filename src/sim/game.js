@@ -313,7 +313,9 @@ export function step(g, inputs) {
       p.charge = 0;
     }
 
-    const speed = SPEED * carrySpeed(g, p) * (p.wet > 0 ? HAZARD.wave.slow : 1);
+    // Slow-downs add up as shares of full speed: a seed and wet fur together take
+    // off the sum of the two, not one share of what the other left.
+    const speed = SPEED * (carrySpeed(g, p) - (p.wet > 0 ? HAZARD.wave.slow : 0));
     // Where the hamster is trying to go; on ice it only gets there gradually.
     let tx = 0;
     let ty = 0;
