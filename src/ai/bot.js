@@ -33,7 +33,9 @@ export const DIFFICULTY = {
 };
 // dance: up close it feints instead of walking in: a dash at the rival to draw a
 //   swing, a step back out of reach so the swing misses, then in for the hit.
-DIFFICULTY.ace = { ...DIFFICULTY.hard, search: true, dance: true };
+// poach: in a free-for-all, with at least this many others already after a rival's
+//   seed, it leaves that seed to them and goes for a second one of its own.
+DIFFICULTY.ace = { ...DIFFICULTY.hard, search: true, dance: true, poach: 2 };
 
 const TOUCH = 2 * HAMSTER_R;
 const DANGER_R = 110;
@@ -239,6 +241,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       return nav.distance(me, door) / SPEED <= tunnelTime * 1.25 ? door : viaTunnel;
     };
 
+    const lastStandFor = (c) => c.x - g.homeX < LAST_STAND;
     const plan = () => {
       mem.targetId = -1;
       if (me.carrying) {
@@ -269,6 +272,13 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
         if (!mem.denyRolls.has(key)) mem.denyRolls.set(key, rng() < cfg.deny);
         if (!mem.denyRolls.get(key) && !lastStand) continue;
         const near = dist(me, c) < 230 && nav.clear(me, c);
+        // Let the others have that one. With enough of them after it, the seed is
+        // theirs to stop, and the flower is free: fetch a second seed and walk it
+        // home behind the commotion. Not when the first is about to get in.
+        if (cfg.poach && !mates.length && !lastStandFor(c) && !(dist(me, c) < 120 && nav.clear(me, c))) {
+          const others = seen.filter((e) => e.id !== c.id && !e.carrying && !e.home).length;
+          if (others >= cfg.poach) continue;
+        }
         // Out of reach is no reason to shrug either: everyone keeps after the seed,
         // except that with three or more chasers the one nearest the flower stays
         // on it, ready to nibble the moment the seed is knocked loose.
@@ -524,6 +534,24 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
           const side = -ry * (target.x - me.x) + rx * (target.y - me.y) < 0 ? -1 : 1;
           out.mx = (side * -ry) / d;
           out.my = (side * rx) / d;
+        }
+      }
+    }
+
+    // The last word on tunnels: a step that would end inside one is not taken. The
+    // rim logic above only cancels walking straight in. Sliding round the rim is
+    // another way in, above all between a tunnel and the map's edge, where there is
+    // no room to pass and the edge pushes a hamster inwards.
+    if (!me.carrying && !tunnelling && (out.mx || out.my)) {
+      const b = map.bounds;
+      const nx = Math.max(b.x1 + HAMSTER_R, Math.min(b.x2 - HAMSTER_R, me.x + out.mx * SPEED * DT));
+      const ny = Math.max(b.y1 + HAMSTER_R, Math.min(b.y2 - HAMSTER_R, me.y + out.my * SPEED * DT));
+      for (const w of map.warps) {
+        const next = Math.hypot(nx - w.x, ny - w.y);
+        if (next < w.r + RIM && next < Math.hypot(me.x - w.x, me.y - w.y) - 0.01) {
+          out.mx = 0;
+          out.my = 0;
+          break;
         }
       }
     }
