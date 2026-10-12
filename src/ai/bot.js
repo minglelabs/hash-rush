@@ -31,7 +31,9 @@ export const DIFFICULTY = {
   //   of the game and picks the best (see search.js). Hands as good as hard's.
   hard: { reaction: 0.12, lead: 0.9, margin: 3, jitter: 1, bait: 0.55, hold: 1, deny: 1, hunt: 1, opportunism: 1.5, caution: 1.2, freeze: 0, rally: true, daze: 0, toss: 0.5, volley: 1 },
 };
-DIFFICULTY.ace = { ...DIFFICULTY.hard, search: true };
+// dance: up close it feints instead of walking in: a dash at the rival to draw a
+//   swing, a step back out of reach so the swing misses, then in for the hit.
+DIFFICULTY.ace = { ...DIFFICULTY.hard, search: true, dance: true };
 
 const TOUCH = 2 * HAMSTER_R;
 const DANGER_R = 110;
@@ -98,6 +100,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
     secondRolls: new Map(),
     huntRoll: { id: -1, until: 0, yes: false },
     duel: { id: -1, expires: 0 },
+    dance: { id: -1, expires: 0 },
     noise: 0,
     noiseAt: 0,
     bonkDown: false,
@@ -379,12 +382,44 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       const dx = e.x - me.x;
       const dy = e.y - me.y;
       const d = Math.hypot(dx, dy) || 1;
-      if (e.swing === 'recovery') {
+      // A swing that has started cannot be taken back: once it is seen, it has as
+      // good as landed, so that is the moment to go in. Without the footwork a bot
+      // waits until the rival is plainly stuck.
+      if (e.swing === 'recovery' || (cfg.dance && e.swing && d > BONK.reach + 6)) {
         steerTo(e);
         return;
       }
       const charging = -(e.vx * dx + e.vy * dy) / d > 0.5 * SPEED;
       if (mem.duel.hold && charging && d < 150) return;
+      if (cfg.dance) {
+        // Dash in to where a swing at me looks sure to land, then straight back
+        // out before it does. A few feints, and if nothing bites, go in for real.
+        let dn = mem.dance;
+        if (dn.id !== e.id || now > dn.expires) {
+          dn = mem.dance = { id: e.id, out: false, turn: 58 + rng() * 10, until: 0, feints: 0, most: 2 + Math.floor(rng() * 3), expires: now + 4 };
+        }
+        if (dn.feints < dn.most) {
+          if (dn.out) {
+            out.mx = -dx / d;
+            out.my = -dy / d;
+            if (now >= dn.until || d > 92) {
+              dn.out = false;
+              dn.turn = 58 + rng() * 10;
+            }
+          } else {
+            out.mx = dx / d;
+            out.my = dy / d;
+            if (d <= dn.turn) {
+              dn.out = true;
+              dn.until = now + 0.17 + rng() * 0.1;
+              dn.feints++;
+            }
+          }
+          return;
+        }
+        steerTo({ x: e.x + e.vx * 0.12, y: e.y + e.vy * 0.12 });
+        return;
+      }
       if (mem.duel.bait && now < mem.duel.until) {
         if (d < 58) {
           out.mx = -dx / d;
@@ -402,7 +437,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       // The thinking bot weighs its plans by playing them forward; if it comes up
       // with nothing, the rules below still apply.
       plan();
-      mem.replanAt = now + 0.16 + rng() * 0.08;
+      mem.replanAt = now + (planner ? Math.min(SEARCH.every, 0.2) : 0.16 + rng() * 0.08);
       if (planner) {
         const rules = { mode: mem.mode, targetId: mem.targetId, path: mem.path, entryY: mem.entryY };
         const idea = planner.choose(g, id, (p, q) => blocked(p, q) + (me.carrying ? danger(p, q) : 0), rules);
