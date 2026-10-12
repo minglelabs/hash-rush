@@ -44,11 +44,14 @@ export const DIFFICULTY = {
 //   it times the swing to how that rival comes in, or gives ground and waits for
 //   it to be properly in reach. The number is how often it holds fire while it
 //   still does not know the rival's habit.
+// toss 0, boxed: it does not gamble its seed on one rival in the way. It throws for
+//   two at once, for a rival's seed, or when one is ahead and another is coming up
+//   within `boxed` pixels behind, so the seed is as good as lost anyway.
 // clock: at the flower it counts. A seed takes a couple of seconds of standing
 //   still, so it nibbles on only while no rival can reach it before the seed comes
 //   loose, and it does not budge then. When one can, it goes out and meets it
 //   first: a rival sent back to its nest is away for longer than a seed takes.
-DIFFICULTY.ace = { ...DIFFICULTY.hard, search: true, dance: true, poach: 2, wary: 0.5, clock: 0.15 };
+DIFFICULTY.ace = { ...DIFFICULTY.hard, search: true, dance: true, poach: 2, wary: 0.5, clock: 0.15, toss: 0, boxed: 120 };
 
 const TOUCH = 2 * HAMSTER_R;
 const DANGER_R = 110;
@@ -661,7 +664,10 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       if (!keep && !mem.toss && ahead.length) {
         if (mem.tossRoll.id !== ahead[0].id || now > mem.tossRoll.until) {
           const sure = ahead.length > 1 || ahead[0].carrying;
-          mem.tossRoll = { id: ahead[0].id, until: now + 3, yes: rng() < (sure ? cfg.volley : cfg.toss) };
+          // Caught between one ahead and one coming up behind, the seed is lost
+          // either way: then it may as well take somebody with it.
+          const boxed = cfg.boxed && seen.some((e) => !e.home && !ahead.includes(e) && dist(me, e) < cfg.boxed && nav.clear(me, e) && (e.x - me.x) * hx + (e.y - me.y) * hy < 0);
+          mem.tossRoll = { id: ahead[0].id, until: now + 3, yes: rng() < (sure || boxed ? cfg.volley : cfg.toss) };
         }
         mem.toss = mem.tossRoll.yes ? { id: ahead[0].id } : false;
       }
