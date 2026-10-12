@@ -23,7 +23,7 @@ const MODE_STORE = 'seed-rush-teams';
 const MAP_STORE = 'seed-rush-map';
 // What the host can set a slot to. 'open' is an empty seat anyone with the link
 // can take, and 'remote' is one a friend has taken.
-const KINDS = ['human', 'open', 'bot:easy', 'bot:normal', 'bot:hard', 'closed'];
+const KINDS = ['human', 'open', 'bot:easy', 'bot:normal', 'bot:hard', 'bot:ace', 'closed'];
 // Every slot keeps a team, used only while team play is on. Teams need not be even: 3 v 2 is fine.
 // The lobby always shows every seat, the way old kart lobbies did: the host, three
 // computers, and the rest empty for friends. An empty seat can be closed.
