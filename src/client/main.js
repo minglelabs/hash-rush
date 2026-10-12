@@ -90,7 +90,7 @@ try {
 }
 const wins = slots.map(() => 0);
 // Bonks, times bonked and seeds added up over every round in this room.
-const career = slots.map(() => [0, 0, 0, 0, 0, 0]);
+const career = slots.map(() => [0, 0, 0, 0, 0, 0, 0]);
 // Rounds finished in this room.
 let rounds = 0;
 // The first to this many wins takes the championship, and the room starts over.
@@ -649,7 +649,7 @@ function snapshot(events) {
     to: game.timeout,
     p: game.players.map((p) => [
       r(p.x), r(p.y), r(p.vx), r(p.vy), p.fx, p.fy, p.carrying ? 1 : 0, p.gather, p.queued,
-      p.swing ? [p.swing.phase, p.swing.t, p.swing.dx, p.swing.dy] : 0, p.cooldown, p.kills, p.deaths, p.seeds, p.supers, p.charge, p.throws, r(p.wet),
+      p.swing ? [p.swing.phase, p.swing.t, p.swing.dx, p.swing.dy] : 0, p.cooldown, p.kills, p.deaths, p.seeds, p.supers, p.charge, p.throws, r(p.wet), p.stops,
     ]),
     // What the map is up to: [kind, x, y, dx, dy, age].
     hz: game.hazards.map((h) => [h.kind, r(h.x), r(h.y), h.dx || 0, h.dy || 0, Math.round(h.age * 100) / 100]),
@@ -736,7 +736,7 @@ function hostData(msg) {
       timeout: false,
       players: msg.players.map((p, id) => ({
         id, name: p.name, look: p.look, team: p.team ?? -1, kind: p.kind, nest: p.nest, x: p.nest.x, y: p.nest.y, vx: 0, vy: 0, fx: 1, fy: 0,
-        carrying: false, gather: 0, queued: -1, swing: null, cooldown: 0, kills: 0, deaths: 0, seeds: 0, supers: 0, charge: 0, throws: 0,
+        carrying: false, gather: 0, queued: -1, swing: null, cooldown: 0, kills: 0, deaths: 0, seeds: 0, supers: 0, charge: 0, throws: 0, stops: 0,
       })),
     };
     renderer.setMap(game.map);
@@ -759,7 +759,7 @@ function hostData(msg) {
       p.gather = s[7];
       p.queued = s[8];
       p.swing = s[9] ? { phase: s[9][0], t: s[9][1], dx: s[9][2], dy: s[9][3] } : null;
-      [p.cooldown, p.kills, p.deaths, p.seeds, p.supers = 0, p.charge = 0, p.throws = 0, p.wet = 0] = s.slice(10);
+      [p.cooldown, p.kills, p.deaths, p.seeds, p.supers = 0, p.charge = 0, p.throws = 0, p.wet = 0, p.stops = 0] = s.slice(10);
     });
     for (const ev of msg.ev) onEvent(ev);
   } else if (msg.t === 'lobbyscreen') {
@@ -1120,17 +1120,17 @@ function onEvent(ev) {
 // A finished round goes into the running totals once.
 // A goal is a seed brought home: one hamster's, in a round that did not run out of time.
 const goal = (p) => (game.phase === 'over' && !game.timeout && game.winner === p.id ? 1 : 0);
-const roundOf = (p) => [p.kills, p.deaths, p.seeds, goal(p), p.supers, p.throws || 0];
+const roundOf = (p) => [p.kills, p.deaths, p.seeds, goal(p), p.supers, p.throws || 0, p.stops || 0];
 // The order the table shows them in. This round leaves the goal out: its badge says it.
-const ROUND_COLS = [0, 5, 1, 2, 4];
-const TOTAL_COLS = [0, 5, 1, 2, 3, 4];
+const ROUND_COLS = [0, 5, 6, 1, 2, 4];
+const TOTAL_COLS = [0, 5, 6, 1, 2, 3, 4];
 
 function addCareer() {
   if (game.counted) return;
   game.counted = true;
   rounds++;
   for (const p of game.players) {
-    const c = career[p.look] || (career[p.look] = [0, 0, 0, 0, 0, 0]);
+    const c = career[p.look] || (career[p.look] = [0, 0, 0, 0, 0, 0, 0]);
     roundOf(p).forEach((v, k) => (c[k] = (c[k] || 0) + v));
   }
 }
@@ -1474,7 +1474,7 @@ function updateHud() {
   // The throw button is only there while this player has a seed to throw.
   $('throw').hidden = !(meId >= 0 && game.phase === 'playing' && game.players[meId].carrying);
   if (!$('board').hidden) {
-    const now = game.players.map((p) => `${p.kills},${p.deaths},${p.seeds},${p.supers},${p.throws}`).join();
+    const now = game.players.map((p) => `${p.kills},${p.deaths},${p.seeds},${p.supers},${p.throws},${p.stops}`).join();
     if (now !== boardKey) {
       boardKey = now;
       fillScores($('boardTable'));

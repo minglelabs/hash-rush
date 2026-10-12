@@ -81,6 +81,7 @@ export function createGame({ slots, map = MAP, seed = 1 }) {
     seeds: 0,
     supers: 0,
     throws: 0,
+    stops: 0,
     charge: 0,
     wet: 0,
   }));
@@ -211,6 +212,8 @@ function strike(g, a, victims, bonked, thrown = false) {
     // A thrown seed is its own kind of knock-out and is counted apart from bonks.
     if (thrown) a.throws++;
     else a.kills++;
+    // Taking down whoever has the seed is counted on top, as a stop.
+    if (v.carrying) a.stops++;
     // `close` marks a seed stopped just short of home.
     const close = v.carrying && v.x - g.homeX < ALARM_RANGE;
     g.events.push({ type: 'bonk', by: a.id, id: v.id, x: v.x, y: v.y, seed: v.carrying, close });
