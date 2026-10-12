@@ -137,6 +137,8 @@ export function buildMap({ id, lanes, theme, hazard = null, ice = [], gates = []
     laneYs: homeMouths,
     laneWidth: CELL,
     rowYs: Array.from({ length: ROWS }, (_, r) => cellY(r)),
+    // The grid the hedge is cut from: open[row][col] is true where a lane runs.
+    open,
     // Anyone standing between these x values is inside a lane.
     lanes: { x1: HEDGE_X1, x2: HEDGE_X2 },
     waypoints,
