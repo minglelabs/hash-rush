@@ -6,6 +6,8 @@ import { createPlanner } from '../src/ai/search.js';
 import { BONK, COUNTDOWN, TICK_RATE } from '../src/sim/constants.js';
 import { MAPS } from '../src/sim/map.js';
 
+const f0 = MAPS.meadow.flower;
+
 const game = (kinds, seed, map = MAPS.meadow) => {
   const g = createGame({ slots: kinds.map((k, i) => ({ name: `${k}${i}`, kind: 'bot' })), seed, map });
   const bots = kinds.map((difficulty, i) => createBot({ difficulty, seed: seed * 97 + i * 13 + 5 }));
@@ -52,14 +54,13 @@ test('up close the top bot feints: it dashes in, turns back before a swing can l
   for (let i = 0; i < COUNTDOWN * TICK_RATE + 2; i++) step(g, []);
   const [me, rival] = g.players;
   const bot = createBot({ difficulty: 'ace', seed: 9 });
-  // The rival stands still in the open with a seed, which makes it worth going
-  // for. The bot must come close and back off at least once without ever standing
+  // The rival stands still in the open near the flower, in the bot's way to it.
+  // The bot must come close and back off at least once without ever standing
   // inside the rival's reach.
   const y = 150;
   const hold = () => {
     rival.x = 730;
     rival.y = y;
-    rival.carrying = true;
   };
   me.x = 872;
   me.y = y;
@@ -83,32 +84,31 @@ test('up close the top bot feints: it dashes in, turns back before a swing can l
   assert.ok(closest > BONK.reach + 6 && closest < 80, `the first dash stopped just short of the rival's reach: ${closest}`);
 });
 
-test('in a free-for-all the top bot leaves a far-off seed to the others and goes for a second one', () => {
-  // Four on their own. One rival is carrying a seed a long way off, the other two
-  // stand near it, and the bot is by the flower.
-  const heading = (difficulty) => {
+test('in a free-for-all the top bot leaves a far-off seed to rivals better placed to stop it, and goes for a second one', () => {
+  // Four on their own. One rival is carrying a seed through the maze, the other
+  // two are by the burrow, between it and home, and the bot is out by the flower.
+  const endsUp = (difficulty) => {
     const g = createGame({ slots: Array.from({ length: 4 }, (_, i) => ({ name: `p${i}`, kind: 'bot' })), seed: 2 });
     for (let i = 0; i < COUNTDOWN * TICK_RATE + 2; i++) step(g, []);
     const [me, carrier, a, b] = g.players;
     const f = g.map.flower;
-    const lane = g.map.laneYs[0];
     const set = () => {
       Object.assign(carrier, { x: 520, y: g.map.rowYs[1], carrying: true });
-      Object.assign(a, { x: 420, y: g.map.rowYs[1] });
-      Object.assign(b, { x: 250, y: lane });
+      Object.assign(a, { x: 190, y: g.map.laneYs[1] });
+      Object.assign(b, { x: 190, y: g.map.laneYs[0] });
     };
-    Object.assign(me, { x: f.x - 20, y: f.y - 150 });
+    // By the flower and well away from both tunnels, so there is no quick way home.
+    Object.assign(me, { x: f.x + 75, y: f.y + 10 });
     set();
     const bot = createBot({ difficulty, seed: 5 });
-    const start = Math.hypot(me.x - f.x, me.y - f.y);
     for (let i = 0; i < 1.2 * TICK_RATE; i++) {
       step(g, [{ ...bot.think(g, 0), bonk: false }]);
       set();
     }
-    return Math.hypot(me.x - f.x, me.y - f.y) - start;
+    return Math.hypot(me.x - f.x, me.y - f.y);
   };
-  assert.ok(heading('ace') < -40, `the top bot closed in on the flower: ${heading('ace')}`);
-  assert.ok(heading('hard') > 40, `the hard bot went after the seed instead: ${heading('hard')}`);
+  assert.ok(endsUp('ace') <= f0.gatherR, `the top bot is at the flower: ${endsUp('ace')}`);
+  assert.ok(endsUp('hard') > f0.gatherR + 60, `the hard bot went after the seed instead: ${endsUp('hard')}`);
 });
 
 // Someone who plays the way a person does up close: body in, step back, and when
@@ -213,4 +213,52 @@ test('the top bot at the flower is not drawn into a wasted swing by someone runn
   }
   assert.equal(baited, 0, 'it was never bonked for a wasted swing');
   assert.equal(whiffs, 0, 'and never swung at air');
+});
+
+test('when a seed has to be stopped, looking ahead only chooses how, never whether', () => {
+  // Rounds of five top bots: every time the rule book says "stop that seed", the
+  // plan that comes out of the look-ahead is still about that seed.
+  const g = createGame({ slots: Array.from({ length: 5 }, (_, i) => ({ name: `p${i}`, kind: 'bot' })), seed: 8 });
+  for (let i = 0; i < (COUNTDOWN + 1) * TICK_RATE; i++) step(g, []);
+  const [me, carrier, a, b, c] = g.players;
+  const f = g.map.flower;
+  Object.assign(carrier, { x: 600, y: g.map.rowYs[3], carrying: true });
+  Object.assign(me, { x: f.x - 60, y: f.y - 40 });
+  Object.assign(a, { x: f.x + 40, y: f.y + 70 });
+  Object.assign(b, { x: f.x + 60, y: f.y - 60 });
+  Object.assign(c, { x: f.x - 10, y: f.y + 110 });
+  const planner = createPlanner({ seed: 3 });
+  const rules = { mode: 'deny', targetId: carrier.id, path: null, entryY: -1 };
+  for (let k = 0; k < 12; k++) {
+    g.time += 0.31;
+    const idea = planner.choose(g, 0, () => 0, rules);
+    assert.equal(idea.mode, 'deny', 'it stays on the seed');
+    assert.equal(idea.targetId, carrier.id);
+  }
+});
+
+test('in a free-for-all the best placed defend: the top bot nearest home goes to stop a seed even with others about', () => {
+  const g = createGame({ slots: Array.from({ length: 4 }, (_, i) => ({ name: `p${i}`, kind: 'bot' })), seed: 2 });
+  for (let i = 0; i < COUNTDOWN * TICK_RATE + 2; i++) step(g, []);
+  const [me, carrier, a, b] = g.players;
+  const f = g.map.flower;
+  const set = () => {
+    Object.assign(carrier, { x: 620, y: g.map.rowYs[7], carrying: true });
+    Object.assign(a, { x: f.x + 30, y: f.y + 80 });
+    Object.assign(b, { x: f.x + 50, y: f.y - 70 });
+  };
+  // The bot stands at a lane mouth by the burrow; the other two are out by the flower.
+  Object.assign(me, { x: 185, y: g.map.laneYs[1] });
+  set();
+  const bot = createBot({ difficulty: 'ace', seed: 5 });
+  const start = Math.hypot(me.x - f.x, me.y - f.y);
+  let towardsFlower = 0;
+  for (let i = 0; i < 1.5 * TICK_RATE; i++) {
+    step(g, [{ ...bot.think(g, 0), bonk: false }]);
+    set();
+  }
+  towardsFlower = start - Math.hypot(me.x - f.x, me.y - f.y);
+  const toCarrier = Math.hypot(me.x - carrier.x, me.y - carrier.y);
+  assert.ok(toCarrier < 440 || towardsFlower < 120, `it went to meet the seed rather than off to the flower: ${Math.round(toCarrier)} from the carrier`);
+  assert.ok(Math.hypot(me.x - f.x, me.y - f.y) > 330, 'and is nowhere near the flower');
 });

@@ -282,12 +282,19 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
         if (!mem.denyRolls.has(key)) mem.denyRolls.set(key, rng() < cfg.deny);
         if (!mem.denyRolls.get(key) && !lastStand) continue;
         const near = dist(me, c) < 230 && nav.clear(me, c);
-        // Let the others have that one. With enough of them after it, the seed is
+        // Let the others have that one. With enough of them in its way, the seed is
         // theirs to stop, and the flower is free: fetch a second seed and walk it
         // home behind the commotion. Not when the first is about to get in.
+        // "Enough of them" means that many who are better placed than I am to
+        // get in its way: nearer the door it is making for. So the ones nearest
+        // home defend and the ones out by the flower go for the seed, rather than
+        // everybody leaving it to everybody else.
         if (cfg.poach && !mates.length && !lastStandFor(c) && !(dist(me, c) < 120 && nav.clear(me, c))) {
-          const others = seen.filter((e) => e.id !== c.id && !e.carrying && !e.home).length;
-          if (others >= cfg.poach) continue;
+          const entry = entries.reduce((best, en) => (nav.distance(c, en) < nav.distance(c, best) ? en : best), entries[0]);
+          const door = { x: g.homeX + 26, y: entry.y };
+          const mine = travel(door);
+          const better = seen.filter((e) => e.id !== c.id && !e.carrying && nav.distance(e, door) < mine).length;
+          if (better >= cfg.poach) continue;
         }
         // Out of reach is no reason to shrug either: everyone keeps after the seed,
         // except that with three or more chasers the one nearest the flower stays
@@ -412,7 +419,8 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       const charging = -(e.vx * dx + e.vy * dy) / d > 0.5 * SPEED;
       if (mem.duel.hold && charging && d < 150) return;
       // Someone nibbling is not going to swing: no feints, straight in.
-      if (cfg.dance && !(e.nibbler && Math.hypot(e.vx, e.vy) < 20)) {
+      // Nor against a rival with a seed: it is not there to fight, it is going past.
+      if (cfg.dance && !e.carrying && !(e.nibbler && Math.hypot(e.vx, e.vy) < 20)) {
         // Dash in to where a swing at me looks sure to land, then straight back
         // out before it does. A few feints, and if nothing bites, go in for real.
         let dn = mem.dance;

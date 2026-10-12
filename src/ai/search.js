@@ -117,6 +117,7 @@ export function createPlanner({ seed = 1 } = {}) {
     // The plans worth weighing right now.
     const plans = [];
     const add = (label, intent, drive) => plans.push({ label, intent, drive });
+    const defending = rules.mode === 'deny';
     // The rule book's plan is always in the running, and has to be beaten clearly.
     const target = rules.targetId >= 0 ? g.players[rules.targetId] : null;
     const ruleDrive = target ? chaser(target.id, rules.path || nav.findPath(me, target).points) : rules.path && rules.path.length ? walker(rules.path) : still;
@@ -127,7 +128,10 @@ export function createPlanner({ seed = 1 } = {}) {
     } else {
       const spot = map.gatherSpots.filter((s) => !rivals.some((e) => dist(e, s) < 2 * HAMSTER_R)).reduce((best, s) => (!best || nav.distance(me, s) < nav.distance(me, best) ? s : best), null) || f;
       const toSpot = dist(me, f) <= f.gatherR - 8 ? [] : nav.findPath(me, spot, cost).points;
-      add('gather', { mode: 'gather', path: toSpot.length ? toSpot : null }, toSpot.length ? walker(toSpot) : still);
+      // When the rule book says a seed has to be stopped, that is settled: looking
+      // ahead only gets to choose how. Whether to leave it to the others and go
+      // for a second seed is the rule book's call, made on who is placed to defend.
+      if (!defending) add('gather', { mode: 'gather', path: toSpot.length ? toSpot : null }, toSpot.length ? walker(toSpot) : still);
 
       const carriers = rivals.filter((c) => c.carrying && out(c)).sort((a, b) => a.x - b.x).slice(0, 2);
       for (const c of carriers) {
@@ -145,11 +149,11 @@ export function createPlanner({ seed = 1 } = {}) {
       }
       // Clear somebody out: whoever is nearest, and whoever threatens a team-mate's seed.
       const near = rivals.filter((e) => !e.carrying && out(e) && dist(me, e) < 220).sort((a, b) => dist(me, a) - dist(me, b))[0];
-      if (near) add(`hunt:${near.id}`, { mode: 'hunt', targetId: near.id, path: null }, chaser(near.id, null));
+      if (near && !defending) add(`hunt:${near.id}`, { mode: 'hunt', targetId: near.id, path: null }, chaser(near.id, null));
       const ward = mates.find((m) => m.carrying && out(m));
       if (ward) {
         const threat = rivals.filter((e) => !e.carrying && out(e)).sort((a, b) => dist(ward, a) - dist(ward, b))[0];
-        if (threat && threat !== near) add(`guard:${threat.id}`, { mode: 'hunt', targetId: threat.id, path: null }, chaser(threat.id, nav.findPath(me, threat).points));
+        if (threat && threat !== near && !defending) add(`guard:${threat.id}`, { mode: 'hunt', targetId: threat.id, path: null }, chaser(threat.id, nav.findPath(me, threat).points));
       }
     }
     if (!plans.length) return null;
