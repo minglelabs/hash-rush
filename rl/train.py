@@ -247,6 +247,7 @@ def main():
     ap.add_argument("--promote-after", type=int, default=1000, help="bot rounds to judge a stage by")
     ap.add_argument("--win", type=float, default=30)
     ap.add_argument("--lose", type=float, default=0)
+    ap.add_argument("--head-start", type=float, default=0.3, help="share of seats in bot-free rounds that start at the flower")
     ap.add_argument("--shape", type=float, default=1, help="weight of the progress pay; 0 turns it off")
     ap.add_argument("--maps", default="all", help="comma separated map ids, or all")
     ap.add_argument("--teams", type=float, default=0.5, help="share of rounds played in teams of 2 to 4 sides")
@@ -271,7 +272,7 @@ def main():
             pass
     stage = min(stage, len(STAGES) - 1)
     spar = lambda: (args.bot_env, [0, 1, 2]) if args.no_curriculum else STAGES[stage]
-    settings = {"botEnv": spar()[0], "botLevels": spar()[1], "win": args.win, "lose": args.lose, "shape": args.shape, "teams": args.teams, "frameSkip": args.frame_skip}
+    settings = {"botEnv": spar()[0], "botLevels": spar()[1], "win": args.win, "lose": args.lose, "shape": args.shape, "teams": args.teams, "frameSkip": args.frame_skip, "headStart": args.head_start}
     if args.maps != "all":
         settings["maps"] = args.maps.split(",")
     env = Workers(args.workers, args.envs, args.seed, settings)
