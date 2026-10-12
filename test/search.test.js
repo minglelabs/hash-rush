@@ -17,8 +17,9 @@ const game = (kinds, seed, map = MAPS.meadow) => {
 };
 
 test('the top bot has the hard bot\'s hands and adds looking ahead and footwork', () => {
-  const { search, dance, poach, wary, clock, boxed, toss, trail, lure, pincer, gatewise, ...hands } = DIFFICULTY.ace;
+  const { search, dance, poach, wary, clock, boxed, toss, trail, lure, pincer, gatewise, ambush, ...hands } = DIFFICULTY.ace;
   assert.ok(gatewise > 0);
+  assert.ok(ambush > 0);
   assert.ok(pincer > 0);
   assert.ok(trail > BONK.reach + BONK.windup * 166, 'it follows from beyond where a turn and a swing would reach');
   assert.ok(lure > BONK.reach, 'the dash at a nibbling rival turns back outside its reach');
@@ -483,4 +484,31 @@ test('the top bot waits at a shut gate instead of pushing against it', () => {
   const ace = pushing('ace');
   assert.ok(hard > 2, `the hard bot does push: ${hard.toFixed(1)} s a round`);
   assert.ok(ace < 1.2, `the top bot pushed for ${ace.toFixed(1)} s a round`);
+});
+
+test('the top bot turns on a rival running along at its heels and bonks it, every time', () => {
+  const tailed = (difficulty, n) => {
+    const g = createGame({ slots: Array.from({ length: 4 }, (_, i) => ({ name: `p${i}`, kind: i ? 'human' : 'bot' })), seed: n + 1 });
+    for (let i = 0; i < COUNTDOWN * TICK_RATE + 2; i++) step(g, []);
+    g.calm = true;
+    const [bot, tail, x, y] = g.players;
+    const b = g.map.bounds;
+    Object.assign(x, { x: b.x2 - 30, y: b.y1 + 30 });
+    Object.assign(y, { x: b.x2 - 30, y: b.y2 - 30 });
+    // On its way out to the flower along a lane, with a rival a little way behind.
+    const lane = g.map.laneYs[n % g.map.laneYs.length];
+    const gap = 46 + (n % 3) * 6;
+    Object.assign(bot, { x: g.homeX + 120, y: lane, vx: 185, vy: 0 });
+    Object.assign(tail, { x: bot.x - gap, y: lane, vx: 185, vy: 0 });
+    const brain = createBot({ difficulty, seed: n + 3 });
+    for (let t = 0; t < 1.2 * TICK_RATE && g.phase === 'playing'; t++) {
+      const d = Math.hypot(bot.x - tail.x, bot.y - tail.y) || 1;
+      step(g, [brain.think(g, 0), { mx: (bot.x - tail.x) / d, my: (bot.y - tail.y) / d, bonk: false }]);
+      if (tail.deaths) return true;
+    }
+    return false;
+  };
+  let ace = 0;
+  for (let n = 0; n < 12; n++) if (tailed('ace', n)) ace++;
+  assert.ok(ace >= 11, `the follower went down ${ace} times out of 12`);
 });

@@ -60,6 +60,10 @@ export const DEFAULTS = {
   // with the seed), so it adds up to nothing over a round trip and does not
   // change which way of playing is best.
   shape: 1,
+  // Share of the policy's seats, in rounds without scripted bots, that start at the
+  // flower, half of them already holding a seed, so nibbling and the run home are
+  // seen early instead of waiting on luck.
+  headStart: 0,
 };
 
 // ---------- what the map looks like to a policy ----------
@@ -245,6 +249,23 @@ export function createEnvs(settings = {}) {
     }
     const g = createGame({ slots, map: MAPS[pick(cfg.maps)], seed: Math.floor(rnd() * 1e9) });
     while (g.phase === 'countdown') step(g, []);
+    if (!withBots) {
+      const f = g.map.flower;
+      for (const p of g.players) {
+        if (rnd() >= cfg.headStart) continue;
+        for (let t = 0; t < 10; t++) {
+          const a = rnd() * 2 * Math.PI;
+          const d = f.r + HAMSTER_R + rnd() * (f.gatherR - f.r - HAMSTER_R);
+          const x = f.x + Math.cos(a) * d;
+          const y = f.y + Math.sin(a) * d;
+          if (!isFree(g.map, x, y, HAMSTER_R)) continue;
+          p.x = x;
+          p.y = y;
+          p.carrying = rnd() < 0.5;
+          break;
+        }
+      }
+    }
     envs[e] = { g, bots, teams, mapIndex: MAP_IDS.indexOf(g.map.id), prev: g.players.map(() => 0), deaths: g.players.map(() => 0), phi: g.players.map((p) => potential(g, p)) };
   }
 
