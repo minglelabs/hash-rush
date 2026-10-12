@@ -7,6 +7,8 @@
   "scripts": {
     "dev": "python3 -m http.server 5173",
     "test": "node --test",
-    "sim": "node tools/simulate.js"
+    "sim": "node tools/simulate.js",
+    "rl:train": "python3 rl/train.py",
+    "rl:play": "node rl/play.js"
   }
 }
