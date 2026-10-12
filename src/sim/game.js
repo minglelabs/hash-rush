@@ -188,7 +188,7 @@ function respawn(g, p) {
 // Nobody brought a seed home in time: the side with the most bonks takes the
 // round, then the fewest times bonked, then the most seeds picked. Sides still
 // level after that share the win. A team counts as one side.
-function timeoutWinners(players) {
+export function timeoutRanking(players) {
   const sides = new Map();
   for (const p of players) {
     const key = p.team >= 0 ? `t${p.team}` : `p${p.id}`;
@@ -199,9 +199,24 @@ function timeoutWinners(players) {
     side.seeds += p.seeds;
     sides.set(key, side);
   }
-  const rank = (a, b) => b.kills - a.kills || a.deaths - b.deaths || b.seeds - a.seeds;
-  const sorted = [...sides.values()].sort(rank);
-  return sorted.filter((s) => rank(s, sorted[0]) === 0).flatMap((s) => s.ids);
+  return [...sides.values()].sort(rankSides);
+}
+
+const rankSides = (a, b) => b.kills - a.kills || a.deaths - b.deaths || b.seeds - a.seeds;
+
+function timeoutWinners(players) {
+  const sorted = timeoutRanking(players);
+  return sorted.filter((s) => rankSides(s, sorted[0]) === 0).flatMap((s) => s.ids);
+}
+
+// What settled a round that ran out of time: 'bonks', 'bonked' or 'seeds' for the
+// first count that set the winner apart from the runner-up, 'tie' for a shared win.
+export function timeoutReason(players) {
+  const [top, next] = timeoutRanking(players);
+  if (!next || top.kills !== next.kills) return { by: 'bonks', n: top.kills };
+  if (top.deaths !== next.deaths) return { by: 'bonked', n: top.deaths };
+  if (top.seeds !== next.seeds) return { by: 'seeds', n: top.seeds };
+  return { by: 'tie', n: top.kills };
 }
 
 // Credits `a` with knocking out `victims`, by a bonk or a thrown seed.

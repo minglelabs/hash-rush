@@ -4,7 +4,7 @@
 // Online play has no server. The host's browser runs the simulation; guests send
 // their inputs and draw the snapshots the host sends back.
 
-import { createGame, step, allied } from '../sim/game.js';
+import { createGame, step, allied, timeoutReason } from '../sim/game.js';
 import { DT, OVERTIME, COUNTDOWN } from '../sim/constants.js';
 import { MAP, MAPS, MAP_IDS } from '../sim/map.js';
 import { createBot } from '../ai/bot.js';
@@ -1437,17 +1437,21 @@ function showResult() {
   }
   const winner = game.players[game.winner];
   const winners = game.winners.map((id) => game.players[id]);
-  if (winners.some((p) => !allied(p, winner) && p !== winner)) {
-    // Time ran out with the top sides level: they share the round.
-    $('resultTitle').textContent = t('winShared', winners.map((p) => p.name).join(', '));
-  } else if (winner.team >= 0) {
-    $('resultTitle').textContent = meId >= 0 && won(game.players[meId]) ? t('winTeamMe') : t('winTeam', t('teamNames')[winner.team]);
-  } else {
-    $('resultTitle').textContent = game.winner === meId ? t('winMe') : t('winOther', winner.name);
-  }
+  // Time ran out with the top sides level: they share the round.
+  const shared = winners.some((p) => !allied(p, winner) && p !== winner);
+  const who = shared ? winners.map((p) => p.name).join(', ') : winner.team >= 0 ? t('teamNames')[winner.team] : winner.name;
+  // The verdict is the player's own: a win or a loss, said outright. A spectator has neither.
+  const mine = meId >= 0 ? (won(game.players[meId]) ? 'win' : 'lose') : '';
+  const title = $('resultTitle');
+  title.textContent = mine === 'win' ? t('victory') : mine === 'lose' ? t('defeat') : t('roundOver');
+  title.className = mine;
+  $('resultWinner').textContent = `🏆 ${t(shared ? 'winnersShared' : 'winnerIs', who)}`;
+  // A round that ran out of time says what settled it.
+  const why = game.timeout ? timeoutReason(game.players) : null;
+  $('resultWhy').hidden = !why;
+  if (why) $('resultWhy').textContent = t({ bonks: 'whyBonks', bonked: 'whyBonked', seeds: 'whySeeds', tie: 'whyTie' }[shared ? 'tie' : why.by], who, why.n);
   $('board').hidden = true;
   fillScores($('resultTable'));
-  if (game.timeout) $('resultTitle').textContent = `⏰ ${$('resultTitle').textContent}`;
   $('result').hidden = false;
   syncChat();
   // The card can be put away to look around, so the rematch button is also outside it.
