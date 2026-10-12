@@ -87,6 +87,7 @@ test('one bonk sends the victim back to its nest empty-handed', () => {
   assert.ok(a.swing, 'swing started');
   run(g, BONK.windup + 0.05);
   assert.equal(a.kills, 1);
+  assert.equal(a.stops, 1, 'it had the seed, so that is a stop as well');
   assert.equal(b.deaths, 1);
   assert.equal(b.carrying, false);
   assert.deepEqual([b.x, b.y], [b.nest.x, b.nest.y]);
