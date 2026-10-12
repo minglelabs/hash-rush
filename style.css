@@ -735,6 +735,15 @@ button.primary:active {
   gap: 0.4em;
 }
 
+/* On a wide screen the buttons sit in a row; a tall one folds them behind "⋯". */
+#toolsMenu {
+  display: contents;
+}
+
+#toolsMore {
+  display: none;
+}
+
 #stick {
   position: fixed;
   width: 110px;
@@ -1087,6 +1096,53 @@ button.primary:active {
   #tools button {
     min-height: 44px;
     padding: 0.35em 1em;
+  }
+
+  /* The strip under the map is too narrow for every button beside the bonk
+     button, so they fold into a menu that opens upwards. */
+  #toolsMore {
+    display: inline-block;
+  }
+
+  #toolsMore.unread::after {
+    content: '';
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #e23d3d;
+    border: 2px solid #fff;
+  }
+
+  #toolsMore {
+    position: relative;
+  }
+
+  #toolsMenu {
+    display: none;
+    position: absolute;
+    left: 0;
+    bottom: calc(100% + 8px);
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    white-space: nowrap;
+  }
+
+  #tools.open #toolsMenu {
+    display: flex;
+  }
+
+  /* Over the map the menu has to read clearly. */
+  #tools #toolsMenu button {
+    background: rgba(255, 255, 255, 0.92);
+  }
+
+  .bonk-left #toolsMenu {
+    left: auto;
+    right: 0;
   }
 
   #hint,
@@ -1451,9 +1507,49 @@ button.primary:active {
   white-space: nowrap;
 }
 
+/* A narrow screen shows this round or the running totals, one at a time. */
+.scoreTable caption {
+  display: none;
+}
+
 @media (max-width: 640px), (orientation: portrait) {
   .scoreTable {
-    font-size: 11px;
+    font-size: 13px;
+  }
+
+  .scoreTable caption {
+    display: table-caption;
+    caption-side: top;
+    padding-bottom: 8px;
+  }
+
+  .scoreTabs {
+    display: flex;
+    gap: 6px;
+  }
+
+  .scoreTabs button {
+    flex: 1;
+    padding: 0.35em 0.6em;
+    font-size: 14px;
+    opacity: 0.6;
+    pointer-events: auto;
+  }
+
+  .scoreTabs button.on {
+    background: #ffd23f;
+    opacity: 1;
+  }
+
+  .scoreTable[data-view='round'] .total,
+  .scoreTable[data-view='total'] .round,
+  .scoreTable .groups th.round,
+  .scoreTable .groups th.total {
+    display: none;
+  }
+
+  .scoreTable .split {
+    border-left: 0;
   }
 
   .scoreTable th {
