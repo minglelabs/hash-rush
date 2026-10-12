@@ -63,7 +63,11 @@ export const DIFFICULTY = {
 //   still, so it nibbles on only while no rival can reach it before the seed comes
 //   loose, and it does not budge then. When one can, it goes out and meets it
 //   first: a rival sent back to its nest is away for longer than a seed takes.
-DIFFICULTY.ace = { ...DIFFICULTY.hard, search: true, dance: true, poach: 2, wary: 0.5, clock: 0.15, toss: 0, boxed: 120, trail: 78, lure: 54, pincer: 60 };
+// ambush: a rival that has run along at its heels for this many seconds is not
+//   feinting, it is following, and a follower runs straight into a swing: the bot
+//   stops dead, turns and swings the moment that swing would land. Every time,
+//   where the hard bot only does it when it happens to feel like a swing.
+DIFFICULTY.ace = { ...DIFFICULTY.hard, search: true, dance: true, poach: 2, wary: 0.5, clock: 0.15, toss: 0, boxed: 120, trail: 78, lure: 54, pincer: 60, ambush: 0.2 };
 
 const TOUCH = 2 * HAMSTER_R;
 const DANGER_R = 110;
@@ -134,6 +138,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
     nibbling: false,
     flank: false,
     flee: { id: -1, since: 0, tick: -1 },
+    tail: new Map(),
     cut: null,
     dance: { id: -1, expires: 0 },
     fooled: new Map(),
@@ -839,14 +844,23 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
         // Standing right where I am trying to go: the only way past is through.
         const inMyWay = d < BONK.reach && (wantX * dx + wantY * dy) / d > 0.5;
         const wanted = inMyWay || e.carrying || e.id === mem.targetId || e.swing === 'recovery' || (!me.carrying && e.nibbler);
-        if (!hostile && !wanted && rng() >= cfg.opportunism * DT) continue;
+        // At my heels, both of us running the same way, for long enough to be sure.
+        let ambush = false;
+        if (cfg.ambush) {
+          const tailing = !e.swing && !e.carrying && -(me.vx * dx + me.vy * dy) / d > 0.45 * SPEED && -(e.vx * dx + e.vy * dy) / d > 0.45 * SPEED;
+          const was = mem.tail.get(e.id);
+          const since = tailing ? (was && was.tick === g.tick - 1 ? was.since : now) : -1;
+          if (tailing) mem.tail.set(e.id, { tick: g.tick, since });
+          ambush = tailing && now - since >= cfg.ambush;
+        }
+        if (!hostile && !wanted && !ambush && rng() >= cfg.opportunism * DT) continue;
         // The rival is not in reach yet, only on its way: this swing counts on it
         // carrying on. That is exactly what a feint looks like, so a wary bot
         // often lets it come, backing off, and swings once it is really there.
         // A rival with a seed has to come through, so that one is swung at as ever.
         // Not against a rival standing at the flower with its head down.
         const busy = e.nibbler && Math.hypot(e.vx, e.vy) < 20;
-        if (cfg.wary && !e.swing && !e.carrying && !busy) {
+        if (cfg.wary && !ambush && !e.swing && !e.carrying && !busy) {
           const fooled = mem.fooled.get(e.id) || 0;
           const turns = mem.habit.get(e.id)?.turns || [];
           const there = d <= BONK.reach - 3 && closing > -0.2 * SPEED;
