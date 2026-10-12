@@ -185,10 +185,12 @@ export function steer(g, me, dx, dy, st) {
 
 // One of these stands between a slot's controller and the simulation. An input
 // marked as coming off the touch stick gets its move straightened out; any other
-// passes through untouched.
-export function createLaneHelp() {
-  let st = freshSteer();
-  return (g, me, inp) => {
+// passes through untouched. `memory()` is what it remembers, and one made `from`
+// that carries on from there: a guest's page does so to steer its own hamster the
+// way the host is about to (predict.js).
+export function createLaneHelp(from = null) {
+  let st = from ? { ...from } : freshSteer();
+  const help = (g, me, inp) => {
     if (!inp.stick) {
       st = freshSteer();
       return inp;
@@ -198,4 +200,6 @@ export function createLaneHelp() {
     inp.my = move.y;
     return inp;
   };
+  help.memory = () => st;
+  return help;
 }
