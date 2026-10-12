@@ -145,7 +145,10 @@ export function stepHazards(g) {
 
 // Extra path cost for legs that run through trouble, for the bots' route finding:
 // a pit or a cannon's line of fire, warned or live, and a gate that is in the way.
-export function hazardCost(g) {
+// `pace` ({ x, y, v }) is for a bot that times a cannon: where it is and how fast
+// it walks. A line it will be through before the cannon fires, or will only reach
+// once the seed has landed, costs it nothing.
+export function hazardCost(g, pace) {
   const { map } = g;
   const gates = g.gates || [];
   if (!g.hazards.length && !gates.length) return () => 0;
@@ -158,7 +161,14 @@ export function hazardCost(g) {
         const ex = h.x + h.dx * HAZARD.cannon.range;
         const ey = h.y + h.dy * HAZARD.cannon.range;
         const near = Math.min(distToSegment(p.x, p.y, h.x, h.y, ex, ey), distToSegment(q.x, q.y, h.x, h.y, ex, ey), distToSegment(h.x, h.y, p.x, p.y, q.x, q.y), distToSegment(ex, ey, p.x, p.y, q.x, q.y));
-        if (near < HAZARD.cannon.width && segmentClear(map, h.x, h.y, (p.x + q.x) / 2, (p.y + q.y) / 2, 0)) c += 1200;
+        if (near < HAZARD.cannon.width && segmentClear(map, h.x, h.y, (p.x + q.x) / 2, (p.y + q.y) / 2, 0)) {
+          if (pace) {
+            const reach = Math.min(Math.hypot(p.x - pace.x, p.y - pace.y), Math.hypot(q.x - pace.x, q.y - pace.y)) / pace.v;
+            const left = HAZARD.cannon.warn - h.age;
+            if (left > reach + 0.6 || reach > left + HAZARD.cannon.range / HAZARD.cannon.speed + 0.1) continue;
+          }
+          c += 1200;
+        }
       }
     }
     for (const r of gates) {

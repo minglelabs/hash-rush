@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createGame, step } from '../src/sim/game.js';
-import { createBot } from '../src/ai/bot.js';
+import { createBot, DIFFICULTY } from '../src/ai/bot.js';
 import { getNav } from '../src/ai/nav.js';
-import { HAZARD, SKY, gatesNow, kindsNow, iceNow } from '../src/sim/hazards.js';
+import { HAZARD, SKY, gatesNow, kindsNow, iceNow, hazardCost } from '../src/sim/hazards.js';
 import { COUNTDOWN, HAMSTER_R, ICE, SPEED, TICK_RATE } from '../src/sim/constants.js';
 import { MAPS, MAP_IDS, MAP, gatesAt, isFree } from '../src/sim/map.js';
 
@@ -271,4 +271,23 @@ test('the sky has pits and waves by day, gates and ice by night, and cannons all
   stand();
   step(g, [{ mx: 1, my: 0, bonk: false }]);
   assert.ok(p.vx > 0 && p.vx < SPEED / 4, `still getting going: ${p.vx}`);
+});
+
+test('the hard and top bots time a cannon: a line they can be through before it fires is no obstacle', () => {
+  assert.equal(DIFFICULTY.hard.nerve, true);
+  assert.equal(DIFFICULTY.ace.nerve, true);
+  assert.equal(DIFFICULTY.normal.nerve, undefined, 'the weaker bots stop as soon as it shows');
+  const map = MAPS.factory;
+  const spot = map.cannonSpots[0];
+  // A leg that comes into the cannon's line near its mouth.
+  const mid = { x: spot.x + spot.dx * 20, y: spot.y + spot.dy * 20 };
+  const p = { x: mid.x - spot.dy * 30, y: mid.y + spot.dx * 30 };
+  const q = { x: mid.x + spot.dy * 30, y: mid.y - spot.dx * 30 };
+  const cost = (age, pace) => hazardCost({ map, gates: [], hazards: [{ kind: 'cannon', ...spot, age }] }, pace)(p, q);
+  const near = { x: p.x, y: p.y, v: SPEED };
+  const far = { x: p.x - spot.dy * 600, y: p.y + spot.dx * 600, v: SPEED };
+  assert.ok(cost(0) > 0, 'without timing, a warned line is trouble from the start');
+  assert.equal(cost(0, near), 0, 'just warned and right beside it: through long before it fires');
+  assert.ok(cost(HAZARD.cannon.warn - 0.3, near) > 0, 'about to fire: wait');
+  assert.equal(cost(0.2, far), 0, 'too far off to matter: the seed has landed before it gets there');
 });

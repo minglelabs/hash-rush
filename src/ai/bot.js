@@ -23,6 +23,9 @@ export const DIFFICULTY = {
   // volley: chance to throw it when it would take down two, or a rival's seed
   // thrifty: within this many pixels of home it never throws its seed away. The
   //   seed is the win; a rival knocked down there is worth nothing next to it.
+  // nerve: it times a cannon instead of stopping the moment one shows red: it walks
+  //   on through the line while it can be out again before the seed is fired, and
+  //   holds back only when it cannot.
   // freeze: how long it dithers before a swing it has decided on (seconds)
   // rally: whether it joins the chase after a seed it cannot head off in time
   // The rookie keeps to four simple things: go for a seed, go and stop a rival who
@@ -33,7 +36,7 @@ export const DIFFICULTY = {
   normal: { reaction: 0.24, lead: 0.4, margin: 2, jitter: 4, bait: 0.25, hold: 0.5, deny: 0.7, hunt: 0.7, opportunism: 0.8, caution: 0.8, freeze: 0.09, rally: true, toss: 0.3, volley: 0.8 },
   // search: instead of the fixed rules below, it plays each plan forward in a copy
   //   of the game and picks the best (see search.js). Hands as good as hard's.
-  hard: { reaction: 0.12, lead: 0.9, margin: 3, jitter: 1, bait: 0.55, hold: 1, deny: 1, hunt: 1, opportunism: 1.5, caution: 1.2, freeze: 0, rally: true, toss: 0.5, volley: 1, thrifty: 330 },
+  hard: { reaction: 0.12, lead: 0.9, margin: 3, jitter: 1, bait: 0.55, hold: 1, deny: 1, hunt: 1, opportunism: 1.5, caution: 1.2, freeze: 0, rally: true, toss: 0.5, volley: 1, thrifty: 330, nerve: true },
 };
 // dance: up close it feints instead of walking in: a dash at the rival to draw a
 //   swing, a step back out of reach so the swing misses, then in for the hit.
@@ -200,7 +203,10 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
     const eta = (p) => now + (dist(me, p) * 1.3) / SPEED;
     const shut = (p, q) => (gateHit(p, q, gatesWhen(eta(p)), 3) || gateHit(p, q, gatesWhen(eta(q)), 3) ? cfg.gatewise : 0);
     // Pits, cannons about to fire and shut gates are as good as blocked too.
-    const trouble = cfg.gatewise && map.gates.length ? hazardCost({ ...g, gates: [] }) : hazardCost(g);
+    const slippery = iceNow(map, now).some((r) => me.x >= r.x && me.x <= r.x + r.w && me.y >= r.y && me.y <= r.y + r.h);
+    // How fast it can count on walking: a seed, and wet fur, slow it down.
+    const pace = cfg.nerve && !slippery ? { x: me.x, y: me.y, v: SPEED * (me.carrying ? 0.8 : 1) * (me.wet > 0 ? HAZARD.wave.slow : 1) } : null;
+    const trouble = cfg.gatewise && map.gates.length ? hazardCost({ ...g, gates: [] }, pace) : hazardCost(g, pace);
     const blocked = cfg.gatewise && map.gates.length ? (p, q) => inLane(p, q) + trouble(p, q) + shut(p, q) : (p, q) => inLane(p, q) + trouble(p, q);
 
     const steerTo = (pt) => {
@@ -672,7 +678,19 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       const ahead = { x: me.x + out.mx * 26, y: me.y + out.my * 26 };
       for (const h of g.hazards) {
         const pit = h.kind === 'trap' && Math.hypot(ahead.x - h.x, ahead.y - h.y) < HAZARD.trap.r + 8 && Math.hypot(me.x - h.x, me.y - h.y) >= HAZARD.trap.r;
-        const shot = h.kind === 'cannon' && inCannonLine(map, h, ahead) && !inCannonLine(map, h, me);
+        let shot = h.kind === 'cannon' && inCannonLine(map, h, ahead) && !inCannonLine(map, h, me);
+        // Walk on if that gets it out of the line again before the seed comes by.
+        if (shot && pace) {
+          const spec = HAZARD.cannon;
+          shot = false;
+          for (let t = 0; t < spec.warn - h.age + spec.range / spec.speed + 0.1 && !shot; t += 2 * DT) {
+            const at = { x: me.x + out.mx * pace.v * t, y: me.y + out.my * pace.v * t };
+            if (!inCannonLine(map, h, at)) continue;
+            const along = (at.x - h.x) * h.dx + (at.y - h.y) * h.dy;
+            const age = h.age + t;
+            shot = age > spec.warn - 0.15 && age < spec.warn + (along + HAMSTER_R) / spec.speed + 0.06;
+          }
+        }
         if (pit || shot) {
           out.mx = 0;
           out.my = 0;
