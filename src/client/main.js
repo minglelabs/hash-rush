@@ -796,6 +796,8 @@ function syncChat() {
     $(`${id}Btn`).hidden = !net.role;
     $(`${id}Btn`).textContent = t('chatLabel') + (unread ? ` (${unread})` : '');
   }
+  // Folded away on a tall screen, the chat button cannot show its count itself.
+  $('toolsMore').classList.toggle('unread', !!net.role && unread > 0);
 }
 
 // What each slot last said, shown for a few seconds as a speech bubble over its
@@ -1146,8 +1148,34 @@ function addCareer() {
 // The score table: this round's numbers, then the running totals for the room,
 // each under its own heading. The corner says which game of the room this is.
 // It is the result screen's table and the one Tab brings up mid-round.
+// Which half a narrow screen shows; a wide one shows both side by side.
+let scoreView = 'round';
+
+function setScoreView(view) {
+  scoreView = view;
+  for (const table of document.querySelectorAll('.scoreTable')) {
+    table.dataset.view = view;
+    for (const b of table.querySelectorAll('.scoreTabs button')) b.classList.toggle('on', b.dataset.view === view);
+  }
+}
+
 function fillScores(table) {
   table.textContent = '';
+  const tabs = document.createElement('div');
+  tabs.className = 'scoreTabs';
+  for (const [view, label] of [['round', t('thisRound')], ['total', t('totals')]]) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.dataset.view = view;
+    b.textContent = label;
+    b.addEventListener('click', (e) => {
+      // The mid-round table closes on a tap anywhere else on it.
+      e.stopPropagation();
+      setScoreView(view);
+    });
+    tabs.append(b);
+  }
+  table.createCaption().append(tabs);
   const th = (row, text, span = 1) => {
     const cell = document.createElement('th');
     cell.textContent = text;
@@ -1159,11 +1187,11 @@ function fillScores(table) {
   const groups = table.insertRow();
   groups.className = 'groups';
   th(groups, t('gameNo', rounds + (game.counted ? 0 : 1)));
-  th(groups, t('thisRound'), ROUND_COLS.length);
+  th(groups, t('thisRound'), ROUND_COLS.length).classList.add('round');
   th(groups, t('totals'), TOTAL_COLS.length + 3).classList.add('total', 'split');
   const head = table.insertRow();
   th(head, '');
-  ROUND_COLS.forEach((c) => th(head, cols[c]));
+  ROUND_COLS.forEach((c) => th(head, cols[c]).classList.add('round'));
   [...TOTAL_COLS.map((c) => cols[c]), t('colWins'), t('colScore')].forEach((h, k) => {
     const cell = th(head, h);
     cell.classList.add('total');
@@ -1191,7 +1219,7 @@ function fillScores(table) {
     [...ROUND_COLS.map((c) => round[c]), ...TOTAL_COLS.map((c) => total[c]), wins[p.look], mvpScore(total)].forEach((v, k) => {
       const cell = row.insertCell();
       cell.textContent = v;
-      cell.classList.toggle('total', k >= ROUND_COLS.length);
+      cell.classList.add(k >= ROUND_COLS.length ? 'total' : 'round');
       cell.classList.toggle('split', k === ROUND_COLS.length);
     });
     row.lastChild.classList.add('score');
@@ -1211,6 +1239,7 @@ function fillScores(table) {
   const cell = rule.insertCell();
   cell.colSpan = ROUND_COLS.length + TOTAL_COLS.length + 4;
   cell.textContent = `${t('mvpRule')} = ${TOTAL_COLS.filter((c) => MVP_POINTS[c]).map((c) => `${cols[c]} ×${MVP_POINTS[c]}`).join(' + ')}`;
+  setScoreView(scoreView);
 }
 
 let boardKey = '';
@@ -1650,6 +1679,13 @@ $('resultClose').addEventListener('click', () => ($('result').hidden = true));
 // A click on the dimmed map around the card also puts it away.
 $('result').addEventListener('click', (e) => e.target === $('result') && ($('result').hidden = true));
 $('againBtn').addEventListener('click', startGame);
+// On a tall screen the field buttons fold behind "⋯". Choosing one, or touching
+// anywhere else, folds them away again.
+$('toolsMore').addEventListener('click', () => $('tools').classList.toggle('open'));
+$('toolsMenu').addEventListener('click', () => $('tools').classList.remove('open'));
+window.addEventListener('pointerdown', (e) => {
+  if (!$('tools').contains(e.target)) $('tools').classList.remove('open');
+});
 $('board').addEventListener('click', () => showBoard(false));
 // The same sound button sits in the lobby and on the field.
 const soundButtons = ['mute', 'muteLobby'].map($);
