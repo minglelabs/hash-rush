@@ -2,6 +2,10 @@
 // It runs the game's own simulation, so what is learned here is the real game.
 //
 // Protocol: the trainer writes one JSON line of settings, then one frame of actions
+// per step. Each frame starts with two bytes that set the sparring partners for the
+// rounds dealt from then on: the percentage of rounds with scripted bots in them,
+// and which bot levels may sit in (bit 0 easy, bit 1 normal, ...).
+// In short: one JSON line of settings, then one frame of actions
 // per decision (envs * MAX_P * 3 bytes: move 0-8, bonk 0/1, throw 0/1). This side
 // answers with a JSON header line and then, per decision, one frame of:
 //   obs    float32  envs * MAX_P * OBS
@@ -428,6 +432,8 @@ export function createEnvs(settings = {}) {
 
 // ---------- the pipe ----------
 
+const HEAD = 2;
+
 function serve() {
   let buffered = Buffer.alloc(0);
   let envs = null;
@@ -443,12 +449,15 @@ function serve() {
       if (nl < 0) return;
       envs = createEnvs(JSON.parse(buffered.subarray(0, nl).toString()));
       buffered = buffered.subarray(nl + 1);
-      frame = envs.cfg.envs * MAX_P * 3;
+      frame = HEAD + envs.cfg.envs * MAX_P * 3;
       process.stdout.write(`${JSON.stringify({ obs: OBS, maxPlayers: MAX_P, envs: envs.cfg.envs })}\n`);
       send();
     }
     while (buffered.length >= frame) {
-      envs.act(new Uint8Array(buffered.subarray(0, frame)));
+      envs.cfg.botEnv = buffered[0] / 100;
+      const levels = BOT_LEVELS.map((_, i) => i).filter((i) => buffered[1] & (1 << i));
+      if (levels.length) envs.cfg.botLevels = levels;
+      envs.act(new Uint8Array(buffered.subarray(HEAD, frame)));
       buffered = buffered.subarray(frame);
       send();
     }
