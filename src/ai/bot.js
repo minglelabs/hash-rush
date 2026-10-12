@@ -2,11 +2,11 @@
 // the same input object a human does, so any slot can be swapped between the two.
 
 import { DT, SPEED, CARRY_SPEED, HAMSTER_R, BONK, THROW, gatherTime } from '../sim/constants.js';
-import { distToSegment, isFree, segmentClear } from '../sim/map.js';
+import { distToSegment, isFree, segmentClear, segmentHitsRect } from '../sim/map.js';
 import { inHome, allied } from '../sim/game.js';
 import { mulberry32 } from '../sim/rng.js';
 import { getNav, blockCost } from './nav.js';
-import { HAZARD, hazardCost, inCannonLine, iceNow } from '../sim/hazards.js';
+import { HAZARD, hazardCost, inCannonLine, iceNow, gatesNow } from '../sim/hazards.js';
 import { createPlanner, SEARCH } from './search.js';
 
 export const DIFFICULTY = {
@@ -59,11 +59,15 @@ export const DIFFICULTY = {
 //   same way: the best placed cuts off the way it is going, the next covers the
 //   way it would turn to instead, any others run it down from behind. Within this
 //   many pixels of each other the lower-numbered one counts as better placed.
+// gatewise: it knows the gates. It does not take one for open ground (no seeing or
+//   swinging through it), waits in front of a shut one instead of pushing, and
+//   routes by where each gate will be when it gets there. The number is what a
+//   leg through a gate that will be shut then costs, in pixels of walking.
 // clock: at the flower it counts. A seed takes a couple of seconds of standing
 //   still, so it nibbles on only while no rival can reach it before the seed comes
 //   loose, and it does not budge then. When one can, it goes out and meets it
 //   first: a rival sent back to its nest is away for longer than a seed takes.
-DIFFICULTY.ace = { ...DIFFICULTY.hard, search: true, dance: true, poach: 2, wary: 0.5, clock: 0.15, toss: 0, boxed: 120, trail: 78, lure: 54, pincer: 60 };
+DIFFICULTY.ace = { ...DIFFICULTY.hard, search: true, dance: true, poach: 2, wary: 0.5, clock: 0.15, toss: 0, boxed: 120, trail: 78, lure: 54, pincer: 60, gatewise: 300 };
 
 const TOUCH = 2 * HAMSTER_R;
 const DANGER_R = 110;
@@ -175,9 +179,24 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
     const entries = map.rowYs.map((y) => ({ x: g.homeX - 14, y })).filter((p) => isFree(map, p.x, p.y, HAMSTER_R));
     // A lane with someone in it cannot be passed, so paths cost more through it.
     const inLane = blockCost(map, seen);
+    // Gates. The bot that knows them does not take a gate for open ground: it
+    // cannot see or bonk through one, it does not walk into one, and it routes by
+    // where each gate will be when it gets there, not where it is now.
+    const gates = cfg.gatewise && map.gates.length ? g.gates || [] : [];
+    const gateHit = (a, b, list, pad) => list.some((r) => segmentHitsRect(a.x, a.y, b.x, b.y, r.x - pad, r.y - pad, r.x + r.w + pad, r.y + r.h + pad));
+    const clear = (a, b) => nav.clear(a, b) && !(gates.length && gateHit(a, b, gates, 0));
+    const later = new Map();
+    const gatesWhen = (t) => {
+      const k = Math.round(t * 4);
+      if (!later.has(k)) later.set(k, gatesNow(map, k / 4, g.homeX));
+      return later.get(k);
+    };
+    // A maze makes the way there longer than the crow flies.
+    const eta = (p) => now + (dist(me, p) * 1.3) / SPEED;
+    const shut = (p, q) => (gateHit(p, q, gatesWhen(eta(p)), 3) || gateHit(p, q, gatesWhen(eta(q)), 3) ? cfg.gatewise : 0);
     // Pits, cannons about to fire and shut gates are as good as blocked too.
-    const trouble = hazardCost(g);
-    const blocked = (p, q) => inLane(p, q) + trouble(p, q);
+    const trouble = cfg.gatewise && map.gates.length ? hazardCost({ ...g, gates: [] }) : hazardCost(g);
+    const blocked = cfg.gatewise && map.gates.length ? (p, q) => inLane(p, q) + trouble(p, q) + shut(p, q) : (p, q) => inLane(p, q) + trouble(p, q);
 
     const steerTo = (pt) => {
       const dx = pt.x - me.x;
@@ -317,7 +336,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
         const key = c.id * 1000 + c.seeds;
         if (!mem.denyRolls.has(key)) mem.denyRolls.set(key, rng() < cfg.deny);
         if (!mem.denyRolls.get(key) && !lastStand) continue;
-        const near = dist(me, c) < 230 && nav.clear(me, c);
+        const near = dist(me, c) < 230 && clear(me, c);
         // Let the others have that one. With enough of them in its way, the seed is
         // theirs to stop, and the flower is free: fetch a second seed and walk it
         // home behind the commotion. Not when the first is about to get in.
@@ -484,7 +503,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
           expires: now + 2.4 + rng(),
         };
       }
-      if (!nav.clear(me, e)) {
+      if (!clear(me, e)) {
         follow(route(e).points);
         return;
       }
@@ -593,7 +612,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
         let eta = Infinity;
         for (const e of seen) {
           if (e.home || e.carrying) continue;
-          const t = Math.max(0, (nav.clear(me, e) ? dist(me, e) : nav.distance(me, e)) - BONK.reach) / SPEED + BONK.windup;
+          const t = Math.max(0, (clear(me, e) ? dist(me, e) : nav.distance(me, e)) - BONK.reach) / SPEED + BONK.windup;
           if (t < eta) {
             eta = t;
             first = e;
@@ -624,7 +643,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       for (const e of seen) {
         if (e.home) continue;
         const d = dist(me, e);
-        if (d > 150 || !nav.clear(me, e)) continue;
+        if (d > 150 || !clear(me, e)) continue;
         if ((out.mx * (e.x - me.x) + out.my * (e.y - me.y)) / (d || 1) < 0.5) continue;
         out.mx = 0;
         out.my = 0;
@@ -632,7 +651,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
         break;
       }
     } else if (mem.mode === 'deny' && target) {
-      if (dist(me, target) < (mem.flank ? 100 : 230) && nav.clear(me, target)) engage(target);
+      if (dist(me, target) < (mem.flank ? 100 : 230) && clear(me, target)) engage(target);
       else if (mem.path) {
         follow(mem.path);
       } else engage(target);
@@ -655,6 +674,12 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
           break;
         }
       }
+    }
+
+    // A shut gate right ahead: wait for it rather than push against it.
+    if (gates.length && (out.mx || out.my) && gateHit(me, { x: me.x + out.mx * 24, y: me.y + out.my * 24 }, gates, 3)) {
+      out.mx = 0;
+      out.my = 0;
     }
 
     // Break out of the rare case where steering presses into a corner.
@@ -749,7 +774,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
           const sure = ahead.length > 1 || ahead[0].carrying;
           // Caught between one ahead and one coming up behind, the seed is lost
           // either way: then it may as well take somebody with it.
-          const boxed = cfg.boxed && seen.some((e) => !e.home && !ahead.includes(e) && dist(me, e) < cfg.boxed && nav.clear(me, e) && (e.x - me.x) * hx + (e.y - me.y) * hy < 0);
+          const boxed = cfg.boxed && seen.some((e) => !e.home && !ahead.includes(e) && dist(me, e) < cfg.boxed && clear(me, e) && (e.x - me.x) * hx + (e.y - me.y) * hy < 0);
           mem.tossRoll = { id: ahead[0].id, until: now + 3, yes: rng() < (sure || boxed ? cfg.volley : cfg.toss) };
         }
         mem.toss = mem.tossRoll.yes ? { id: ahead[0].id } : false;
@@ -830,7 +855,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       for (const e of seen) {
         if (e.home) continue;
         const p = predictSwing(me, e, lead);
-        if (p.dist > limit || !nav.clear(me, e)) continue;
+        if (p.dist > limit || !clear(me, e)) continue;
         const dx = e.x - me.x;
         const dy = e.y - me.y;
         const d = Math.hypot(dx, dy) || 1;

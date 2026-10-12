@@ -17,7 +17,8 @@ const game = (kinds, seed, map = MAPS.meadow) => {
 };
 
 test('the top bot has the hard bot\'s hands and adds looking ahead and footwork', () => {
-  const { search, dance, poach, wary, clock, boxed, toss, trail, lure, pincer, ...hands } = DIFFICULTY.ace;
+  const { search, dance, poach, wary, clock, boxed, toss, trail, lure, pincer, gatewise, ...hands } = DIFFICULTY.ace;
+  assert.ok(gatewise > 0);
   assert.ok(pincer > 0);
   assert.ok(trail > BONK.reach + BONK.windup * 166, 'it follows from beyond where a turn and a swing would reach');
   assert.ok(lure > BONK.reach, 'the dash at a nibbling rival turns back outside its reach');
@@ -451,4 +452,35 @@ test('two top bots on a team cover both ways home of a seed instead of running t
   assert.ok(ace.home < hard.home, `the seed got home less often: ${JSON.stringify(ace)} against the hard bots' ${JSON.stringify(hard)}`);
   assert.ok(ace.caught > hard.caught, `and was caught more often: ${JSON.stringify(ace)} against ${JSON.stringify(hard)}`);
   assert.ok(ace.home <= 10, `the seed got home ${ace.home} times in 24`);
+});
+
+test('the top bot waits at a shut gate instead of pushing against it', () => {
+  // Seconds a bot spends walking into a gate that is in its way, over two rounds
+  // on the graveyard map.
+  const pushing = (difficulty) => {
+    let ticks = 0;
+    for (let n = 0; n < 2; n++) {
+      const { g, bots } = game([difficulty, difficulty, difficulty, difficulty], n + 1, MAPS.graveyard);
+      while (g.phase !== 'over') {
+        const inputs = bots.map((b, i) => b.think(g, i));
+        step(g, inputs);
+        g.players.forEach((p, i) => {
+          if (p.swing || Math.hypot(inputs[i].mx, inputs[i].my) < 0.5) return;
+          for (const r of g.gates) {
+            const dx = Math.max(r.x, Math.min(p.x, r.x + r.w)) - p.x;
+            const dy = Math.max(r.y, Math.min(p.y, r.y + r.h)) - p.y;
+            if (Math.hypot(dx, dy) < 17 && dx * inputs[i].mx + dy * inputs[i].my > 4) {
+              ticks++;
+              break;
+            }
+          }
+        });
+      }
+    }
+    return ticks / TICK_RATE / 8;
+  };
+  const hard = pushing('hard');
+  const ace = pushing('ace');
+  assert.ok(hard > 2, `the hard bot does push: ${hard.toFixed(1)} s a round`);
+  assert.ok(ace < 1.2, `the top bot pushed for ${ace.toFixed(1)} s a round`);
 });
