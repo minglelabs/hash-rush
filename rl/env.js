@@ -65,6 +65,8 @@ export const DEFAULTS = {
   // seen early instead of waiting on luck.
   headStart: 0,
   allBots: false, // every seat a scripted bot, to record their play (rl/demo.js)
+  // A fixed line-up instead of a random one: [{ level: -1 policy or 0..2 bot, team: -1 or a side }].
+  lineup: null,
 };
 
 // ---------- what the map looks like to a policy ----------
@@ -230,6 +232,8 @@ export function createEnvs(settings = {}) {
   // Seats set here play `actions` even when a bot sits there; the bot still says
   // what it would have done, which is how rl/demo.js corrects a learner (DAgger).
   const steer = new Uint8Array(E * MAX_P);
+  // Whether the round that just ended ran out of time.
+  const timedOut = new Uint8Array(E);
   const envs = [];
 
   function reset(e) {
@@ -247,9 +251,13 @@ export function createEnvs(settings = {}) {
       const j = Math.floor(rnd() * (i + 1));
       [sides[i], sides[j]] = [sides[j], sides[i]];
     }
-    for (let i = 0; i < n; i++) {
-      const level = withBots && (i > 0 || cfg.allBots) && rnd() < cfg.botSeat ? pick(cfg.botLevels) : -1;
-      slots.push({ name: `p${i}`, kind: level < 0 ? 'human' : 'bot', team: teamed ? sides[i] : -1 });
+    const lineup = cfg.lineup || Array.from({ length: n }, (_, i) => ({
+      level: withBots && (i > 0 || cfg.allBots) && rnd() < cfg.botSeat ? pick(cfg.botLevels) : -1,
+      team: teamed ? sides[i] : -1,
+    }));
+    for (let i = 0; i < lineup.length; i++) {
+      const { level, team } = lineup[i];
+      slots.push({ name: `p${i}`, kind: level < 0 ? 'human' : 'bot', team });
       bots.push(level < 0 ? null : createBot({ difficulty: BOT_LEVELS[level], seed: Math.floor(rnd() * 1e9) }));
       role[e * MAX_P + i] = level < 0 ? 1 : 2 + level;
     }
@@ -272,7 +280,7 @@ export function createEnvs(settings = {}) {
         }
       }
     }
-    envs[e] = { g, bots, teams, mapIndex: MAP_IDS.indexOf(g.map.id), prev: g.players.map(() => 0), deaths: g.players.map(() => 0), phi: g.players.map((p) => potential(g, p)) };
+    envs[e] = { g, bots, teams: cfg.lineup ? new Set(lineup.map((s) => s.team).filter((t) => t >= 0)).size : teams, mapIndex: MAP_IDS.indexOf(g.map.id), prev: g.players.map(() => 0), deaths: g.players.map(() => 0), phi: g.players.map((p) => potential(g, p)) };
   }
 
   function observe(e) {
@@ -456,6 +464,7 @@ export function createEnvs(settings = {}) {
         reward[e * MAX_P + i] = r;
       }
       done[e] = over ? 1 : 0;
+      timedOut[e] = over && g.timeout ? 1 : 0;
       if (over) reset(e);
       observe(e);
     }
@@ -465,7 +474,7 @@ export function createEnvs(settings = {}) {
     reset(e);
     observe(e);
   }
-  return { cfg, obs, reward, final, done, role, win, botAct, steer, act };
+  return { cfg, obs, reward, final, done, role, win, timedOut, botAct, steer, act };
 }
 
 // ---------- the pipe ----------

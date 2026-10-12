@@ -19,6 +19,7 @@ node rl/play.js rl/runs/first/policy.json 200
 ```
 
 - `train.py`는 `rl/runs/<이름>/`에 `policy.pt`(이어서 학습용), `policy.json`(브라우저·Node용 가중치), `log.csv`를 남깁니다.
+- 구성별·맵별 표: `node rl/report.js rl/runs/first/policy.json 30` (개인전 6구성·팀전 8구성 × 맵 7개, 구성마다 Node 하나씩 동시에 돌림)
 - `play.js`는 학습된 봇 한 마리를 초보·중수·고수 봇 세 마리와 붙여 승률을 냅니다. 4인전이면 25%가 본전입니다.
 - 이어서 학습: `--resume rl/runs/first/policy.pt` (10회 반복마다 저장되므로 중간에 꺼져도 여기서 이어집니다)
 - 맥북을 덜 쓰게 하려면 `--workers 4`.
