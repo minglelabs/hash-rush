@@ -94,7 +94,7 @@ const career = slots.map(() => [0, 0, 0, 0, 0, 0]);
 // Rounds finished in this room.
 let rounds = 0;
 // The first to this many wins takes the championship, and the room starts over.
-const TITLE_WINS = 20;
+const TITLE_WINS = 10;
 // Championships already decided in this room, newest last. Gone with the room.
 let seasons = [];
 const audio = createAudio();
