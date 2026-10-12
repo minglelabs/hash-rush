@@ -395,6 +395,7 @@ def main():
         d_act = torch.from_numpy(b_act[m]).to(dev)
         d_logp = torch.from_numpy(b_logp[m]).to(dev)
         d_adv = torch.from_numpy(adv[m]).to(dev)
+        d_adv = (d_adv - d_adv.mean()) / (d_adv.std() + 1e-8)
         d_ret = torch.from_numpy(ret[m]).to(dev)
         model.observe(d_obs)
 
@@ -409,8 +410,9 @@ def main():
             for i in range(0, size, args.batch):
                 idx = order[i : i + args.batch]
                 logp, entropy, value = model.evaluate(d_obs[idx], d_act[idx])
+                if idx.numel() < 2:
+                    continue
                 a = d_adv[idx]
-                a = (a - a.mean()) / (a.std() + 1e-8)
                 ratio = torch.exp(logp - d_logp[idx])
                 pg = -torch.min(ratio * a, ratio.clamp(1 - args.clip, 1 + args.clip) * a).mean()
                 vl = F.smooth_l1_loss(value, d_ret[idx])
