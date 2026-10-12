@@ -23,13 +23,15 @@ export const DIFFICULTY = {
   // volley: chance to throw it when it would take down two, or a rival's seed
   // freeze: how long it dithers before a swing it has decided on (seconds)
   // rally: whether it joins the chase after a seed it cannot head off in time
-  // daze: how long it stands gathering its wits after a respawn, on picking up a
-  //   seed, and every few seconds for no reason at all (seconds)
-  easy: { reaction: 0.45, lead: 0, margin: 0, jitter: 9, bait: 0, hold: 0.1, deny: 0.5, hunt: 0.5, opportunism: 0.3, caution: 0.2, freeze: 0.3, rally: false, daze: 1.2, toss: 0.1, volley: 0.4 },
-  normal: { reaction: 0.24, lead: 0.4, margin: 2, jitter: 4, bait: 0.25, hold: 0.5, deny: 0.7, hunt: 0.7, opportunism: 0.8, caution: 0.8, freeze: 0.09, rally: true, daze: 0.15, toss: 0.3, volley: 0.8 },
+  // The rookie keeps to four simple things: go for a seed, go and stop a rival who
+  // has one, carry its own seed home, and bonk whoever comes close. No feints, no
+  // standing its ground, no clearing the flower, no throwing. It is beatable because
+  // it sees late and swings late, not because it stands about.
+  easy: { reaction: 0.45, lead: 0, margin: 0, jitter: 9, bait: 0, hold: 0, deny: 1, hunt: 0, opportunism: 0.3, caution: 0.2, freeze: 0.3, rally: false, toss: 0, volley: 0 },
+  normal: { reaction: 0.24, lead: 0.4, margin: 2, jitter: 4, bait: 0.25, hold: 0.5, deny: 0.7, hunt: 0.7, opportunism: 0.8, caution: 0.8, freeze: 0.09, rally: true, toss: 0.3, volley: 0.8 },
   // search: instead of the fixed rules below, it plays each plan forward in a copy
   //   of the game and picks the best (see search.js). Hands as good as hard's.
-  hard: { reaction: 0.12, lead: 0.9, margin: 3, jitter: 1, bait: 0.55, hold: 1, deny: 1, hunt: 1, opportunism: 1.5, caution: 1.2, freeze: 0, rally: true, daze: 0, toss: 0.5, volley: 1 },
+  hard: { reaction: 0.12, lead: 0.9, margin: 3, jitter: 1, bait: 0.55, hold: 1, deny: 1, hunt: 1, opportunism: 1.5, caution: 1.2, freeze: 0, rally: true, toss: 0.5, volley: 1 },
 };
 // dance: up close it feints instead of walking in: a dash at the rival to draw a
 //   swing, a step back out of reach so the swing misses, then in for the hit.
@@ -118,9 +120,6 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
     noiseAt: 0,
     bonkDown: false,
     swingAt: -1,
-    dazeUntil: 0,
-    deaths: 0,
-    carrying: false,
     toss: false,
     tossRoll: { id: -1, until: 0, yes: false },
     stuck: { x: 0, y: 0, at: 0 },
@@ -733,16 +732,6 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
         out.mx = 0;
         out.my = 0;
       }
-    }
-
-    // A weaker bot loses its thread now and then and just stands there.
-    const jolt = me.deaths !== mem.deaths || me.carrying !== mem.carrying;
-    mem.deaths = me.deaths;
-    mem.carrying = me.carrying;
-    if (cfg.daze && (jolt || rng() < 0.3 * DT)) mem.dazeUntil = Math.max(mem.dazeUntil, now + cfg.daze * (0.5 + rng()));
-    if (now < mem.dazeUntil) {
-      out.mx = 0;
-      out.my = 0;
     }
 
     // A weaker bot dithers: the chance has to stay open for a moment before it swings.
