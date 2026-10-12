@@ -1902,6 +1902,10 @@ const tryUnlock = () => {
   if (audio.ready()) for (const type of tapEvents) window.removeEventListener(type, tryUnlock, true);
 };
 for (const type of tapEvents) window.addEventListener(type, tryUnlock, true);
+// Joining from the room list and leaving a room both load the page afresh, and a
+// guest then has nothing to tap. A browser that remembers the tap on the page
+// before lets sound start straight away; the others wait for the next tap as before.
+tryUnlock();
 // The context is suspended again when the tab comes back on some phones.
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && !audio.ready()) for (const type of tapEvents) window.addEventListener(type, tryUnlock, true);
