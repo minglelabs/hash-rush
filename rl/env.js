@@ -13,18 +13,24 @@
 // A round that ends is replaced at once; `role` then describes the new one.
 
 import { createGame, step, inHome, allied, lastStretch } from '../src/sim/game.js';
-import { MAPS, WORLD, isFree } from '../src/sim/map.js';
+import { MAPS, MAP_IDS, WORLD, isFree } from '../src/sim/map.js';
+import { HAZARD, iceNow, isNight, untilNight, inCannonLine } from '../src/sim/hazards.js';
 import { SPEED, BONK, THROW, OVERTIME, HAMSTER_R, gatherTime } from '../src/sim/constants.js';
 import { createBot } from '../src/ai/bot.js';
 import { MVP_POINTS } from '../src/client/mvp.js';
 
 export const MAX_P = 8;
-const SELF = 18;
-const WORLD_F = 8;
+const SELF = 19;
+const WORLD_F = 11 + MAP_IDS.length;
 const NAV = 9;
 const RAYS = 8;
+const HAZARDS = 4;
+const HAZARD_F = 12;
+const GATES = 2;
+const GATE_F = 3;
 const OTHER = 13;
-export const OBS = SELF + WORLD_F + NAV + RAYS + (MAX_P - 1) * OTHER;
+export const OBS = SELF + WORLD_F + NAV + RAYS + HAZARDS * HAZARD_F + GATES * GATE_F + (MAX_P - 1) * OTHER;
+const HAZARD_KINDS = ['trap', 'cannon', 'wave'];
 const BOT_LEVELS = ['easy', 'normal', 'hard'];
 const DIRS = [[0, 0], ...Array.from({ length: 8 }, (_, k) => [Math.cos((k * Math.PI) / 4), Math.sin((k * Math.PI) / 4)])];
 
@@ -32,9 +38,10 @@ export const DEFAULTS = {
   envs: 16,
   seed: 1,
   frameSkip: 4, // game ticks per decision: 15 decisions a second
-  maps: ['meadow'],
-  players: [2, 3, 4, 4, 4, 6, 8], // how many seats a round has, drawn from this list
-  teams: 0.25, // share of rounds played as two teams
+  maps: MAP_IDS, // every map, hazards and all
+  players: [2, 3, 4, 5, 6, 7, 8], // how many seats a round has, drawn from this list
+  teams: 0.5, // share of rounds played in teams; the rest are everyone for themselves
+  teamCounts: [2, 3, 4], // how many teams a team round has, as far as the head count allows
   botEnv: 0.3, // share of rounds that have scripted bots in them
   botSeat: 0.6, // in such a round, the chance a seat other than the first is a bot
   botLevels: [0, 1, 2], // easy, normal, hard
@@ -213,13 +220,19 @@ export function createEnvs(settings = {}) {
 
   function reset(e) {
     const n = pick(cfg.players);
-    const teamed = n >= 2 && rnd() < cfg.teams;
+    const teamed = rnd() < cfg.teams;
+    // At least two sides, and no more teams than hamsters.
+    const teams = teamed ? Math.min(n, pick(cfg.teamCounts)) : 0;
     const withBots = rnd() < cfg.botEnv;
     const slots = [];
     const bots = [];
     for (let i = 0; i < MAX_P; i++) role[e * MAX_P + i] = 0;
-    // Two teams, as even as the head count allows, in a random order.
-    const sides = Array.from({ length: n }, (_, i) => i % 2).sort(() => rnd() - 0.5);
+    // Teams as even as the head count allows, dealt to the seats in a random order.
+    const sides = Array.from({ length: n }, (_, i) => i % Math.max(1, teams));
+    for (let i = n - 1; i > 0; i--) {
+      const j = Math.floor(rnd() * (i + 1));
+      [sides[i], sides[j]] = [sides[j], sides[i]];
+    }
     for (let i = 0; i < n; i++) {
       const level = withBots && i > 0 && rnd() < cfg.botSeat ? pick(cfg.botLevels) : -1;
       slots.push({ name: `p${i}`, kind: level < 0 ? 'human' : 'bot', team: teamed ? sides[i] : -1 });
@@ -228,12 +241,16 @@ export function createEnvs(settings = {}) {
     }
     const g = createGame({ slots, map: MAPS[pick(cfg.maps)], seed: Math.floor(rnd() * 1e9) });
     while (g.phase === 'countdown') step(g, []);
-    envs[e] = { g, bots, prev: g.players.map(() => 0), deaths: g.players.map(() => 0), phi: g.players.map((p) => potential(g, p)) };
+    envs[e] = { g, bots, teams, mapIndex: MAP_IDS.indexOf(g.map.id), prev: g.players.map(() => 0), deaths: g.players.map(() => 0), phi: g.players.map((p) => potential(g, p)) };
   }
 
   function observe(e) {
-    const { g } = envs[e];
+    const { g, teams, mapIndex } = envs[e];
     const F = fields(g.map);
+    const ice = iceNow(g.map, g.time);
+    const gates = g.gates || [];
+    const night = isNight(g.map, g.time) ? 1 : 0;
+    const dusk = g.map.cycle ? Math.min(1, untilNight(g.map, g.time) / 24) : 0;
     const players = g.players;
     const need = gatherTime(players.length);
     for (let i = 0; i < MAX_P; i++) {
@@ -261,6 +278,7 @@ export function createEnvs(settings = {}) {
       obs[o++] = me.wet > 0 ? 1 : 0;
       obs[o++] = (me.x - g.homeX) / WORLD.w;
       obs[o++] = Math.hypot(me.x - g.map.flower.x, me.y - g.map.flower.y) / WORLD.w;
+      obs[o++] = ice.some((r) => me.x >= r.x && me.x <= r.x + r.w && me.y >= r.y && me.y <= r.y + r.h) ? 1 : 0;
 
       obs[o++] = g.time / OVERTIME.end;
       obs[o++] = g.time > OVERTIME.start ? 1 : 0;
@@ -270,6 +288,12 @@ export function createEnvs(settings = {}) {
       obs[o++] = players.length / MAX_P;
       obs[o++] = me.team >= 0 ? 1 : 0;
       obs[o++] = players.some((p) => p !== me && p.carrying && !allied(p, me)) ? 1 : 0;
+      obs[o++] = teams / 4;
+      obs[o++] = night;
+      obs[o++] = dusk;
+      // Which map this is.
+      obs[o + mapIndex] = 1;
+      o += MAP_IDS.length;
 
       hint(F, F.flower, me.x, me.y, obs, o);
       hint(F, F.home, me.x, me.y, obs, o + 3);
@@ -284,12 +308,46 @@ export function createEnvs(settings = {}) {
           const y = me.y + DIRS[k][1] * s;
           const c = Math.floor(x / CELL);
           const r = Math.floor(y / CELL);
-          if (c < 0 || r < 0 || c >= F.cols || r >= F.rows || !F.free[r * F.cols + c]) {
+          const shut = gates.some((q) => x >= q.x - 6 && x <= q.x + q.w + 6 && y >= q.y - 6 && y <= q.y + q.h + 6);
+          if (shut || c < 0 || r < 0 || c >= F.cols || r >= F.rows || !F.free[r * F.cols + c]) {
             reach = s / 120;
             break;
           }
         }
         obs[o++] = reach;
+      }
+
+      // Trouble on the map, nearest first: where it is, what it is, whether it has
+      // gone off yet, and for a cannon which way it points and whether I am in its line.
+      const near = (a, b) => Math.hypot(a.x - me.x, a.y - me.y) - Math.hypot(b.x - me.x, b.y - me.y);
+      const trouble = g.hazards.length > 1 ? [...g.hazards].sort(near) : g.hazards;
+      for (let k = 0; k < HAZARDS; k++) {
+        const h = trouble[k];
+        if (h) {
+          const spec = HAZARD[h.kind];
+          obs[o] = 1;
+          obs[o + 1] = (h.x - me.x) / WORLD.w;
+          obs[o + 2] = (h.y - me.y) / WORLD.h;
+          obs[o + 3] = Math.min(1, Math.hypot(h.x - me.x, h.y - me.y) / 200);
+          obs[o + 4 + HAZARD_KINDS.indexOf(h.kind)] = 1;
+          obs[o + 7] = h.age >= spec.warn ? 1 : 0;
+          obs[o + 8] = Math.min(1, h.age / spec.warn);
+          obs[o + 9] = h.dx || 0;
+          obs[o + 10] = h.dy || 0;
+          obs[o + 11] = h.kind === 'cannon' && inCannonLine(g.map, h, me) ? 1 : 0;
+        }
+        o += HAZARD_F;
+      }
+      // The nearest gates that are shut right now.
+      const doors = gates.length > 1 ? gates.map((q) => ({ x: q.x + q.w / 2, y: q.y + q.h / 2 })).sort(near) : gates.map((q) => ({ x: q.x + q.w / 2, y: q.y + q.h / 2 }));
+      for (let k = 0; k < GATES; k++) {
+        const q = doors[k];
+        if (q) {
+          obs[o] = 1;
+          obs[o + 1] = (q.x - me.x) / WORLD.w;
+          obs[o + 2] = (q.y - me.y) / WORLD.h;
+        }
+        o += GATE_F;
       }
 
       // Everyone else, nearest first.

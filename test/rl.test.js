@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createEnvs, MAX_P, OBS } from '../rl/env.js';
 import { loadPolicy } from '../rl/policy.js';
+import { MAP_IDS } from '../src/sim/map.js';
 
 test('the training environment plays real rounds and reports them', () => {
   const envs = createEnvs({ envs: 4, seed: 5, players: [4], teams: 0, botEnv: 1, botSeat: 1, botLevels: [0], win: 30 });
@@ -24,6 +25,33 @@ test('the training environment plays real rounds and reports them', () => {
   }
   assert.ok(rounds >= 4, `rounds finished: ${rounds}`);
   assert.ok(prize > 0, 'winners are paid the win bonus');
+});
+
+test('rounds vary: every head count, free-for-all and two to four teams, every map', () => {
+  const seen = { players: new Set(), teams: new Set(), maps: new Set() };
+  const envs = createEnvs({ envs: 64, seed: 9, botEnv: 0 });
+  const actions = new Uint8Array(64 * MAX_P * 3);
+  const read = () => {
+    for (let e = 0; e < 64; e++) {
+      const seats = [...envs.role.subarray(e * MAX_P, (e + 1) * MAX_P)].filter(Boolean).length;
+      seen.players.add(seats);
+      const at = e * MAX_P * OBS;
+      // Seat 0's view: after itself come the round's facts, then one flag per map.
+      seen.teams.add(Math.round(envs.obs[at + 19 + 8] * 4));
+      const flags = [...envs.obs.subarray(at + 19 + 11, at + 19 + 11 + MAP_IDS.length)];
+      assert.equal(flags.filter(Boolean).length, 1);
+      seen.maps.add(flags.indexOf(1));
+    }
+  };
+  read();
+  for (let s = 0; s < 40; s++) {
+    for (let i = 0; i < actions.length; i += 3) actions[i] = (s + i) % 9;
+    envs.act(actions);
+    for (const v of envs.obs) assert.ok(Number.isFinite(v) && Math.abs(v) <= 1.5, `obs ${v}`);
+  }
+  assert.deepEqual([...seen.players].sort(), [2, 3, 4, 5, 6, 7, 8]);
+  assert.deepEqual([...seen.teams].sort(), [0, 2, 3, 4]);
+  assert.equal(seen.maps.size, MAP_IDS.length);
 });
 
 test('an exported policy picks one option per head', () => {

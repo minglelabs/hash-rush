@@ -237,7 +237,8 @@ def main():
     ap.add_argument("--win", type=float, default=30)
     ap.add_argument("--lose", type=float, default=0)
     ap.add_argument("--shape", type=float, default=1, help="weight of the progress pay; 0 turns it off")
-    ap.add_argument("--maps", default="meadow")
+    ap.add_argument("--maps", default="all", help="comma separated map ids, or all")
+    ap.add_argument("--teams", type=float, default=0.5, help="share of rounds played in teams of 2 to 4 sides")
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--resume", default="")
     args = ap.parse_args()
@@ -250,7 +251,9 @@ def main():
     out_dir = os.path.join(HERE, "runs", args.name)
     os.makedirs(out_dir, exist_ok=True)
 
-    settings = {"botEnv": args.bot_env, "win": args.win, "lose": args.lose, "shape": args.shape, "maps": args.maps.split(",")}
+    settings = {"botEnv": args.bot_env, "win": args.win, "lose": args.lose, "shape": args.shape, "teams": args.teams}
+    if args.maps != "all":
+        settings["maps"] = args.maps.split(",")
     env = Workers(args.workers, args.envs, args.seed, settings)
     N, P, D, T = env.N, env.P, env.obs_dim, args.steps
 
