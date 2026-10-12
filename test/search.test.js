@@ -7,6 +7,7 @@ import { BONK, COUNTDOWN, TICK_RATE } from '../src/sim/constants.js';
 import { MAPS } from '../src/sim/map.js';
 
 const f0 = MAPS.meadow.flower;
+const g0 = MAPS.meadow;
 
 const game = (kinds, seed, map = MAPS.meadow) => {
   const g = createGame({ slots: kinds.map((k, i) => ({ name: `${k}${i}`, kind: 'bot' })), seed, map });
@@ -261,4 +262,37 @@ test('in a free-for-all the best placed defend: the top bot nearest home goes to
   const toCarrier = Math.hypot(me.x - carrier.x, me.y - carrier.y);
   assert.ok(toCarrier < 440 || towardsFlower < 120, `it went to meet the seed rather than off to the flower: ${Math.round(toCarrier)} from the carrier`);
   assert.ok(Math.hypot(me.x - f.x, me.y - f.y) > 330, 'and is nowhere near the flower');
+});
+
+test('near home the hard and top bots keep their seed however many rivals stand in the way', () => {
+  // A carrier coming down the middle lane with two rivals lined up ahead of it:
+  // the picture a throw is made for. Far from home it may take it. Close to home
+  // the seed is the win and stays where it is.
+  const throwsFrom = (difficulty, x, seed) => {
+    const g = createGame({ slots: Array.from({ length: 3 }, (_, i) => ({ name: `p${i}`, kind: 'bot' })), seed });
+    for (let i = 0; i < COUNTDOWN * TICK_RATE + 2; i++) step(g, []);
+    const [me, a, b] = g.players;
+    const y = g.map.rowYs[5];
+    Object.assign(me, { x, y, carrying: true, fx: -1, fy: 0 });
+    const bot = createBot({ difficulty, seed: seed + 11 });
+    let thrown = 0;
+    for (let i = 0; i < 3 * TICK_RATE && me.carrying && g.phase === 'playing'; i++) {
+      Object.assign(a, { x: me.x - 62, y });
+      Object.assign(b, { x: me.x - 96, y });
+      step(g, [{ ...bot.think(g, 0), bonk: false }]);
+      thrown += g.events.filter((ev) => ev.type === 'throw' && ev.id === 0).length;
+    }
+    return thrown;
+  };
+  for (const difficulty of ['hard', 'ace']) {
+    let near = 0;
+    let far = 0;
+    for (let seed = 1; seed <= 8; seed++) {
+      near += throwsFrom(difficulty, g0.home.x2 + 150, seed);
+      far += throwsFrom(difficulty, 310, seed);
+    }
+    assert.equal(DIFFICULTY[difficulty].thrifty, 330);
+    assert.equal(near, 0, `${difficulty} threw its seed away ${near} times by the door`);
+  }
+  assert.equal(DIFFICULTY.normal.thrifty, undefined, 'the weaker bots may still do it');
 });

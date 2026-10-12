@@ -690,12 +690,13 @@ test('a hard bot carrying a seed throws it at two rivals lined up in its way', (
   const g = started(3);
   const [bot, a, b] = g.players;
   const brain = createBot({ difficulty: 'hard', seed: 5 });
-  // In the top lane on the way home, with both rivals further down the same lane.
+  // In the top lane on the way home, still well out from the burrow, with both
+  // rivals further down the same lane.
   const y = MAP.rowYs[1];
-  place(bot, 320, y);
+  place(bot, 560, y);
   bot.carrying = true;
-  place(a, 245, y);
-  place(b, 210, y);
+  place(a, 485, y);
+  place(b, 450, y);
   const thrown = [];
   for (let i = 0; i < 3 * TICK_RATE && !thrown.length; i++) {
     step(g, [brain.think(g, 0), IDLE, IDLE]);
@@ -714,9 +715,9 @@ test('a bot whose throw target gets away keeps its seed', () => {
   const y = MAP.rowYs[1];
   let wound = 0;
   for (let tries = 0; tries < 40 && !wound; tries++) {
-    place(bot, 320, y);
+    place(bot, 560, y);
     bot.carrying = true;
-    place(a, 235, y);
+    place(a, 475, y);
     for (let i = 0; i < 0.3 * TICK_RATE; i++) step(g, [brain.think(g, 0), IDLE]);
     wound = bot.charge;
   }
