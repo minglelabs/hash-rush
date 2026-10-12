@@ -2,7 +2,8 @@
 // simulation: the local human, a bot, or a friend connected over the network.
 //
 // Online play has no server. The host's browser runs the simulation; guests send
-// their inputs and draw the snapshots the host sends back.
+// their inputs and draw the snapshots the host sends back, with their own hamster
+// played a little ahead so that it answers at once (predict.js).
 
 import { createGame, step, allied, timeoutReason } from '../sim/game.js';
 import { DT, OVERTIME, COUNTDOWN } from '../sim/constants.js';
@@ -15,6 +16,7 @@ import { createAudio } from './audio.js';
 import { LOOKS, TEAMS, colorOf } from './looks.js';
 import { lang, t, LANGUAGES, stringsFor } from './i18n.js';
 import { hostRoom, joinRoom, announceRoom, watchRooms } from './net.js';
+import { createPredictor } from './predict.js';
 
 const $ = (id) => document.getElementById(id);
 const STORE = 'seed-rush-slots';
@@ -34,7 +36,7 @@ const DEFAULT_SLOTS = Array.from({ length: MAX_SLOTS }, (_, i) => ({
   name: defaultName(i),
   team: i % 2,
 }));
-const IDLE = { mx: 0, my: 0, ax: 0, ay: 0, seq: 0 };
+const IDLE = { mx: 0, my: 0, ax: 0, ay: 0, seq: 0, n: 0 };
 // A guest who never renamed itself is still called "Me" in its own language.
 const ME_NAMES = new Set(LANGUAGES.map((code) => stringsFor(code).names[0]));
 
@@ -126,8 +128,12 @@ const watchOnly = query.has('watch');
 // coming in from the room list types it.
 const cleanPw = (raw) => String(raw ?? '').trim().slice(0, 12);
 let roomPw = '';
-// role: null (offline), 'host' or 'guest'.
-const net = { role: joinId ? 'guest' : null, room: null, host: null, status: '', lobby: null, teams: false, map: 'meadow', pw: cleanPw(query.get('pw')), needPw: false, you: -1, pending: [], watchers: [] };
+// role: null (offline), 'host' or 'guest'. `round` numbers the rounds a room has
+// played, so a snapshot that turns up late is not taken for the next round's. For a
+// guest, `snap` is the newest snapshot and `tick` its tick, `mine` is where its own
+// hamster is played ahead to, and `line` says how good the connection is.
+const net = { role: joinId ? 'guest' : null, room: null, host: null, status: '', lobby: null, teams: false, map: 'meadow', pw: cleanPw(query.get('pw')), needPw: false, you: -1, pending: [], watchers: [], round: 0, snap: null, tick: -1, mine: null, line: null };
+const predictor = createPredictor();
 
 let game = null;
 let controllers = [];
@@ -140,6 +146,12 @@ let scoreKey = '';
 let tickBeat = -1;
 let bonkSeq = 0;
 let bonkWas = false;
+// The last input a guest sent, and when (s).
+let sentInput = null;
+let sentAt = 0;
+// When a guest last heard its own swing start ahead of the host's word (s).
+let swungAt = -Infinity;
+let swinging = false;
 
 // ---------- lobby ----------
 
@@ -331,9 +343,35 @@ function renderLobby() {
   syncChat();
   showLobbyBubbles();
   $('netStatus').hidden = !guest;
-  $('netStatus').textContent = net.status || (guest && net.lobby && net.you < 0 ? t('spectating') : '');
+  $('netStatus').textContent = netLine();
   updateStart();
 }
+
+// How good a guest's line to the host is: the round trip, and whether it goes the
+// long way round through the relay.
+function lineText() {
+  const line = net.host && net.line;
+  if (!line) return '';
+  const ms = line.ms || Math.round((predictor.lag() || 0) * 1000);
+  return `📶 ${[ms ? `${ms}ms` : '', line.relay ? t('relayed') : ''].filter(Boolean).join(' · ')}`;
+}
+
+const netLine = () => net.status || [net.lobby && net.you < 0 ? t('spectating') : '', lineText()].filter(Boolean).join(' · ');
+
+function showLine() {
+  const line = net.host && net.line;
+  $('ping').hidden = !line;
+  if (!line) return;
+  $('ping').textContent = lineText();
+  $('ping').classList.toggle('slow', line.relay || line.ms >= 150);
+  if (!$('lobby').hidden) $('netStatus').textContent = netLine();
+}
+
+setInterval(async () => {
+  if (net.role !== 'guest' || document.hidden) return;
+  net.line = net.host ? await net.host.route() : null;
+  showLine();
+}, 2000);
 
 // Tells a friend the host has taken them out, then drops the connection. The
 // close waits a moment so the message gets through first.
@@ -562,7 +600,7 @@ function welcome(conn, msg) {
   renderLobby();
   sendLobby();
   // Arriving mid-round, they watch it; a new player gets a hamster next round.
-  if (game && !$('stage').hidden) conn.send({ t: 'start', map: game.map.id, players: roster(), you: -1, wins, tot: career, rd: rounds, hist: seasons });
+  if (game && !$('stage').hidden) conn.send({ t: 'start', g: net.round, map: game.map.id, players: roster(), you: -1, wins, tot: career, rd: rounds, hist: seasons });
 }
 
 function guestName(slot, raw) {
@@ -601,8 +639,11 @@ function guestData(conn, msg) {
     renderLobby();
     sendLobby();
   } else if (msg.t === 'i') {
+    // Inputs are numbered and may overtake each other on the way: the newest counts.
+    const no = Number(msg.n) || 0;
+    if (no && no <= slot.input.n) return;
     const n = (v) => Math.max(-1, Math.min(1, Number(v) || 0));
-    slot.input = { mx: n(msg.mx), my: n(msg.my), ax: n(msg.ax), ay: n(msg.ay), seq: Number(msg.seq) || 0, th: !!msg.th };
+    slot.input = { mx: n(msg.mx), my: n(msg.my), ax: n(msg.ax), ay: n(msg.ay), seq: Number(msg.seq) || 0, th: !!msg.th, n: no };
   }
 }
 
@@ -636,6 +677,12 @@ function broadcast(make) {
   for (const conn of net.watchers) if (conn.open) conn.send(make({ playerId: -1 }, -1));
 }
 
+// Everyone connected, players and spectators alike.
+function forEachGuest(fn) {
+  for (const slot of slots) if (slot.conn && slot.conn.open) fn(slot.conn);
+  for (const conn of net.watchers) if (conn.open) fn(conn);
+}
+
 function sendLobby() {
   if (net.role !== 'host') return;
   const view = slots.map((s) => ({ kind: s.kind, name: s.name, team: s.team }));
@@ -643,10 +690,19 @@ function sendLobby() {
   announce();
 }
 
+// What goes out without events is sent where a lost one is never sent again, so
+// every snapshot is the whole picture. `k` is the tick it shows and `ak` the number
+// of the last input each friend's hamster had been given by then.
 function snapshot(events) {
   const r = (v) => Math.round(v * 10) / 10;
+  const q = (v) => Math.round(v * 1000) / 1000;
+  const acks = game.players.map(() => 0);
+  for (const slot of slots) if (slot.conn && slot.playerId >= 0) acks[slot.playerId] = slot.input.n || 0;
   return {
     t: 's',
+    g: net.round,
+    k: game.tick,
+    ak: acks,
     ph: game.phase,
     cd: game.countdown,
     tm: game.time,
@@ -656,8 +712,8 @@ function snapshot(events) {
     ws: game.winners,
     to: game.timeout,
     p: game.players.map((p) => [
-      r(p.x), r(p.y), r(p.vx), r(p.vy), p.fx, p.fy, p.carrying ? 1 : 0, p.gather, p.queued,
-      p.swing ? [p.swing.phase, p.swing.t, p.swing.dx, p.swing.dy] : 0, p.cooldown, p.kills, p.deaths, p.seeds, p.supers, p.charge, p.throws, r(p.wet), p.stops,
+      r(p.x), r(p.y), r(p.vx), r(p.vy), q(p.fx), q(p.fy), p.carrying ? 1 : 0, q(p.gather), p.queued,
+      p.swing ? [p.swing.phase, q(p.swing.t), q(p.swing.dx), q(p.swing.dy)] : 0, q(p.cooldown), p.kills, p.deaths, p.seeds, p.supers, q(p.charge), p.throws, r(p.wet), p.stops,
     ]),
     // What the map is up to: [kind, x, y, dx, dy, age].
     hz: game.hazards.map((h) => [h.kind, r(h.x), r(h.y), h.dx || 0, h.dy || 0, Math.round(h.age * 100) / 100]),
@@ -727,6 +783,11 @@ function hostData(msg) {
     net.status = t('roomFull');
     renderLobby();
   } else if (msg.t === 'start') {
+    net.round = msg.g;
+    net.snap = null;
+    net.tick = -1;
+    net.mine = null;
+    predictor.reset();
     msg.wins.forEach((n, i) => (wins[i] = n));
     (msg.tot || []).forEach((v, i) => (career[i] = v));
     if (msg.rd >= 0) rounds = msg.rd;
@@ -751,31 +812,47 @@ function hostData(msg) {
     meId = msg.you;
     enterStage();
   } else if (msg.t === 's' && game) {
-    game.phase = msg.ph;
-    game.countdown = msg.cd;
-    game.time = msg.tm;
-    game.homeX = msg.hx;
-    game.nibbler = msg.nb;
-    game.winner = msg.w;
-    game.hazards = (msg.hz || []).map(([kind, x, y, dx, dy, age]) => ({ kind, x, y, dx, dy, age }));
-    game.winners = msg.ws || [];
-    game.timeout = !!msg.to;
-    msg.p.forEach((s, i) => {
-      const p = game.players[i];
-      [p.x, p.y, p.vx, p.vy, p.fx, p.fy] = s;
-      p.carrying = !!s[6];
-      p.gather = s[7];
-      p.queued = s[8];
-      p.swing = s[9] ? { phase: s[9][0], t: s[9][1], dx: s[9][2], dy: s[9][3] } : null;
-      [p.cooldown, p.kills, p.deaths, p.seeds, p.supers = 0, p.charge = 0, p.throws = 0, p.wet = 0, p.stops = 0] = s.slice(10);
-    });
-    for (const ev of msg.ev) onEvent(ev);
+    // One left over from the round before, or one of the next round that got here
+    // ahead of its start.
+    if (msg.g !== net.round) return;
+    // Snapshots can overtake each other. An older one has nothing to show, but what
+    // happened in it still happened.
+    if (!(msg.k < net.tick)) {
+      game.phase = msg.ph;
+      game.countdown = msg.cd;
+      game.time = msg.tm;
+      game.homeX = msg.hx;
+      game.nibbler = msg.nb;
+      game.winner = msg.w;
+      game.hazards = (msg.hz || []).map(([kind, x, y, dx, dy, age]) => ({ kind, x, y, dx, dy, age }));
+      game.winners = msg.ws || [];
+      game.timeout = !!msg.to;
+      msg.p.forEach((s, i) => readPlayer(game.players[i], s));
+      net.snap = msg;
+      if (msg.k >= 0) {
+        net.tick = msg.k;
+        predictor.heard(performance.now() / 1000, msg.k, (meId >= 0 && msg.ak && msg.ak[meId]) || 0);
+      }
+      // My own hamster stays where it was last drawn until the next frame works it out again.
+      if (net.mine && meId >= 0) Object.assign(game.players[meId], net.mine);
+    }
+    for (const ev of msg.ev || []) onEvent(ev);
   } else if (msg.t === 'lobbyscreen') {
     toLobby();
     renderLobby();
   } else if (msg.t === 'chat') {
     addChat(msg);
   }
+}
+
+// One hamster as a snapshot has it.
+function readPlayer(p, s) {
+  [p.x, p.y, p.vx, p.vy, p.fx, p.fy] = s;
+  p.carrying = !!s[6];
+  p.gather = s[7];
+  p.queued = s[8];
+  p.swing = s[9] ? { phase: s[9][0], t: s[9][1], dx: s[9][2], dy: s[9][3] } : null;
+  [p.cooldown, p.kills, p.deaths, p.seeds, p.supers = 0, p.charge = 0, p.throws = 0, p.wet = 0, p.stops = 0] = s.slice(10);
 }
 
 // ---------- chat ----------
@@ -978,8 +1055,9 @@ function startGame() {
   });
   meId = active.findIndex((a) => a.slot.kind === 'human');
   net.pending = [];
+  net.round++;
   const players = roster();
-  broadcast((slot) => ({ t: 'start', map: mapId, players, you: slot.playerId, wins, tot: career, rd: rounds, hist: seasons }));
+  broadcast((slot) => ({ t: 'start', g: net.round, map: mapId, players, you: slot.playerId, wins, tot: career, rd: rounds, hist: seasons }));
   enterStage();
   announce();
 }
@@ -1070,7 +1148,8 @@ function onEvent(ev) {
     big(t('go'));
     audio.play.go();
   } else if (ev.type === 'swing') {
-    if (ev.id === meId) audio.play.swing();
+    // A guest has already heard its own swing, when it pressed the button.
+    if (ev.id === meId && performance.now() / 1000 - swungAt > 1.5) audio.play.swing();
   } else if (ev.type === 'bonk') {
     audio.play.bonk();
     const line = document.createElement('div');
@@ -1559,12 +1638,24 @@ function frame(now) {
   if (!game || $('stage').hidden) return;
 
   if (net.role === 'guest') {
-    // Guests do not simulate: send this frame's input, draw the latest snapshot.
+    // Guests do not simulate the round: send the input, draw the latest snapshot.
     if (meId >= 0) {
+      const at = performance.now() / 1000;
       const i = input.read(game, meId);
       if (i.bonk && !bonkWas) bonkSeq++;
       bonkWas = i.bonk;
-      if (net.host) net.host.send({ t: 'i', mx: i.mx, my: i.my, ax: i.ax, ay: i.ay, seq: bonkSeq, th: i.throw ? 1 : 0 });
+      const msg = { t: 'i', n: 0, mx: i.mx, my: i.my, ax: i.ax || 0, ay: i.ay || 0, seq: bonkSeq, th: i.throw ? 1 : 0 };
+      const was = sentInput;
+      const changed = !was || ['mx', 'my', 'ax', 'ay', 'seq', 'th'].some((key) => msg[key] !== was[key]);
+      // A change goes out at once; otherwise once a tick, which is all the host can use.
+      if (net.host && (changed || at - sentAt > DT * 0.9)) {
+        msg.n = was ? was.n + 1 : 1;
+        net.host.fast(msg);
+        predictor.sent(at, msg);
+        sentInput = msg;
+        sentAt = at;
+      }
+      playAhead(at);
     }
   } else {
     acc += dt;
@@ -1585,11 +1676,30 @@ function frame(now) {
     if (steps && net.role === 'host') {
       const msg = snapshot(net.pending);
       net.pending = [];
-      broadcast(() => msg);
+      // Events must get there. A plain snapshot is replaced by the next one anyway.
+      if (msg.ev.length) broadcast(() => msg);
+      else forEachGuest((conn) => (conn.fast && conn.fast(msg)) || conn.send(msg));
     }
   }
   renderer.draw(game, { dt, meId, marker: input.marker(), bubbles });
   updateHud();
+}
+
+// Draws a guest's own hamster where its inputs have taken it by now, ahead of the
+// snapshot, which only knows the ones that had reached the host.
+function playAhead(at) {
+  if (!net.snap) return;
+  const me = game.players[meId];
+  readPlayer(me, net.snap.p[meId]);
+  net.mine = predictor.view(at, game, meId);
+  if (net.mine) Object.assign(me, net.mine);
+  // The swing is heard as the button goes down, not when the host says so.
+  const now = !!(net.mine && net.mine.swing);
+  if (now && !swinging) {
+    audio.play.swing();
+    swungAt = at;
+  }
+  swinging = now;
 }
 
 function toLobby() {

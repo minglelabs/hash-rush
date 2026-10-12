@@ -30,14 +30,99 @@ const TURN_SERVERS = [
     credential: '3SnEhz/cael7QWplFsqafCb/Kxc=',
   },
 ];
+// Knobs for the address bar, for trying out a bad connection at one desk. They act
+// on the guest's side: `lag=300` makes every round trip that many ms longer,
+// `loss=5` drops that percentage of what crosses the fast lane, and `relay` sends
+// everything through the TURN relay even where a direct route exists.
+const knobs = new URLSearchParams(location.search);
+const LAG = Math.max(0, Number(knobs.get('lag')) || 0);
+const LOSS = Math.max(0, Number(knobs.get('loss')) || 0) / 100;
 const CONFIG = {
   iceServers: [
     { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
     { urls: 'stun:stun.cloudflare.com:3478' },
     ...TURN_SERVERS,
   ],
+  ...(knobs.has('relay') ? { iceTransportPolicy: 'relay' } : {}),
 };
 const loading = {};
+
+// PeerJS's own channel delivers everything, in order: a lost packet is sent again
+// and whatever was sent after it waits for that. The lobby, chat and events need
+// this. A snapshot or an input is out of date a frame later, though, and there the
+// same care freezes the picture over one lost packet and lets a slow link fall
+// further and further behind. So those ride a second channel on the same
+// connection, one that never resends and never waits. Both ends open it under the
+// same id, and it only counts once the other end has been heard on it, which a page
+// from before this channel never is.
+const FAST = { negotiated: true, id: 77, ordered: false, maxRetransmits: 0 };
+// This much still waiting to go out (about two snapshots) means the link cannot keep
+// up right now. Whatever joins a queue arrives late, so the message is skipped instead.
+const FAST_BACKLOG = 1500;
+
+// Opens the fast lane beside `conn` and returns its send function, which answers
+// false while the lane cannot be used, so that the message can go the slow way.
+// The guest says hello first and the host answers.
+function fastLane(conn, onData, guest) {
+  let ch;
+  try {
+    ch = conn.peerConnection.createDataChannel('fast', FAST);
+  } catch {
+    return () => false;
+  }
+  let heard = false;
+  let tries = 20;
+  const hello = () => ch.readyState === 'open' && ch.send('hi');
+  const timer = guest && setInterval(() => (heard || --tries < 0 ? clearInterval(timer) : hello()), 500);
+  ch.onclose = () => clearInterval(timer);
+  ch.onmessage = (e) => {
+    heard = true;
+    if (e.data === 'hi') {
+      if (!guest) hello();
+      return;
+    }
+    let msg;
+    try {
+      msg = JSON.parse(e.data);
+    } catch {
+      return;
+    }
+    onData(msg);
+  };
+  return (msg) => {
+    if (!heard || ch.readyState !== 'open') return false;
+    if (ch.bufferedAmount < FAST_BACKLOG) ch.send(JSON.stringify(msg));
+    return true;
+  };
+}
+
+// How the traffic reaches the other side: `relay` when it goes through the TURN
+// server instead of straight across, and the round trip in ms as the browser
+// measures it. Null while that is not known.
+async function route(conn) {
+  let stats;
+  try {
+    stats = await conn.peerConnection.getStats();
+  } catch {
+    return null;
+  }
+  let pair = null;
+  stats.forEach((s) => {
+    if (s.type === 'transport' && s.selectedCandidatePairId) pair = stats.get(s.selectedCandidatePairId);
+  });
+  // Firefox has no transport entry; there the chosen pair says so itself.
+  if (!pair) {
+    stats.forEach((s) => {
+      if (s.type === 'candidate-pair' && s.selected) pair = s;
+    });
+  }
+  if (!pair) return null;
+  const type = (id) => (stats.get(id) || {}).candidateType;
+  return {
+    relay: type(pair.localCandidateId) === 'relay' || type(pair.remoteCandidateId) === 'relay',
+    ms: Math.round((pair.currentRoundTripTime || 0) * 1000) + LAG,
+  };
+}
 
 function loadScript(src, global) {
   if (window[global]) return Promise.resolve();
@@ -76,7 +161,10 @@ export async function hostRoom(on) {
     peer.on('error', reject);
   });
   peer.on('connection', (conn) => {
-    conn.on('open', () => on.join(conn));
+    conn.on('open', () => {
+      conn.fast = fastLane(conn, (msg) => on.data(conn, msg), false);
+      on.join(conn);
+    });
     conn.on('data', (msg) => on.data(conn, msg));
     conn.on('close', () => on.leave(conn));
     conn.on('error', () => on.leave(conn));
@@ -92,7 +180,8 @@ export async function hostRoom(on) {
 }
 
 // Joins a room. `on.data(msg)` receives host messages and `on.close()` fires if
-// the host goes away. Resolves with { send, close } once connected.
+// the host goes away. Resolves with { send, fast, route, close } once connected:
+// `fast` is for what the next message makes worthless, `route` for how good the line is.
 export async function joinRoom(room, on) {
   await loadPeer();
   const peer = new window.Peer({ config: CONFIG });
@@ -113,10 +202,16 @@ export async function joinRoom(room, on) {
     peer.destroy();
     throw err;
   }
-  conn.on('data', (msg) => on.data(msg));
+  // Half of the extra round trip on the way in, half on the way out.
+  const late = (fn) => (LAG ? (msg) => setTimeout(() => fn(msg), LAG / 2) : fn);
+  const lossy = (fn) => (LOSS ? (msg) => Math.random() < LOSS || fn(msg) : fn);
+  conn.on('data', late(on.data));
   conn.on('close', () => on.close());
   conn.on('error', () => on.close());
-  return { send: (msg) => conn.open && conn.send(msg), close: () => peer.destroy() };
+  const send = late((msg) => conn.open && conn.send(msg));
+  const lane = fastLane(conn, lossy(late(on.data)), true);
+  const fast = lossy(late((msg) => lane(msg) || (conn.open && conn.send(msg))));
+  return { send, fast, route: () => route(conn), close: () => peer.destroy() };
 }
 
 // ---------- room list ----------

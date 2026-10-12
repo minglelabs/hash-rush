@@ -595,6 +595,20 @@ button.primary:active {
   font-variant-numeric: tabular-nums;
 }
 
+/* A guest's line to the host: the round trip, and "relay" when it goes the long way. */
+#ping {
+  padding: 0.15em 0.7em;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.35);
+  color: #c8f5c0;
+  font-size: 0.75em;
+  font-variant-numeric: tabular-nums;
+}
+
+#ping.slow {
+  color: #ffd0d0;
+}
+
 #clock.overtime {
   background: #e5484d;
   animation: pulse 0.5s ease-in-out infinite alternate;
