@@ -5,7 +5,7 @@ import { createBot, DIFFICULTY } from '../src/ai/bot.js';
 import { createPlanner } from '../src/ai/search.js';
 import { getNav } from '../src/ai/nav.js';
 import { BONK, COUNTDOWN, TICK_RATE } from '../src/sim/constants.js';
-import { MAPS } from '../src/sim/map.js';
+import { MAPS, distToSegment } from '../src/sim/map.js';
 
 const f0 = MAPS.meadow.flower;
 const g0 = MAPS.meadow;
@@ -17,7 +17,8 @@ const game = (kinds, seed, map = MAPS.meadow) => {
 };
 
 test('the top bot has the hard bot\'s hands and adds looking ahead and footwork', () => {
-  const { search, dance, poach, wary, clock, boxed, toss, trail, lure, ...hands } = DIFFICULTY.ace;
+  const { search, dance, poach, wary, clock, boxed, toss, trail, lure, pincer, ...hands } = DIFFICULTY.ace;
+  assert.ok(pincer > 0);
   assert.ok(trail > BONK.reach + BONK.windup * 166, 'it follows from beyond where a turn and a swing would reach');
   assert.ok(lure > BONK.reach, 'the dash at a nibbling rival turns back outside its reach');
   assert.ok(clock > 0);
@@ -408,4 +409,46 @@ test('behind a rival that runs ahead and turns to swing, the top bot is out of r
   assert.ok(ace.bonked <= 5, `the top bot was bonked ${ace.bonked} times in 24: ${JSON.stringify(ace)}`);
   assert.ok(ace.bonked < hard.bonked, `fewer than the hard bot: ${JSON.stringify(hard)}`);
   assert.ok(ace.won >= 17, `and it stops the seed: ${JSON.stringify(ace)}`);
+});
+
+test('two top bots on a team cover both ways home of a seed instead of running the same way', () => {
+  // A carrier that keeps away from both of them and takes whichever way is left
+  // open, with the pair starting side by side beyond the flower.
+  const tally = (difficulty) => {
+    const r = { caught: 0, home: 0, neither: 0 };
+    for (let n = 0; n < 24; n++) {
+      const g = createGame({ slots: [0, 0, 1, 1].map((team, i) => ({ name: `p${i}`, kind: i < 2 ? 'bot' : 'human', team })), seed: n + 1 });
+      for (let i = 0; i < COUNTDOWN * TICK_RATE + 2; i++) step(g, []);
+      g.calm = true;
+      const [a, b, c, d] = g.players;
+      const nav = getNav(g.map);
+      const f = g.map.flower;
+      Object.assign(d, { x: g.map.bounds.x2 - 30, y: g.map.bounds.y2 - 30 });
+      const spot = [...g.map.gatherSpots].sort((p, q) => p.x - q.x)[n % 3];
+      Object.assign(c, { x: spot.x, y: spot.y, carrying: true });
+      const side = n % 2 ? 1 : -1;
+      Object.assign(a, { x: f.x + 40, y: f.y + side * 70 });
+      Object.assign(b, { x: f.x + 70, y: f.y + side * 100 });
+      const brains = [createBot({ difficulty, seed: n + 3 }), createBot({ difficulty, seed: n + 53 })];
+      const entries = g.map.rowYs.map((y) => ({ x: g.homeX - 14, y }));
+      let path = null;
+      let t = 0;
+      for (; t < 14 * TICK_RATE && g.phase === 'playing' && !c.deaths; t++) {
+        if (t % 9 === 0) {
+          const cost = (p, q) => [a, b].reduce((k, e) => k + Math.max(0, 1 - distToSegment(e.x, e.y, p.x, p.y, q.x, q.y) / 150) * 1500, 0);
+          path = entries.map((en) => nav.findPath(c, en, cost)).reduce((best, way) => (way.cost < best.cost ? way : best)).points;
+        }
+        const p = nav.nextTarget(c, path);
+        const pd = Math.hypot(p.x - c.x, p.y - c.y) || 1;
+        step(g, [brains[0].think(g, 0), brains[1].think(g, 1), { mx: (p.x - c.x) / pd, my: (p.y - c.y) / pd, bonk: false, ax: 0, ay: 0 }]);
+      }
+      r[c.deaths ? 'caught' : g.phase !== 'playing' ? 'home' : 'neither']++;
+    }
+    return r;
+  };
+  const hard = tally('hard');
+  const ace = tally('ace');
+  assert.ok(ace.home < hard.home, `the seed got home less often: ${JSON.stringify(ace)} against the hard bots' ${JSON.stringify(hard)}`);
+  assert.ok(ace.caught > hard.caught, `and was caught more often: ${JSON.stringify(ace)} against ${JSON.stringify(hard)}`);
+  assert.ok(ace.home <= 10, `the seed got home ${ace.home} times in 24`);
 });
