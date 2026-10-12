@@ -483,6 +483,31 @@ test('a bot does not follow a seed carrier into a tunnel, and bonks it from the 
   }
 });
 
+test('a bot is not drawn into a tunnel round its far side, where the map edge leaves no way past', () => {
+  // A carrier tucked into the part of the tunnel nearest the map's edge, and a bot
+  // coming at it from the side: the short way round is along the edge, and there
+  // is no room there.
+  for (const difficulty of ['hard', 'ace']) {
+    for (const w of MAP.warps) {
+      const edge = w.y < MAP.flower.y ? -1 : 1;
+      for (const [cx, cy, bx] of [[22, 18, -90], [-22, 18, 90], [28, 8, -90], [-28, 8, 90], [0, 26, 90], [14, 25, -90]]) {
+        const g = started(2);
+        const [bot, carrier] = g.players;
+        const brain = createBot({ difficulty, seed: 3 });
+        place(bot, w.x + bx, w.y);
+        place(carrier, w.x + cx, w.y + edge * cy);
+        carrier.carrying = true;
+        let warped = 0;
+        for (let i = 0; i < 8 * TICK_RATE && !carrier.deaths; i++) {
+          step(g, [brain.think(g, 0), IDLE]);
+          warped += g.events.filter((ev) => ev.type === 'warp' && ev.id === 0).length;
+        }
+        assert.equal(warped, 0, `${difficulty} bot went in after a carrier at ${cx},${cy}`);
+      }
+    }
+  }
+});
+
 test('a bot swings at a hamster pressing into it, not away from it', () => {
   const me = { x: 300, y: 260 };
   // Touching and charging: carried on at full speed it would be 16px behind me.

@@ -13,9 +13,10 @@ const game = (kinds, seed, map = MAPS.meadow) => {
 };
 
 test('the top bot has the hard bot\'s hands and adds looking ahead and footwork', () => {
-  const { search, dance, ...hands } = DIFFICULTY.ace;
+  const { search, dance, poach, ...hands } = DIFFICULTY.ace;
   assert.equal(search, true);
   assert.equal(dance, true);
+  assert.equal(poach, 2);
   assert.deepEqual(hands, DIFFICULTY.hard);
 });
 
@@ -79,4 +80,32 @@ test('up close the top bot feints: it dashes in, turns back before a swing can l
   }
   assert.ok(turned >= 1, 'it turned back at least once');
   assert.ok(closest > BONK.reach + 6 && closest < 80, `the first dash stopped just short of the rival's reach: ${closest}`);
+});
+
+test('in a free-for-all the top bot leaves a far-off seed to the others and goes for a second one', () => {
+  // Four on their own. One rival is carrying a seed a long way off, the other two
+  // stand near it, and the bot is by the flower.
+  const heading = (difficulty) => {
+    const g = createGame({ slots: Array.from({ length: 4 }, (_, i) => ({ name: `p${i}`, kind: 'bot' })), seed: 2 });
+    for (let i = 0; i < COUNTDOWN * TICK_RATE + 2; i++) step(g, []);
+    const [me, carrier, a, b] = g.players;
+    const f = g.map.flower;
+    const lane = g.map.laneYs[0];
+    const set = () => {
+      Object.assign(carrier, { x: 520, y: g.map.rowYs[1], carrying: true });
+      Object.assign(a, { x: 420, y: g.map.rowYs[1] });
+      Object.assign(b, { x: 250, y: lane });
+    };
+    Object.assign(me, { x: f.x - 20, y: f.y - 150 });
+    set();
+    const bot = createBot({ difficulty, seed: 5 });
+    const start = Math.hypot(me.x - f.x, me.y - f.y);
+    for (let i = 0; i < 1.2 * TICK_RATE; i++) {
+      step(g, [{ ...bot.think(g, 0), bonk: false }]);
+      set();
+    }
+    return Math.hypot(me.x - f.x, me.y - f.y) - start;
+  };
+  assert.ok(heading('ace') < -40, `the top bot closed in on the flower: ${heading('ace')}`);
+  assert.ok(heading('hard') > 40, `the hard bot went after the seed instead: ${heading('hard')}`);
 });
