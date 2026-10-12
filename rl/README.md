@@ -8,8 +8,11 @@
 ## 사용법
 
 ```bash
-python3 rl/train.py --name first --minutes 60
+python3 rl/pretrain.py --name pre
+python3 rl/train.py --name first --minutes 60 --resume rl/runs/pre/policy.pt
 ```
+
+- `pretrain.py`는 봇끼리 둔 판으로 정책(봇 따라 하기)과 가치(누가 이길지)를 먼저 배웁니다. 따라 하기만 하면 봇이 안 가는 곳에서 막히므로, 학습본이 직접 둔 판에 봇의 정답을 붙여 다시 배우는 DAgger를 3번 거칩니다. 이게 없으면 해씨 물기를 끝내 못 찾고 꿀밤만 배웁니다.
 
 ```bash
 node rl/play.js rl/runs/first/policy.json 200
