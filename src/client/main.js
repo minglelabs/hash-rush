@@ -233,7 +233,9 @@ function renderLobby() {
     // An open slot has nobody in it yet, so it shows no name.
     const empty = slot.kind === 'open' || slot.kind === 'closed';
     name.value = empty ? '' : slot.name;
-    name.placeholder = slot.kind === 'open' ? t(guest ? 'waitingFriend' : 'emptySeat') : slot.kind === 'closed' ? t('kinds').closed : '';
+    // The host's own seat, given up to watch the round instead.
+    const hostWatching = !guest && i === 0 && slot.kind === 'closed';
+    name.placeholder = slot.kind === 'open' ? t(guest ? 'waitingFriend' : 'emptySeat') : hostWatching ? t('spectating') : slot.kind === 'closed' ? t('kinds').closed : '';
     name.maxLength = 8;
     name.disabled = !mine || empty;
     name.setAttribute('aria-label', t('slotName', i + 1));
@@ -252,15 +254,21 @@ function renderLobby() {
     // A guest only sees who is in each slot; the host chooses.
     const person = guest ? (i === net.you ? 'human' : 'remote') : slot.kind;
     const shown = slot.kind === 'human' || slot.kind === 'remote' ? person : slot.kind;
-    const options = guest || i === 0 || slot.kind === 'remote' ? [shown, ...(slot.kind === 'remote' && !guest ? ['kick', 'closed'] : [])] : KINDS.filter((k) => k !== 'human');
+    // The host plays in the first seat or leaves it empty and watches.
+    const options =
+      !guest && i === 0
+        ? ['human', 'closed']
+        : guest || slot.kind === 'remote'
+          ? [shown, ...(slot.kind === 'remote' && !guest ? ['kick', 'closed'] : [])]
+          : KINDS.filter((k) => k !== 'human');
     for (const value of options) {
       const opt = document.createElement('option');
       opt.value = value;
-      opt.textContent = t('kinds')[value];
+      opt.textContent = !guest && i === 0 && value === 'closed' ? t('hostWatch') : t('kinds')[value];
       kind.append(opt);
     }
     kind.value = shown;
-    kind.disabled = guest || i === 0;
+    kind.disabled = guest;
     // Kicking a friend leaves the seat empty for somebody else.
     kind.addEventListener('change', () => setKind(slot, kind.value === 'kick' ? 'open' : kind.value));
     // A tap on an empty seat closes it, and a tap on a closed one opens it again.
@@ -268,7 +276,7 @@ function renderLobby() {
       li.classList.add('seat');
       li.addEventListener('click', (e) => {
         if (e.target === kind || kind.contains(e.target)) return;
-        setKind(slot, slot.kind === 'open' ? 'closed' : 'open');
+        setKind(slot, i === 0 ? 'human' : slot.kind === 'open' ? 'closed' : 'open');
       });
     }
 
