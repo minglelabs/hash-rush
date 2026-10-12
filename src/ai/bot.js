@@ -71,7 +71,11 @@ export const DIFFICULTY = {
 //   feinting, it is following, and a follower runs straight into a swing: the bot
 //   stops dead, turns and swings the moment that swing would land. Every time,
 //   where the hard bot only does it when it happens to feel like a swing.
-DIFFICULTY.ace = { ...DIFFICULTY.hard, search: true, dance: true, poach: 2, wary: 0.5, clock: 0.15, toss: 0, boxed: 120, trail: 78, lure: 54, pincer: 60, gatewise: 300, ambush: 0.2 };
+// dodge: carrying a seed past a side lane, it watches for a person waiting in
+//   there who sets off to swing just as it crosses. Walking on is walking into
+//   that swing, so it goes straight back the way it came for this many seconds:
+//   the swing lands on nothing, and the bot is on whoever is stuck after it.
+DIFFICULTY.ace = { ...DIFFICULTY.hard, search: true, dance: true, poach: 2, wary: 0.5, clock: 0.15, toss: 0, boxed: 120, trail: 78, lure: 54, pincer: 60, gatewise: 300, ambush: 0.2, dodge: 0.3 };
 
 const TOUCH = 2 * HAMSTER_R;
 const DANGER_R = 110;
@@ -143,6 +147,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
     flank: false,
     flee: { id: -1, since: 0, tick: -1 },
     tail: new Map(),
+    dodge: { id: -1, until: 0, x: 0, y: 0 },
     cut: null,
     dance: { id: -1, expires: 0 },
     fooled: new Map(),
@@ -644,6 +649,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
     const target = mem.targetId >= 0 ? seen.find((e) => e.id === mem.targetId) : null;
     if (mem.mode === 'home') {
       follow(mem.path);
+      let met = false;
       // Someone standing in the way: fight through rather than walk into a bonk.
       for (const e of seen) {
         if (e.home) continue;
@@ -653,7 +659,43 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
         out.mx = 0;
         out.my = 0;
         engage(e);
+        met = true;
         break;
+      }
+      // Someone in a side lane setting off for the spot I am about to cross
+      // means to be there with a swing as I pass (see `dodge`).
+      if (cfg.dodge && !met && (out.mx || out.my)) {
+        const hx = out.mx;
+        const hy = out.my;
+        const lag = cfg.reaction + cfg.dodge;
+        const from = now < mem.dodge.until ? seen.find((e) => e.id === mem.dodge.id && !e.home && e.swing !== 'recovery') : null;
+        if (from) {
+          out.mx = mem.dodge.x;
+          out.my = mem.dodge.y;
+        } else {
+          for (const e of seen) {
+            // A person's trick. A bot never swings round a corner at what it cannot
+            // see, so from a bot there is nothing to step back from.
+            if (e.home || e.carrying || e.swing || g.players[e.id].kind !== 'human') continue;
+            const dx = e.x - me.x;
+            const dy = e.y - me.y;
+            const d = Math.hypot(dx, dy) || 1;
+            // From the side, that is: one ahead is met head on, one behind cannot reach.
+            if (d > 130 || (hx * dx + hy * dy) / d < -0.2 || Math.abs(e.vx * hy - e.vy * hx) < 0.4 * SPEED) continue;
+            // Only one that can have its swing there just as I cross.
+            const mine = (hx * dx + hy * dy) / Math.max(1, Math.hypot(me.vx, me.vy)) - cfg.reaction;
+            const its = Math.max(0, Math.abs(hx * dy - hy * dx) - BONK.reach) / SPEED + BONK.windup;
+            if (mine > its + 0.1) continue;
+            const at = { x: e.x + e.vx * lag, y: e.y + e.vy * lag };
+            if (distToSegment(at.x, at.y, me.x, me.y, me.x + hx * 100, me.y + hy * 100) > BONK.reach + 6) continue;
+            // Not back into somebody else.
+            if (seen.some((r) => r !== e && !r.home && dist(me, r) < 110 && (r.x - me.x) * hx + (r.y - me.y) * hy < 0)) continue;
+            mem.dodge = { id: e.id, until: now + cfg.dodge, x: -hx, y: -hy };
+            out.mx = -hx;
+            out.my = -hy;
+            break;
+          }
+        }
       }
     } else if (mem.mode === 'deny' && target) {
       if (dist(me, target) < (mem.flank ? 100 : 230) && clear(me, target)) engage(target);
