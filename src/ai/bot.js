@@ -21,6 +21,8 @@ export const DIFFICULTY = {
   // caution: how strongly a seed carrier avoids enemies waiting near its route
   // toss: chance to throw the seed at a single rival standing in the way home
   // volley: chance to throw it when it would take down two, or a rival's seed
+  // thrifty: within this many pixels of home it never throws its seed away. The
+  //   seed is the win; a rival knocked down there is worth nothing next to it.
   // freeze: how long it dithers before a swing it has decided on (seconds)
   // rally: whether it joins the chase after a seed it cannot head off in time
   // The rookie keeps to four simple things: go for a seed, go and stop a rival who
@@ -31,7 +33,7 @@ export const DIFFICULTY = {
   normal: { reaction: 0.24, lead: 0.4, margin: 2, jitter: 4, bait: 0.25, hold: 0.5, deny: 0.7, hunt: 0.7, opportunism: 0.8, caution: 0.8, freeze: 0.09, rally: true, toss: 0.3, volley: 0.8 },
   // search: instead of the fixed rules below, it plays each plan forward in a copy
   //   of the game and picks the best (see search.js). Hands as good as hard's.
-  hard: { reaction: 0.12, lead: 0.9, margin: 3, jitter: 1, bait: 0.55, hold: 1, deny: 1, hunt: 1, opportunism: 1.5, caution: 1.2, freeze: 0, rally: true, toss: 0.5, volley: 1 },
+  hard: { reaction: 0.12, lead: 0.9, margin: 3, jitter: 1, bait: 0.55, hold: 1, deny: 1, hunt: 1, opportunism: 1.5, caution: 1.2, freeze: 0, rally: true, toss: 0.5, volley: 1, thrifty: 330 },
 };
 // dance: up close it feints instead of walking in: a dash at the rival to draw a
 //   swing, a step back out of reach so the swing misses, then in for the hit.
@@ -618,7 +620,18 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
           })
           .sort((a, b) => dist(me, a) - dist(me, b));
       const ahead = inLine(hx, hy, THROW.range + 30, THROW.width + 6);
-      if (!mem.toss && ahead.length) {
+      // Close to home the seed stays in its cheeks, whoever is standing there.
+      const keep = cfg.thrifty && me.x - g.homeX < cfg.thrifty;
+      if (keep && mem.toss) {
+        // A wind-up begun further out is called off: dropped if it is early enough,
+        // otherwise swallowed by a swing, as when a target gets away.
+        mem.toss = false;
+        if (me.charge >= THROW.charge - 2 * DT) {
+          if (!me.swing && me.cooldown <= 0 && !mem.bonkDown) abort = true;
+          else mem.toss = { id: -1 };
+        }
+      }
+      if (!keep && !mem.toss && ahead.length) {
         if (mem.tossRoll.id !== ahead[0].id || now > mem.tossRoll.until) {
           const sure = ahead.length > 1 || ahead[0].carrying;
           mem.tossRoll = { id: ahead[0].id, until: now + 3, yes: rng() < (sure ? cfg.volley : cfg.toss) };
