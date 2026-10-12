@@ -64,6 +64,7 @@ export const DEFAULTS = {
   // flower, half of them already holding a seed, so nibbling and the run home are
   // seen early instead of waiting on luck.
   headStart: 0,
+  allBots: false, // every seat a scripted bot, to record their play (rl/demo.js)
 };
 
 // ---------- what the map looks like to a policy ----------
@@ -224,6 +225,11 @@ export function createEnvs(settings = {}) {
   const done = new Uint8Array(E);
   const role = new Uint8Array(E * MAX_P);
   const win = new Uint8Array(E * MAX_P);
+  // What each scripted bot did over the last decision, in the policy's own actions.
+  const botAct = new Uint8Array(E * MAX_P * 3);
+  // Seats set here play `actions` even when a bot sits there; the bot still says
+  // what it would have done, which is how rl/demo.js corrects a learner (DAgger).
+  const steer = new Uint8Array(E * MAX_P);
   const envs = [];
 
   function reset(e) {
@@ -242,7 +248,7 @@ export function createEnvs(settings = {}) {
       [sides[i], sides[j]] = [sides[j], sides[i]];
     }
     for (let i = 0; i < n; i++) {
-      const level = withBots && i > 0 && rnd() < cfg.botSeat ? pick(cfg.botLevels) : -1;
+      const level = withBots && (i > 0 || cfg.allBots) && rnd() < cfg.botSeat ? pick(cfg.botLevels) : -1;
       slots.push({ name: `p${i}`, kind: level < 0 ? 'human' : 'bot', team: teamed ? sides[i] : -1 });
       bots.push(level < 0 ? null : createBot({ difficulty: BOT_LEVELS[level], seed: Math.floor(rnd() * 1e9) }));
       role[e * MAX_P + i] = level < 0 ? 1 : 2 + level;
@@ -408,8 +414,19 @@ export function createEnvs(settings = {}) {
         const inputs = [];
         for (let i = 0; i < n; i++) {
           if (bots[i]) {
-            inputs.push(bots[i].think(g, i));
-            continue;
+            const inp = bots[i].think(g, i);
+            inputs.push(inp);
+            const a = (e * MAX_P + i) * 3;
+            if (k === 0) {
+              const still = Math.hypot(inp.mx || 0, inp.my || 0) < 0.3;
+              botAct[a] = still ? 0 : 1 + ((Math.round(Math.atan2(inp.my, inp.mx) / (Math.PI / 4)) + 8) % 8);
+              botAct[a + 1] = 0;
+              botAct[a + 2] = 0;
+            }
+            if (inp.bonk) botAct[a + 1] = 1;
+            if (inp.throw) botAct[a + 2] = 1;
+            if (!steer[e * MAX_P + i]) continue;
+            inputs.pop();
           }
           const a = (e * MAX_P + i) * 3;
           const dir = DIRS[actions[a] % 9];
@@ -448,7 +465,7 @@ export function createEnvs(settings = {}) {
     reset(e);
     observe(e);
   }
-  return { cfg, obs, reward, final, done, role, win, act };
+  return { cfg, obs, reward, final, done, role, win, botAct, steer, act };
 }
 
 // ---------- the pipe ----------
