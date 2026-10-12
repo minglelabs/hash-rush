@@ -9,8 +9,11 @@ learner. The pieces, all light enough for a laptop:
     normalisation, residual MLP blocks, LayerNorm. Small, but it trains stably.
   * A league of past selves with prioritised fictitious self-play (AlphaStar's
     PFSP): opponents the learner still loses to are picked more often, so it
-    cannot forget how to beat an old trick. The game's scripted bots sit in some
-    rounds too, as fixed sparring partners and as the yardstick.
+    cannot forget how to beat an old trick.
+  * A curriculum of the game's scripted bots: most rounds start out against the
+    easy bot, which wins by carrying the seed home, so bonking alone loses. Once
+    the learner wins as often as the bots do, the next level joins, and at the
+    end the bots thin out in favour of self-play.
   * Reward: the score table's own weights (bonk 1, throw 2, stop 1, seed 2,
     goal 5, super 3) plus a win bonus bigger than any of them.
 
@@ -32,6 +35,9 @@ import torch.nn.functional as F
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 HEADS = (9, 2, 2)  # move, bonk, throw
+# The ladder: (share of rounds with scripted bots, bot levels that may sit in).
+STAGES = [(0.7, [0]), (0.7, [0, 1]), (0.6, [0, 1, 2]), (0.35, [0, 1, 2])]
+STAGE_NAMES = ["easy", "easy+normal", "all bots", "mostly self-play"]
 
 
 # ---------- environment workers ----------
@@ -79,9 +85,10 @@ class Workers:
     def first(self):
         return self._read()
 
-    def step(self, actions):
+    def step(self, actions, bot_env, levels):
+        head = bytes([int(round(bot_env * 100)), sum(1 << l for l in levels)])
         for w, p in enumerate(self.procs):
-            p.stdin.write(actions[w * self.E : (w + 1) * self.E].tobytes())
+            p.stdin.write(head + actions[w * self.E : (w + 1) * self.E].tobytes())
             p.stdin.flush()
         return self._read()
 
@@ -233,7 +240,10 @@ def main():
     ap.add_argument("--league", type=int, default=16)
     ap.add_argument("--snapshot-every", type=int, default=10)
     ap.add_argument("--pfsp-power", type=float, default=1.0)
-    ap.add_argument("--bot-env", type=float, default=0.15)
+    ap.add_argument("--bot-env", type=float, default=0.15, help="share of rounds with scripted bots, when the curriculum is off")
+    ap.add_argument("--no-curriculum", action="store_true", help="every bot level from the start, at --bot-env")
+    ap.add_argument("--stage", type=int, default=-1, help="curriculum stage to start from (0 easy bots only); default: where the resumed run stopped")
+    ap.add_argument("--promote-after", type=int, default=1000, help="bot rounds to judge a stage by")
     ap.add_argument("--win", type=float, default=30)
     ap.add_argument("--lose", type=float, default=0)
     ap.add_argument("--shape", type=float, default=1, help="weight of the progress pay; 0 turns it off")
@@ -251,7 +261,16 @@ def main():
     out_dir = os.path.join(HERE, "runs", args.name)
     os.makedirs(out_dir, exist_ok=True)
 
-    settings = {"botEnv": args.bot_env, "win": args.win, "lose": args.lose, "shape": args.shape, "teams": args.teams}
+    stage = max(0, args.stage)
+    if args.resume and args.stage < 0:
+        try:
+            with open(os.path.splitext(args.resume)[0] + ".json") as f:
+                stage = int(json.load(f)["meta"].get("stage", 0))
+        except (OSError, ValueError, KeyError):
+            pass
+    stage = min(stage, len(STAGES) - 1)
+    spar = lambda: (args.bot_env, [0, 1, 2]) if args.no_curriculum else STAGES[stage]
+    settings = {"botEnv": spar()[0], "botLevels": spar()[1], "win": args.win, "lose": args.lose, "shape": args.shape, "teams": args.teams}
     if args.maps != "all":
         settings["maps"] = args.maps.split(",")
     env = Workers(args.workers, args.envs, args.seed, settings)
@@ -301,12 +320,15 @@ def main():
 
     log_path = os.path.join(out_dir, "log.csv")
     with open(log_path, "w") as f:
-        f.write("iter,minutes,decisions,sps,episodes,learner_score,win_vs_bots,fair_share,win_vs_league,entropy,value_loss,kl\n")
+        f.write("iter,minutes,decisions,sps,stage,episodes,learner_score,win_vs_bots,fair_share,win_vs_league,entropy,value_loss,kl\n")
     stats = {k: [] for k in ("score", "bot_win", "bot_fair", "league_win")}
     start = time.time()
     it = 0
     total = 0
     actions = np.zeros((N, P, 3), np.uint8)
+    # Against the stage's newest bot level: rounds, the learner's wins and seats, the bots' wins and seats.
+    judge = np.zeros(5)
+    meta = lambda: {"iter": it, "decisions": total, "obs": D, "width": args.width, "blocks": args.blocks, "stage": stage}
 
     print(f"{N} rounds on {args.workers} workers, obs {D}, {sum(p.numel() for p in model.parameters())} weights, device {dev}")
     while (time.time() - start) / 60 < args.minutes:
@@ -332,7 +354,8 @@ def main():
             was = assign.copy()
             had_bots = (role > 1).any(1)
             players = (role > 0).sum(1)
-            obs, rew, score, done, role, win = env.step(actions)
+            before = role
+            obs, rew, score, done, role, win = env.step(actions, *spar())
             b_rew[t] = rew * args.reward_scale
             b_done[t] = done
             for n in np.flatnonzero(done):
@@ -342,6 +365,9 @@ def main():
                 if had_bots[n]:
                     stats["bot_win"].append(float(win[n][mine].mean()))
                     stats["bot_fair"].append(1.0 / players[n])
+                    top = before[n] == 2 + STAGES[stage][1][-1]
+                    if top.any() and mine.any():
+                        judge += (1, win[n][mine].sum(), mine.sum(), win[n][top].sum(), top.sum())
                 if opponent[n] >= 0:
                     league.record(opponent[n], won)
                     stats["league_win"].append(1.0 if won else 0.0)
@@ -394,30 +420,39 @@ def main():
                 nn.utils.clip_grad_norm_(model.parameters(), 0.5)
                 opt.step()
                 kl = float((d_logp[idx] - logp).mean().detach())
-                ent_mean, v_loss = float(entropy.mean()), float(vl)
+                ent_mean, v_loss = float(entropy.mean().detach()), float(vl.detach())
                 if kl > 0.03:
                     stop = True
                     break
             if stop:
                 break
 
+        # Up a stage once the learner's seats win as often as the newest bots' seats.
+        if not args.no_curriculum and judge[0] >= args.promote_after:
+            mine_rate, bot_rate = judge[1] / judge[2], judge[4] and judge[3] / judge[4]
+            print(f"stage {stage} ({STAGE_NAMES[stage]}): learner wins {mine_rate:.2f} of its seats, the bots {bot_rate:.2f}", flush=True)
+            if mine_rate >= bot_rate and stage < len(STAGES) - 1:
+                stage += 1
+                print(f"-> stage {stage} ({STAGE_NAMES[stage]})", flush=True)
+            judge[:] = 0
+
         if it % args.snapshot_every == 0:
             league.add(model, it)
             torch.save(model.state_dict(), os.path.join(out_dir, "policy.pt"))
-            export_json(model, os.path.join(out_dir, "policy.json"), {"iter": it, "decisions": total, "obs": D, "width": args.width, "blocks": args.blocks})
+            export_json(model, os.path.join(out_dir, "policy.json"), meta())
 
         mean = lambda k: float(np.mean(stats[k])) if stats[k] else float("nan")
         minutes = (time.time() - start) / 60
         sps = T * N / (time.time() - t0)
-        row = [it, round(minutes, 2), total, int(sps), len(stats["score"]), round(mean("score"), 2), round(mean("bot_win"), 3), round(mean("bot_fair"), 3), round(mean("league_win"), 3), round(ent_mean, 3), round(v_loss, 4), round(kl, 4)]
+        row = [it, round(minutes, 2), total, int(sps), stage, len(stats["score"]), round(mean("score"), 2), round(mean("bot_win"), 3), round(mean("bot_fair"), 3), round(mean("league_win"), 3), round(ent_mean, 3), round(v_loss, 4), round(kl, 4)]
         with open(log_path, "a") as f:
             f.write(",".join(str(v) for v in row) + "\n")
         if it % 5 == 0 or it == 1:
-            print(f"it {it:4d}  {minutes:5.1f}m  {total/1e6:6.2f}M decisions  {int(sps):6d}/s  score {mean('score'):5.2f}  win vs bots {mean('bot_win'):.2f} (fair {mean('bot_fair'):.2f})  vs league {mean('league_win'):.2f}  ent {ent_mean:.2f}", flush=True)
+            print(f"it {it:4d}  stage {stage}  {minutes:5.1f}m  {total/1e6:6.2f}M decisions  {int(sps):6d}/s  score {mean('score'):5.2f}  win vs bots {mean('bot_win'):.2f} (fair {mean('bot_fair'):.2f})  vs league {mean('league_win'):.2f}  ent {ent_mean:.2f}", flush=True)
             stats = {k: [] for k in stats}
 
     torch.save(model.state_dict(), os.path.join(out_dir, "policy.pt"))
-    export_json(model, os.path.join(out_dir, "policy.json"), {"iter": it, "decisions": total, "obs": D, "width": args.width, "blocks": args.blocks})
+    export_json(model, os.path.join(out_dir, "policy.json"), meta())
     env.close()
     print(f"saved {out_dir}/policy.pt and policy.json")
 
