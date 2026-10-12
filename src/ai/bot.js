@@ -6,7 +6,7 @@ import { distToSegment, isFree, segmentClear } from '../sim/map.js';
 import { inHome, allied } from '../sim/game.js';
 import { mulberry32 } from '../sim/rng.js';
 import { getNav, blockCost } from './nav.js';
-import { HAZARD, hazardCost, inCannonLine } from '../sim/hazards.js';
+import { HAZARD, hazardCost, inCannonLine, iceNow } from '../sim/hazards.js';
 import { createPlanner, SEARCH } from './search.js';
 
 export const DIFFICULTY = {
@@ -47,11 +47,19 @@ export const DIFFICULTY = {
 // toss 0, boxed: it does not gamble its seed on one rival in the way. It throws for
 //   two at once, for a rival's seed, or when one is ahead and another is coming up
 //   within `boxed` pixels behind, so the seed is as good as lost anyway.
+// trail: behind a rival that is running away it keeps this far back. A swing from
+//   behind cannot reach anyone who keeps going, so all that happens at a rival's
+//   heels is that it turns and swings first. From here that swing hits nothing,
+//   and the bot is on it while it is stuck.
+// lure: a rival with its head down at the flower still swings at whoever walks up,
+//   and standing still it gets that swing in first. The bot dashes in to this
+//   distance, where a swing looks sure to land, and straight back out; when the
+//   swing has gone into thin air it goes in. With no time for that it goes straight in.
 // clock: at the flower it counts. A seed takes a couple of seconds of standing
 //   still, so it nibbles on only while no rival can reach it before the seed comes
 //   loose, and it does not budge then. When one can, it goes out and meets it
 //   first: a rival sent back to its nest is away for longer than a seed takes.
-DIFFICULTY.ace = { ...DIFFICULTY.hard, search: true, dance: true, poach: 2, wary: 0.5, clock: 0.15, toss: 0, boxed: 120 };
+DIFFICULTY.ace = { ...DIFFICULTY.hard, search: true, dance: true, poach: 2, wary: 0.5, clock: 0.15, toss: 0, boxed: 120, trail: 78, lure: 54 };
 
 const TOUCH = 2 * HAMSTER_R;
 const DANGER_R = 110;
@@ -120,6 +128,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
     duel: { id: -1, expires: 0 },
     spot: null,
     nibbling: false,
+    flee: { id: -1, since: 0, tick: -1 },
     cut: null,
     dance: { id: -1, expires: 0 },
     fooled: new Map(),
@@ -443,11 +452,39 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
         steerTo(e);
         return;
       }
+      // Right behind a rival that is running away there is nothing to hit: a swing
+      // from behind falls short of anyone who keeps going. All that can happen at
+      // its heels is that it turns and swings first. So follow a step out of that
+      // swing's reach, and be there when it has swung at nothing, or stops.
+      const fleeing = cfg.trail && !e.swing && d < 140 && (e.vx * dx + e.vy * dy) / d > 0.45 * SPEED;
+      if (!fleeing || mem.flee.id !== e.id || g.tick !== mem.flee.tick + 1) mem.flee = { id: fleeing ? e.id : -1, since: now, tick: g.tick };
+      else mem.flee.tick = g.tick;
+      // Only one that has been going for a while: a step back in the middle of a
+      // fight is footwork, and is answered as such below.
+      if (fleeing && now - mem.flee.since >= 0.35) {
+        // Not on ice, where nobody stops or turns on the spot.
+        const slippery = iceNow(map, now).some((r) => me.x >= r.x && me.x <= r.x + r.w && me.y >= r.y && me.y <= r.y + r.h);
+        if (!slippery) {
+          if (d > cfg.trail) steerTo({ x: e.x + e.vx * 0.12, y: e.y + e.vy * 0.12 });
+          return;
+        }
+      }
       const charging = -(e.vx * dx + e.vy * dy) / d > 0.5 * SPEED;
       if (mem.duel.hold && charging && d < 150) return;
-      // Someone nibbling is not going to swing: no feints, straight in.
-      // Nor against a rival with a seed: it is not there to fight, it is going past.
-      if (cfg.dance && !e.carrying && !(e.nibbler && Math.hypot(e.vx, e.vy) < 20)) {
+      // No feints against a rival with a seed: it is not there to fight, it is going
+      // past. Someone nibbling gets the short ones that draw its swing (see `lure`),
+      // unless its seed is about to come loose: then straight in.
+      const busy = e.nibbler && Math.hypot(e.vx, e.vy) < 20;
+      const hurry = busy && (!cfg.lure || gatherTime(g.players.length) - g.players[e.id].gather < Math.max(0, d - 60) / SPEED + 1.1);
+      if (cfg.dance && busy && !hurry && (mem.dance.id !== e.id || now > mem.dance.expires || !mem.dance.nib)) {
+        mem.dance = { id: e.id, nib: now, out: false, turn: cfg.lure + rng() * 6, until: 0, feints: 0, most: 3, expires: now + 4 };
+      } else if (mem.dance.nib) {
+        // These feints are for the rival with its head down. Once that is well
+        // over, the next meeting gets the full footwork again.
+        if (busy) mem.dance.nib = now;
+        else if (now - mem.dance.nib > 1.5) mem.dance = { id: -1, expires: 0 };
+      }
+      if (cfg.dance && !e.carrying && !hurry) {
         // Dash in to where a swing at me looks sure to land, then straight back
         // out before it does. A few feints, and if nothing bites, go in for real.
         let dn = mem.dance;
@@ -460,7 +497,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
             out.my = -dy / d;
             if (now >= dn.until || d > 92) {
               dn.out = false;
-              dn.turn = 58 + rng() * 10;
+              dn.turn = dn.nib ? cfg.lure + rng() * 6 : 58 + rng() * 10;
             }
           } else {
             out.mx = dx / d;

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createGame, step } from '../src/sim/game.js';
 import { createBot, DIFFICULTY } from '../src/ai/bot.js';
 import { createPlanner } from '../src/ai/search.js';
+import { getNav } from '../src/ai/nav.js';
 import { BONK, COUNTDOWN, TICK_RATE } from '../src/sim/constants.js';
 import { MAPS } from '../src/sim/map.js';
 
@@ -16,7 +17,9 @@ const game = (kinds, seed, map = MAPS.meadow) => {
 };
 
 test('the top bot has the hard bot\'s hands and adds looking ahead and footwork', () => {
-  const { search, dance, poach, wary, clock, boxed, toss, ...hands } = DIFFICULTY.ace;
+  const { search, dance, poach, wary, clock, boxed, toss, trail, lure, ...hands } = DIFFICULTY.ace;
+  assert.ok(trail > BONK.reach + BONK.windup * 166, 'it follows from beyond where a turn and a swing would reach');
+  assert.ok(lure > BONK.reach, 'the dash at a nibbling rival turns back outside its reach');
   assert.ok(clock > 0);
   assert.ok(boxed > 0);
   assert.equal(toss, 0, 'no seed gambled on a single rival');
@@ -322,4 +325,87 @@ test('the top bot nibbles on without budging while nobody can reach it in time',
   }
   assert.equal(moved, 0, `it fidgeted on ${moved} ticks`);
   assert.ok(me.carrying, 'and has its seed');
+});
+
+test('the top bot draws the swing of a rival nibbling at the flower instead of walking into it', () => {
+  // The rival stands at the flower with its head down and swings the moment the
+  // bot is near enough for that swing to land on anyone who keeps coming.
+  const meet = (difficulty, n) => {
+    const g = createGame({ slots: Array.from({ length: 4 }, (_, i) => ({ name: `p${i}`, kind: i ? 'human' : 'bot' })), seed: n + 1 });
+    for (let i = 0; i < COUNTDOWN * TICK_RATE + 2; i++) step(g, []);
+    g.calm = true;
+    const [bot, nib] = g.players;
+    const f = g.map.flower;
+    const a = (n / 24) * Math.PI * 2;
+    Object.assign(nib, { x: f.x + Math.cos(a) * 55, y: f.y + Math.sin(a) * 55 });
+    const far = 150 + (n % 4) * 30;
+    Object.assign(bot, { x: f.x + Math.cos(a + 0.9) * far, y: f.y + Math.sin(a + 0.9) * far });
+    const brain = createBot({ difficulty, seed: n + 3 });
+    const trigger = 58 + ((n * 7) % 10);
+    for (let t = 0; t < 5 * TICK_RATE && !nib.carrying; t++) {
+      const d = Math.hypot(bot.x - nib.x, bot.y - nib.y);
+      const swing = d <= trigger && !nib.swing && nib.cooldown <= 0;
+      step(g, [brain.think(g, 0), { mx: 0, my: 0, bonk: swing, ax: (bot.x - nib.x) / d, ay: (bot.y - nib.y) / d }]);
+      if (bot.deaths) return 'bonked';
+      if (nib.deaths) return 'won';
+    }
+    return 'neither';
+  };
+  const tally = (difficulty) => {
+    const r = { bonked: 0, won: 0, neither: 0 };
+    for (let n = 0; n < 24; n++) r[meet(difficulty, n)]++;
+    return r;
+  };
+  const hard = tally('hard');
+  const ace = tally('ace');
+  assert.ok(hard.bonked >= 15, `the hard bot walks into it: ${JSON.stringify(hard)}`);
+  assert.ok(ace.bonked <= 3, `the top bot was bonked ${ace.bonked} times in 24`);
+  assert.ok(ace.won >= 14, `and wins most of them: ${JSON.stringify(ace)}`);
+});
+
+test('behind a rival that runs ahead and turns to swing, the top bot is out of reach and punishes it', () => {
+  const chase = (difficulty, n) => {
+    const g = createGame({ slots: Array.from({ length: 4 }, (_, i) => ({ name: `p${i}`, kind: i ? 'human' : 'bot' })), seed: n + 1 });
+    for (let i = 0; i < COUNTDOWN * TICK_RATE + 2; i++) step(g, []);
+    g.calm = true;
+    const [bot, lead, x, y] = g.players;
+    const b = g.map.bounds;
+    Object.assign(x, { x: b.x2 - 30, y: b.y1 + 30 });
+    Object.assign(y, { x: b.x2 - 30, y: b.y2 - 30 });
+    const nav = getNav(g.map);
+    const spot = [...g.map.gatherSpots].sort((p, q) => p.x - q.x)[n % 3];
+    Object.assign(lead, { x: spot.x, y: spot.y, carrying: true });
+    const path = nav.findPath(lead, { x: g.homeX - 14, y: g.map.rowYs[(n % 3) + 4] }).points;
+    const first = nav.nextTarget(lead, path);
+    const l = Math.hypot(first.x - lead.x, first.y - lead.y) || 1;
+    const ux = (first.x - lead.x) / l;
+    const uy = (first.y - lead.y) / l;
+    const gap = 40 + (n % 4) * 10;
+    Object.assign(bot, { x: lead.x - ux * gap, y: lead.y - uy * gap, vx: ux * 166, vy: uy * 166 });
+    Object.assign(lead, { vx: ux * 166, vy: uy * 166 });
+    const brain = createBot({ difficulty, seed: n + 3 });
+    let next = 0.4 + ((n * 13) % 10) / 10;
+    for (let t = 0; t < 7 * TICK_RATE && g.phase === 'playing'; t++) {
+      const p = nav.nextTarget(lead, path);
+      const pd = Math.hypot(p.x - lead.x, p.y - lead.y) || 1;
+      const d = Math.hypot(bot.x - lead.x, bot.y - lead.y);
+      // It turns and swings whenever the bot is close enough behind for that to land.
+      const swing = t / TICK_RATE >= next && d <= 64 && !lead.swing && lead.cooldown <= 0;
+      if (swing) next = t / TICK_RATE + 1 + ((n * 7 + t) % 10) / 10;
+      step(g, [brain.think(g, 0), { mx: (p.x - lead.x) / pd, my: (p.y - lead.y) / pd, bonk: swing, ax: (bot.x - lead.x) / d, ay: (bot.y - lead.y) / d }]);
+      if (bot.deaths) return 'bonked';
+      if (lead.deaths) return 'won';
+    }
+    return 'neither';
+  };
+  const tally = (difficulty) => {
+    const r = { bonked: 0, won: 0, neither: 0 };
+    for (let n = 0; n < 24; n++) r[chase(difficulty, n)]++;
+    return r;
+  };
+  const hard = tally('hard');
+  const ace = tally('ace');
+  assert.ok(ace.bonked <= 5, `the top bot was bonked ${ace.bonked} times in 24: ${JSON.stringify(ace)}`);
+  assert.ok(ace.bonked < hard.bonked, `fewer than the hard bot: ${JSON.stringify(hard)}`);
+  assert.ok(ace.won >= 17, `and it stops the seed: ${JSON.stringify(ace)}`);
 });
