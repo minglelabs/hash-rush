@@ -13,10 +13,11 @@ const game = (kinds, seed, map = MAPS.meadow) => {
 };
 
 test('the top bot has the hard bot\'s hands and adds looking ahead and footwork', () => {
-  const { search, dance, poach, ...hands } = DIFFICULTY.ace;
+  const { search, dance, poach, wary, ...hands } = DIFFICULTY.ace;
   assert.equal(search, true);
   assert.equal(dance, true);
   assert.equal(poach, 2);
+  assert.ok(wary > 0);
   assert.deepEqual(hands, DIFFICULTY.hard);
 });
 
@@ -108,4 +109,83 @@ test('in a free-for-all the top bot leaves a far-off seed to the others and goes
   };
   assert.ok(heading('ace') < -40, `the top bot closed in on the flower: ${heading('ace')}`);
   assert.ok(heading('hard') > 40, `the hard bot went after the seed instead: ${heading('hard')}`);
+});
+
+// Someone who plays the way a person does up close: body in, step back, and when
+// the bot has swung at thin air, back in for the hit.
+function juker() {
+  const seen = [];
+  let out = false;
+  let until = 0;
+  return (g, me, e) => {
+    seen.push(!!e.swing);
+    const sawSwing = seen.length > 12 ? seen.shift() : false; // a fifth of a second to notice
+    const dx = e.x - me.x;
+    const dy = e.y - me.y;
+    const d = Math.hypot(dx, dy) || 1;
+    const move = { mx: dx / d, my: dy / d, bonk: false, ax: dx / d, ay: dy / d };
+    if (sawSwing) {
+      out = false;
+      move.bonk = d <= BONK.reach - 2 && !me.swing && me.cooldown <= 0;
+      return move;
+    }
+    if (!out && d <= 33) {
+      out = true;
+      until = g.time + 0.28;
+    } else if (out && g.time >= until) out = false;
+    return out ? { ...move, mx: -move.mx, my: -move.my } : move;
+  };
+}
+
+function duelJuker(difficulty, rounds) {
+  let botHits = 0;
+  let jukerHits = 0;
+  for (let n = 0; n < rounds; n++) {
+    const g = createGame({ slots: [{ name: 'bot', kind: 'bot' }, { name: 'me', kind: 'human' }], seed: n + 1 });
+    for (let i = 0; i < COUNTDOWN * TICK_RATE + 2; i++) step(g, []);
+    const [bot, me] = g.players;
+    const brain = createBot({ difficulty, seed: n + 3 });
+    const person = juker();
+    const put = () => {
+      Object.assign(bot, { x: 800, y: 150 });
+      Object.assign(me, { x: 730, y: 420 });
+    };
+    put();
+    for (let i = 0; i < 12 * TICK_RATE; i++) {
+      const before = [bot.deaths, me.deaths];
+      step(g, [brain.think(g, 0), person(g, me, bot)]);
+      if (bot.deaths > before[0]) jukerHits++;
+      if (me.deaths > before[1]) botHits++;
+      if (bot.deaths > before[0] || me.deaths > before[1]) put();
+    }
+  }
+  return { botHits, jukerHits };
+}
+
+test('the top bot learns not to be baited: against someone who feints and counters it holds its own far better than the hard bot', () => {
+  const hard = duelJuker('hard', 16);
+  const ace = duelJuker('ace', 16);
+  const share = (r) => r.botHits / (r.botHits + r.jukerHits);
+  assert.ok(share(hard) < 0.4, `the hard bot keeps falling for it: ${JSON.stringify(hard)}`);
+  assert.ok(share(ace) > share(hard) + 0.08, `the top bot does clearly better: ${JSON.stringify(ace)} against ${JSON.stringify(hard)}`);
+  assert.ok(ace.jukerHits < hard.jukerHits, 'and is caught less often');
+});
+
+test('the top bot does not stand and watch a rival nibble: it goes straight in', () => {
+  for (let n = 0; n < 10; n++) {
+    const g = createGame({ slots: Array.from({ length: 4 }, (_, i) => ({ name: `p${i}`, kind: 'bot' })), seed: n + 1 });
+    for (let i = 0; i < COUNTDOWN * TICK_RATE + 2; i++) step(g, []);
+    const [bot, rival] = g.players;
+    const f = g.map.flower;
+    const a = (n / 10) * Math.PI * 2;
+    Object.assign(rival, { x: f.x + Math.cos(a) * 55, y: f.y + Math.sin(a) * 55 });
+    Object.assign(bot, { x: 60, y: 60 });
+    for (let i = 0; i < 6; i++) step(g, []);
+    // The rival has its head down; the bot is just outside the ring, a quarter turn round.
+    Object.assign(bot, { x: f.x + Math.cos(a + 1.5) * 95, y: f.y + Math.sin(a + 1.5) * 95 });
+    const brain = createBot({ difficulty: 'ace', seed: n + 3 });
+    for (let i = 0; i < 4 * TICK_RATE && !rival.deaths && !rival.carrying; i++) step(g, [brain.think(g, 0)]);
+    assert.equal(rival.carrying, false, `round ${n}: the rival got its seed`);
+    assert.equal(rival.deaths, 1, `round ${n}: the rival was never bonked`);
+  }
 });
