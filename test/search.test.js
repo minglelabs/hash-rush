@@ -189,3 +189,28 @@ test('the top bot does not stand and watch a rival nibble: it goes straight in',
     assert.equal(rival.deaths, 1, `round ${n}: the rival was never bonked`);
   }
 });
+
+test('the top bot at the flower is not drawn into a wasted swing by someone running in and straight back out', () => {
+  // As recorded from a real round: the bot is nibbling, a person runs in until
+  // they touch, steps back, and waits to hit the bot once it has swung at air.
+  let baited = 0;
+  let whiffs = 0;
+  for (let n = 0; n < 24; n++) {
+    const g = createGame({ slots: Array.from({ length: 4 }, (_, i) => ({ name: `p${i}`, kind: 'bot' })), seed: n + 1 });
+    for (let i = 0; i < COUNTDOWN * TICK_RATE + 2; i++) step(g, []);
+    const [bot, me] = g.players;
+    const f = g.map.flower;
+    const a = (n / 24) * Math.PI * 2;
+    Object.assign(bot, { x: f.x + Math.cos(a) * 55, y: f.y + Math.sin(a) * 55 });
+    Object.assign(me, { x: f.x + Math.cos(a + 0.9) * 150, y: f.y + Math.sin(a + 0.9) * 150 });
+    const brain = createBot({ difficulty: 'ace', seed: n + 3 });
+    const person = juker();
+    for (let i = 0; i < 5 * TICK_RATE && !bot.deaths && !me.deaths && !bot.carrying; i++) {
+      step(g, [brain.think(g, 0), person(g, me, bot)]);
+      whiffs += g.events.filter((ev) => ev.type === 'impact' && ev.id === 0 && !ev.hit).length;
+    }
+    baited += bot.deaths;
+  }
+  assert.equal(baited, 0, 'it was never bonked for a wasted swing');
+  assert.equal(whiffs, 0, 'and never swung at air');
+});
