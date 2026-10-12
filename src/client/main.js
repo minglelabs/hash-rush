@@ -4,14 +4,16 @@
 // Online play has no server. The host's browser runs the simulation; guests send
 // their inputs and draw the snapshots the host sends back.
 
-import { createGame, step, allied, timeoutReason } from '../sim/game.js';
-import { DT, OVERTIME, COUNTDOWN } from '../sim/constants.js';
+import { createGame, step, allied, inHome, timeoutReason } from '../sim/game.js';
+import { DT, OVERTIME, COUNTDOWN, BONK } from '../sim/constants.js';
 import { MAP, MAPS, MAP_IDS } from '../sim/map.js';
 import { createBot } from '../ai/bot.js';
 import { createRenderer, drawHamster, drawSeed, nearHome } from './render.js';
 import { createInput } from './input.js';
+import { createLaneHelp } from './assist.js';
 import { MVP_POINTS, mvpScore, pickMvp } from './mvp.js';
 import { createAudio } from './audio.js';
+import { createHaptics } from './haptics.js';
 import { LOOKS, TEAMS, colorOf } from './looks.js';
 import { lang, t, LANGUAGES, stringsFor } from './i18n.js';
 import { hostRoom, joinRoom, announceRoom, watchRooms } from './net.js';
@@ -21,6 +23,8 @@ const STORE = 'seed-rush-slots';
 const SIDE_STORE = 'hash-rush-bonk-left';
 const MODE_STORE = 'seed-rush-teams';
 const MAP_STORE = 'seed-rush-map';
+const STICK_STORE = 'hash-rush-stick';
+const ASSIST_STORE = 'hash-rush-assist';
 // What the host can set a slot to. 'open' is an empty seat anyone with the link
 // can take, and 'remote' is one a friend has taken.
 const KINDS = ['human', 'open', 'bot:easy', 'bot:normal', 'bot:hard', 'bot:ace', 'closed'];
@@ -70,6 +74,8 @@ function localizePage() {
   for (const el of document.querySelectorAll('[data-i18n]')) el.innerHTML = t(el.dataset.i18n) ?? '';
   for (const id of ['mute', 'muteLobby']) $(id).title = t('sound');
   $('swap').title = t('swapSides');
+  $('buzz').title = t('buzz');
+  $('full').title = t('fullscreen');
   // For a guest these buttons do not go to a lobby of their own: they leave the room.
   if (joinId) for (const id of ['quit', 'back']) $(id).textContent = t('leaveRoom');
   $('how').replaceChildren(
@@ -98,6 +104,7 @@ const TITLE_WINS = 10;
 // Championships already decided in this room, newest last. Gone with the room.
 let seasons = [];
 const audio = createAudio();
+const haptics = createHaptics();
 // The host picks the map in the lobby; the meadow is the default.
 let mapId = 'meadow';
 try {
@@ -107,6 +114,19 @@ try {
   // stays on the meadow
 }
 const renderer = createRenderer($('canvas'), MAP);
+const query = new URLSearchParams(location.search);
+// The phone controls can be tried out from the address bar, and the phone keeps
+// what it was last given: ?stick=30 sets how far the stick trails the thumb
+// (pixels), ?assist=0 turns the lane help off. Left out, the built-in values apply.
+function tuned(name, key) {
+  try {
+    if (query.has(name)) localStorage.setItem(key, query.get(name));
+    return localStorage.getItem(key);
+  } catch {
+    return query.get(name);
+  }
+}
+const stickRange = Number(tuned('stick', STICK_STORE));
 const input = createInput({
   stage: $('stage'),
   canvas: $('canvas'),
@@ -116,9 +136,10 @@ const input = createInput({
   throwBtn: $('throw'),
   toWorld: renderer.toWorld,
   toWorldDir: renderer.toWorldDir,
+  stickRange: stickRange >= 12 && stickRange <= 80 ? stickRange : undefined,
+  laneHelp: tuned('assist', ASSIST_STORE) !== '0',
 });
 
-const query = new URLSearchParams(location.search);
 const joinId = query.get('room');
 // Opening the watch link joins as a spectator instead of taking a slot.
 const watchOnly = query.has('watch');
@@ -140,6 +161,7 @@ let scoreKey = '';
 let tickBeat = -1;
 let bonkSeq = 0;
 let bonkWas = false;
+let bonkCool = 0;
 
 // ---------- lobby ----------
 
@@ -602,7 +624,7 @@ function guestData(conn, msg) {
     sendLobby();
   } else if (msg.t === 'i') {
     const n = (v) => Math.max(-1, Math.min(1, Number(v) || 0));
-    slot.input = { mx: n(msg.mx), my: n(msg.my), ax: n(msg.ax), ay: n(msg.ay), seq: Number(msg.seq) || 0, th: !!msg.th };
+    slot.input = { mx: n(msg.mx), my: n(msg.my), ax: n(msg.ax), ay: n(msg.ay), seq: Number(msg.seq) || 0, th: !!msg.th, sk: !!msg.sk };
   }
 }
 
@@ -962,15 +984,21 @@ function startGame() {
   });
   controllers = active.map(({ slot }, id) => {
     slot.playerId = id;
-    if (slot.kind === 'human') return (g) => input.read(g, id);
+    // A move off a touch stick is straightened out here, where the hamster really
+    // is, whether the thumb is the host's or a guest's.
+    if (slot.kind === 'human') {
+      const help = createLaneHelp();
+      return (g) => help(g, g.players[id], input.read(g, id));
+    }
     if (slot.kind === 'remote') {
+      const help = createLaneHelp();
       // The guest counts its bonk presses; a new count is one press here.
       let seen = slot.input.seq;
-      return () => {
+      return (g) => {
         const i = slot.input;
         const bonk = i.seq !== seen;
         seen = i.seq;
-        return { mx: i.mx, my: i.my, ax: i.ax, ay: i.ay, bonk, throw: i.th };
+        return help(g, g.players[id], { mx: i.mx, my: i.my, ax: i.ax, ay: i.ay, bonk, throw: i.th, stick: i.sk });
       };
     }
     const bot = createBot({ difficulty: slot.kind.split(':')[1], seed: seed + id * 7919 });
@@ -1070,9 +1098,15 @@ function onEvent(ev) {
     big(t('go'));
     audio.play.go();
   } else if (ev.type === 'swing') {
-    if (ev.id === meId) audio.play.swing();
+    if (ev.id === meId) {
+      audio.play.swing();
+      haptics.buzz(12);
+    }
   } else if (ev.type === 'bonk') {
     audio.play.bonk();
+    // Felt in the hand: a thump for a bonk landed, a longer rattle for one taken.
+    if (ev.by === meId) haptics.buzz(35);
+    if (ev.id === meId) haptics.buzz([70, 50, 110]);
     const line = document.createElement('div');
     line.append(nameTag(players[ev.by]), ev.seed ? ` 🌻${t('bonkWord')} ` : ` ${t('bonkWord')} `, nameTag(players[ev.id]));
     line.addEventListener('animationend', () => line.remove());
@@ -1086,6 +1120,7 @@ function onEvent(ev) {
   } else if (ev.type === 'zap') {
     // The map got somebody: a pit or a cannon.
     audio.play.zap();
+    if (ev.id === meId) haptics.buzz([70, 50, 110]);
     const line = document.createElement('div');
     line.append(ev.kind === 'trap' ? '🕳️ ' : '💥 ', nameTag(players[ev.id]));
     line.addEventListener('animationend', () => line.remove());
@@ -1111,6 +1146,7 @@ function onEvent(ev) {
     if (ev.id === meId) audio.play.spawn();
   } else if (ev.type === 'seed') {
     audio.play.seed();
+    if (ev.id === meId) haptics.buzz([20, 40, 20]);
     const mate = meId >= 0 && allied(players[meId], players[ev.id]);
     banner(ev.id === meId ? t('gotSeedMe') : t(mate ? 'gotSeedMate' : 'gotSeedOther', players[ev.id].name));
   } else if (ev.type === 'overtime') {
@@ -1514,6 +1550,14 @@ function updateHud() {
   watchCarrier();
   // The throw button is only there while this player has a seed to throw.
   $('throw').hidden = !(meId >= 0 && game.phase === 'playing' && game.players[meId].carrying);
+  // The bonk button shows the wait for the next swing, and that there is none at home.
+  const me = meId >= 0 && game.phase === 'playing' ? game.players[meId] : null;
+  const cool = me ? Math.ceil((me.cooldown / BONK.cooldown) * 24) / 24 : 0;
+  if (cool !== bonkCool) {
+    bonkCool = cool;
+    $('bonk').style.setProperty('--cool', cool);
+  }
+  $('bonk').classList.toggle('off', !!me && inHome(game, me));
   if (!$('board').hidden) {
     const now = game.players.map((p) => `${p.kills},${p.deaths},${p.seeds},${p.supers},${p.throws},${p.stops}`).join();
     if (now !== boardKey) {
@@ -1564,7 +1608,7 @@ function frame(now) {
       const i = input.read(game, meId);
       if (i.bonk && !bonkWas) bonkSeq++;
       bonkWas = i.bonk;
-      if (net.host) net.host.send({ t: 'i', mx: i.mx, my: i.my, ax: i.ax, ay: i.ay, seq: bonkSeq, th: i.throw ? 1 : 0 });
+      if (net.host) net.host.send({ t: 'i', mx: i.mx, my: i.my, ax: i.ax, ay: i.ay, seq: bonkSeq, th: i.throw ? 1 : 0, sk: i.stick ? 1 : 0 });
     }
   } else {
     acc += dt;
@@ -1712,6 +1756,20 @@ $('swap').addEventListener('click', () => {
   } catch {
     // not remembered, still swapped for this visit
   }
+});
+// A phone that can buzz gets a switch for it, and one that can hide the browser's
+// bars a button for that: every strip of screen given back makes the hamsters bigger.
+$('buzz').hidden = !haptics.supported;
+const showBuzz = () => ($('buzz').textContent = haptics.enabled() ? '📳' : '📴');
+showBuzz();
+$('buzz').addEventListener('click', () => {
+  if (haptics.toggle()) haptics.buzz(35);
+  showBuzz();
+});
+$('full').hidden = !document.documentElement.requestFullscreen;
+$('full').addEventListener('click', () => {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else document.documentElement.requestFullscreen({ navigationUI: 'hide' }).catch(() => {});
 });
 // Browsers only allow sound after a tap, and a guest never presses Start. Mobile
 // browsers accept different events as the tap, so keep trying until sound is on.
