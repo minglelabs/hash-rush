@@ -197,6 +197,8 @@ export function createPlanner({ seed = 1 } = {}) {
       if (p.carrying) s += side * (260 + 520 * along(p));
       s -= side * 70 * (p.deaths - was.deaths) * (p === me ? 1.6 : 1);
       s += side * 15 * (p.kills - was.kills);
+      // A rival left to nibble in peace is a seed on its way.
+      if (side < 0) s -= 140 * p.gather;
     }
     if (!me.carrying) {
       // Being at the flower and nibbling is what leads to a seed.

@@ -35,7 +35,12 @@ export const DIFFICULTY = {
 //   swing, a step back out of reach so the swing misses, then in for the hit.
 // poach: in a free-for-all, with at least this many others already after a rival's
 //   seed, it leaves that seed to them and goes for a second one of its own.
-DIFFICULTY.ace = { ...DIFFICULTY.hard, search: true, dance: true, poach: 2 };
+// wary: it learns from being fooled. Once a rival has drawn a wasted swing out of it
+//   and bonked it for that, it stops swinging at that rival just for running at it:
+//   it times the swing to how that rival comes in, or gives ground and waits for
+//   it to be properly in reach. The number is how often it holds fire while it
+//   still does not know the rival's habit.
+DIFFICULTY.ace = { ...DIFFICULTY.hard, search: true, dance: true, poach: 2, wary: 0.5 };
 
 const TOUCH = 2 * HAMSTER_R;
 const DANGER_R = 110;
@@ -103,6 +108,12 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
     huntRoll: { id: -1, until: 0, yes: false },
     duel: { id: -1, expires: 0 },
     dance: { id: -1, expires: 0 },
+    fooled: new Map(),
+    whiff: { id: -1, until: 0 },
+    inReach: new Map(),
+    habit: new Map(),
+    patience: { id: -1, until: 0, hold: false },
+    aimedAt: -1,
     noise: 0,
     noiseAt: 0,
     bonkDown: false,
@@ -401,7 +412,8 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       }
       const charging = -(e.vx * dx + e.vy * dy) / d > 0.5 * SPEED;
       if (mem.duel.hold && charging && d < 150) return;
-      if (cfg.dance) {
+      // Someone nibbling is not going to swing: no feints, straight in.
+      if (cfg.dance && !(e.nibbler && Math.hypot(e.vx, e.vy) < 20)) {
         // Dash in to where a swing at me looks sure to land, then straight back
         // out before it does. A few feints, and if nothing bites, go in for real.
         let dn = mem.dance;
@@ -448,7 +460,10 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       // with nothing, the rules below still apply.
       plan();
       mem.replanAt = now + (planner ? Math.min(SEARCH.every, 0.2) : 0.16 + rng() * 0.08);
-      if (planner) {
+      // A rival at the flower with its head down is to be bonked, now. That is not
+      // up for a second opinion: weighing it is how a bot ends up standing and watching.
+      const atNibbler = mem.mode === 'hunt' && mem.targetId === g.nibbler && Math.hypot(g.players[g.nibbler].vx, g.players[g.nibbler].vy) < 20;
+      if (planner && !atNibbler) {
         const rules = { mode: mem.mode, targetId: mem.targetId, path: mem.path, entryY: mem.entryY };
         const idea = planner.choose(g, id, (p, q) => blocked(p, q) + (me.carrying ? danger(p, q) : 0), rules);
         if (idea && idea !== rules) {
@@ -613,8 +628,42 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       mem.toss = false;
     }
 
+    // How each rival comes at me: how near it gets before it turns away again.
+    if (cfg.wary) {
+      for (const e of seen) {
+        const dx = e.x - me.x;
+        const dy = e.y - me.y;
+        const d = Math.hypot(dx, dy) || 1;
+        const closing = -(e.vx * dx + e.vy * dy) / d;
+        let h = mem.habit.get(e.id);
+        if (!h) mem.habit.set(e.id, (h = { coming: false, min: Infinity, turns: [] }));
+        if (e.home || d > 120) {
+          h.coming = false;
+        } else if (closing > 0.4 * SPEED) {
+          h.min = h.coming ? Math.min(h.min, d) : d;
+          h.coming = true;
+        } else if (h.coming && closing < -0.3 * SPEED) {
+          h.turns.push(Math.min(h.min, d));
+          if (h.turns.length > 3) h.turns.shift();
+          h.coming = false;
+        }
+      }
+    }
+
+    // Fooled: I swung at somebody, hit nothing, and that same somebody bonked me
+    // while I was stuck. Once is enough to start treating it differently.
+    if (cfg.wary) {
+      if (mem.aimedAt >= 0 && g.events.some((ev) => ev.type === 'impact' && ev.id === id)) {
+        if (g.events.some((ev) => ev.type === 'impact' && ev.id === id && !ev.hit)) mem.whiff = { id: mem.aimedAt, until: now + 1 };
+        mem.aimedAt = -1;
+      }
+      const hit = g.events.find((ev) => ev.type === 'bonk' && ev.id === id);
+      if (hit && hit.by === mem.whiff.id && now <= mem.whiff.until) mem.fooled.set(hit.by, (mem.fooled.get(hit.by) || 0) + 1);
+    }
+
     // Swing decision.
     let want = null;
+    let giveGround = null;
     if (!me.swing && me.cooldown <= 0 && !meHome) {
       if (now >= mem.noiseAt) {
         mem.noise = (rng() * 2 - 1) * cfg.jitter;
@@ -635,9 +684,53 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
         const inMyWay = d < BONK.reach && (wantX * dx + wantY * dy) / d > 0.5;
         const wanted = inMyWay || e.carrying || e.id === mem.targetId || e.swing === 'recovery' || (!me.carrying && e.nibbler);
         if (!hostile && !wanted && rng() >= cfg.opportunism * DT) continue;
-        if (!want || p.dist < want.dist) want = p;
+        // The rival is not in reach yet, only on its way: this swing counts on it
+        // carrying on. That is exactly what a feint looks like, so a wary bot
+        // often lets it come, backing off, and swings once it is really there.
+        // A rival with a seed has to come through, so that one is swung at as ever.
+        // Only against someone who has already made a fool of it, and not against a
+        // rival standing at the flower with its head down.
+        const busy = e.nibbler && Math.hypot(e.vx, e.vy) < 20;
+        if (cfg.wary && mem.fooled.get(e.id) && !e.swing && !e.carrying && !busy) {
+          const turns = mem.habit.get(e.id)?.turns || [];
+          const there = d <= BONK.reach - 3 && closing > -0.2 * SPEED;
+          const stay = mem.inReach.get(e.id);
+          const ticks = there ? (stay && stay.tick === g.tick - 1 ? stay.n + 1 : 1) : 0;
+          mem.inReach.set(e.id, { tick: g.tick, n: ticks });
+          // Where it will be when a swing started now lands, if it keeps coming. Once
+          // that is past the point of touching, the swing is too late: it will have
+          // bumped into me and may already be on its way back out.
+          const inward = -(e.vx * dx + e.vy * dy) / d;
+          const onTime = inward > 0.5 * SPEED && d - inward * lead >= TOUCH + 1;
+          // One guess per approach: take the swing, or let it come.
+          if (mem.patience.id !== e.id || now > mem.patience.until) {
+            mem.patience = { id: e.id, until: now + 0.7, hold: rng() < cfg.wary };
+          }
+          // It has shown how it comes at me. One that runs right up before it turns
+          // will be there when a well-timed swing lands, so that swing is always
+          // on. One that turns short of my reach is feinting or about to commit,
+          // and there is no telling which: sometimes swing, sometimes wait until it
+          // has stood in reach for a few ticks.
+          const comesClose = turns.length > 0 && turns.reduce((a, b) => a + b, 0) / turns.length <= BONK.reach - 1;
+          const fire = ticks >= 3 || (onTime && (comesClose || !mem.patience.hold));
+          if (!fire) {
+            if (!there) giveGround = { x: -dx / d, y: -dy / d };
+            continue;
+          }
+        }
+        if (!want || p.dist < want.dist) want = { ...p, id: e.id };
       }
     }
+    if (giveGround && !want) {
+      out.mx = giveGround.x;
+      out.my = giveGround.y;
+      // Not into a tunnel, though.
+      if (!me.carrying && map.warps.some((w) => Math.hypot(me.x + out.mx * 8 - w.x, me.y + out.my * 8 - w.y) < w.r + RIM + 2)) {
+        out.mx = 0;
+        out.my = 0;
+      }
+    }
+
     // A weaker bot loses its thread now and then and just stands there.
     const jolt = me.deaths !== mem.deaths || me.carrying !== mem.carrying;
     mem.deaths = me.deaths;
@@ -658,6 +751,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       out.ax = want.ax;
       out.ay = want.ay;
       mem.bonkDown = true;
+      mem.aimedAt = want.id ?? -1;
       // A swing and a throw do not mix: the bonk goes first and the wind-up is dropped.
       out.throw = false;
       mem.toss = false;
