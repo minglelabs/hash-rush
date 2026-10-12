@@ -16,7 +16,8 @@ const game = (kinds, seed, map = MAPS.meadow) => {
 };
 
 test('the top bot has the hard bot\'s hands and adds looking ahead and footwork', () => {
-  const { search, dance, poach, wary, ...hands } = DIFFICULTY.ace;
+  const { search, dance, poach, wary, clock, ...hands } = DIFFICULTY.ace;
+  assert.ok(clock > 0);
   assert.equal(search, true);
   assert.equal(dance, true);
   assert.equal(poach, 2);
@@ -295,4 +296,25 @@ test('near home the hard and top bots keep their seed however many rivals stand 
     assert.equal(near, 0, `${difficulty} threw its seed away ${near} times by the door`);
   }
   assert.equal(DIFFICULTY.normal.thrifty, undefined, 'the weaker bots may still do it');
+});
+
+test('the top bot nibbles on without budging while nobody can reach it in time', () => {
+  // Alone at the flower, the rivals pinned in their nests, far further away than a
+  // seed takes: it has to stand still from the first tick to the seed.
+  const g = createGame({ slots: Array.from({ length: 4 }, (_, i) => ({ name: `p${i}`, kind: 'bot' })), seed: 3 });
+  for (let i = 0; i < COUNTDOWN * TICK_RATE + 2; i++) step(g, []);
+  const me = g.players[0];
+  const spot = g.map.gatherSpots[0];
+  Object.assign(me, { x: spot.x, y: spot.y, vx: 0, vy: 0 });
+  const bot = createBot({ difficulty: 'ace', seed: 9 });
+  const nests = g.players.map((p) => ({ x: p.nest.x, y: p.nest.y }));
+  let moved = 0;
+  for (let i = 0; i < 2.5 * TICK_RATE && !me.carrying; i++) {
+    for (const p of g.players) if (p !== me) Object.assign(p, nests[p.id], { vx: 0, vy: 0 });
+    const input = bot.think(g, 0);
+    if (input.mx || input.my || input.bonk) moved++;
+    step(g, [input]);
+  }
+  assert.equal(moved, 0, `it fidgeted on ${moved} ticks`);
+  assert.ok(me.carrying, 'and has its seed');
 });
