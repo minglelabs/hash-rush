@@ -239,6 +239,8 @@ export const MAPS = {
       [0, 0, 8, 0], [4, 0, 4, 2], [8, 0, 8, 2], [2, 2, 2, 4], [2, 2, 6, 2], [6, 2, 6, 12], [8, 2, 11, 2], [10, 2, 10, 6],
       [0, 4, 2, 4], [4, 4, 4, 12], [4, 4, 11, 4], [2, 6, 2, 12], [2, 6, 6, 6], [10, 6, 11, 6],
       [0, 8, 2, 8], [4, 8, 10, 8], [8, 8, 8, 12], [10, 8, 10, 10], [0, 10, 10, 10], [2, 12, 8, 12],
+      // A way through the middle of each of the two biggest pools.
+      [2, 4, 4, 4], [8, 4, 8, 8],
     ],
   }),
   // A maze of narrow alleys that double back on each other, behind iron gates.
