@@ -463,25 +463,6 @@ export function createRenderer(canvas, firstMap) {
     const dark = clock < dusk - 4 ? 0 : clock < dusk ? (clock - (dusk - 4)) / 4 : clock < dawn - 4 ? 1 : (dawn - clock) / 4;
     const glow = Math.max(0, 1 - Math.abs(clock - (dusk - 2)) / 3, 1 - Math.abs(clock - (dawn - 2)) / 3);
 
-    // Ice shows a little before it is slippery, and goes with the morning.
-    const icy = isNight(map, game.time) ? 1 : Math.max(0, 1 - untilNight(map, game.time) / 3);
-    if (icy > 0) {
-      for (const r of map.ice) {
-        ctx.fillStyle = `rgba(150, 215, 255, ${0.8 * icy})`;
-        ctx.fillRect(r.x, r.y, r.w, r.h);
-        ctx.strokeStyle = `rgba(255, 255, 255, ${0.8 * icy})`;
-        ctx.lineWidth = 2;
-        for (let d = 12; d < Math.max(r.w, r.h); d += 26) {
-          const x = r.w > r.h ? r.x + d : r.x + r.w / 2 - 6;
-          const y = r.w > r.h ? r.y + r.h / 2 + 5 : r.y + d;
-          ctx.beginPath();
-          ctx.moveTo(x, y);
-          ctx.lineTo(x + 11, y - 8);
-          ctx.stroke();
-        }
-      }
-    }
-
     if (glow > 0) {
       const evening = clock < dawn - 6;
       const g = ctx.createLinearGradient(b.x1, b.y1, b.x2, b.y2);
@@ -506,6 +487,35 @@ export function createRenderer(canvas, firstMap) {
       for (const s of stars) {
         ctx.fillStyle = `rgba(255, 250, 220, ${dark * (0.35 + 0.65 * Math.abs(Math.sin(t * s.f + s.x)))})`;
         circle(ctx, s.x, s.y, s.r);
+      }
+    }
+    // Ice shows a little before it is slippery, and goes with the morning. It is
+    // drawn over the dark, lit from within, so it stands out most at night.
+    const icy = isNight(map, game.time) ? 1 : Math.max(0, 1 - untilNight(map, game.time) / 3);
+    if (icy > 0) {
+      const pulse = 0.5 + 0.5 * Math.sin(t * 3);
+      for (const r of map.ice) {
+        ctx.fillStyle = `rgba(150, 225, 255, ${(0.62 + 0.1 * pulse) * icy})`;
+        ctx.fillRect(r.x, r.y, r.w, r.h);
+        ctx.save();
+        ctx.shadowColor = `rgba(120, 220, 255, ${icy})`;
+        ctx.shadowBlur = 10 * scale;
+        ctx.strokeStyle = `rgba(235, 250, 255, ${(0.75 + 0.25 * pulse) * icy})`;
+        ctx.lineWidth = 2.5;
+        ctx.strokeRect(r.x + 1.5, r.y + 1.5, r.w - 3, r.h - 3);
+        ctx.restore();
+        // Glints that slide along it.
+        ctx.strokeStyle = `rgba(255, 255, 255, ${0.9 * icy})`;
+        ctx.lineWidth = 2;
+        const long = Math.max(r.w, r.h);
+        for (let d = (t * 22) % 26; d < long - 8; d += 26) {
+          const x = r.w > r.h ? r.x + d : r.x + r.w / 2 - 6;
+          const y = r.w > r.h ? r.y + r.h / 2 + 5 : r.y + d + 8;
+          ctx.beginPath();
+          ctx.moveTo(x, y);
+          ctx.lineTo(x + 11, y - 8);
+          ctx.stroke();
+        }
       }
     }
   }
