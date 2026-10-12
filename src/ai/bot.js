@@ -688,10 +688,10 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
         // carrying on. That is exactly what a feint looks like, so a wary bot
         // often lets it come, backing off, and swings once it is really there.
         // A rival with a seed has to come through, so that one is swung at as ever.
-        // Only against someone who has already made a fool of it, and not against a
-        // rival standing at the flower with its head down.
+        // Not against a rival standing at the flower with its head down.
         const busy = e.nibbler && Math.hypot(e.vx, e.vy) < 20;
-        if (cfg.wary && mem.fooled.get(e.id) && !e.swing && !e.carrying && !busy) {
+        if (cfg.wary && !e.swing && !e.carrying && !busy) {
+          const fooled = mem.fooled.get(e.id) || 0;
           const turns = mem.habit.get(e.id)?.turns || [];
           const there = d <= BONK.reach - 3 && closing > -0.2 * SPEED;
           const stay = mem.inReach.get(e.id);
@@ -702,9 +702,10 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
           // bumped into me and may already be on its way back out.
           const inward = -(e.vx * dx + e.vy * dy) / d;
           const onTime = inward > 0.5 * SPEED && d - inward * lead >= TOUCH + 1;
-          // One guess per approach: take the swing, or let it come.
+          // Against someone who has fooled it before, one guess per approach: take
+          // the swing, or let it come.
           if (mem.patience.id !== e.id || now > mem.patience.until) {
-            mem.patience = { id: e.id, until: now + 0.7, hold: rng() < cfg.wary };
+            mem.patience = { id: e.id, until: now + 0.7, hold: fooled > 0 && rng() < cfg.wary };
           }
           // It has shown how it comes at me. One that runs right up before it turns
           // will be there when a well-timed swing lands, so that swing is always
@@ -712,7 +713,10 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
           // and there is no telling which: sometimes swing, sometimes wait until it
           // has stood in reach for a few ticks.
           const comesClose = turns.length > 0 && turns.reduce((a, b) => a + b, 0) / turns.length <= BONK.reach - 1;
-          const fire = ticks >= 3 || (onTime && (comesClose || !mem.patience.hold));
+          // From the first meeting on, a swing at a rival running in is only ever the
+          // timely one. Once it has got as far as touching, swinging is what it
+          // wants: step back instead. A rival that is not rushing in is fair game.
+          const fire = ticks >= 3 || (onTime && (comesClose || !mem.patience.hold)) || (!fooled && inward <= 0.5 * SPEED);
           if (!fire) {
             if (!there) giveGround = { x: -dx / d, y: -dy / d };
             continue;
