@@ -109,6 +109,8 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
     secondRolls: new Map(),
     huntRoll: { id: -1, until: 0, yes: false },
     duel: { id: -1, expires: 0 },
+    spot: null,
+    cut: null,
     dance: { id: -1, expires: 0 },
     fooled: new Map(),
     whiff: { id: -1, until: 0 },
@@ -289,7 +291,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
         // get in its way: nearer the door it is making for. So the ones nearest
         // home defend and the ones out by the flower go for the seed, rather than
         // everybody leaving it to everybody else.
-        if (cfg.poach && !mates.length && !lastStandFor(c) && !(dist(me, c) < 120 && nav.clear(me, c))) {
+        if (cfg.poach && !mates.length && !lastStandFor(c) && !near) {
           const entry = entries.reduce((best, en) => (nav.distance(c, en) < nav.distance(c, best) ? en : best), entries[0]);
           const door = { x: g.homeX + 26, y: entry.y };
           const mine = travel(door);
@@ -311,6 +313,14 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       if (target) {
         mem.mode = 'deny';
         mem.targetId = target.c.id;
+        // Where to cut it off shifts a little with every step the carrier takes,
+        // and now and then jumps to another lane altogether. Do not turn round for
+        // that: stay with the spot picked a moment ago while it is still ahead of
+        // the carrier.
+        const was = mem.cut;
+        const jumped = was && was.id === target.c.id && target.at !== target.c && dist(was.at, target.at) > 110;
+        if (jumped && now < was.until && was.at.x < target.c.x - 30 && !map.warps.includes(target.at)) target.at = was.at;
+        else if (target.at !== target.c && (!was || was.id !== target.c.id || dist(was.at, target.at) > 110)) mem.cut = { id: target.c.id, at: target.at, until: now + 1.2 };
         mem.path = target.at === target.c ? null : route(target.at).points;
         return;
       }
@@ -374,6 +384,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       }
       // Pick a free spot on the ring, preferably out of everyone's reach.
       let best = null;
+      let kept = null;
       for (const spot of map.gatherSpots) {
         let crowd = 0;
         for (const e of seen) {
@@ -383,8 +394,14 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
         }
         if (crowd === Infinity) continue;
         const r = route(spot, blocked);
-        if (!best || r.cost + crowd < best.cost) best = { points: r.points, cost: r.cost + crowd };
+        const option = { points: r.points, cost: r.cost + crowd, spot };
+        if (!best || option.cost < best.cost) best = option;
+        if (spot === mem.spot) kept = option;
       }
+      // Two spots are often as good as each other. Keep heading for the one already
+      // chosen unless another is clearly better, or the bot weaves between them.
+      if (kept && kept.cost <= best.cost * 1.2 + 40) best = kept;
+      mem.spot = best ? best.spot : null;
       mem.path = best ? best.points : [f];
     };
 
@@ -470,7 +487,10 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       // A rival at the flower with its head down is to be bonked, now. That is not
       // up for a second opinion: weighing it is how a bot ends up standing and watching.
       const atNibbler = mem.mode === 'hunt' && mem.targetId === g.nibbler && Math.hypot(g.players[g.nibbler].vx, g.players[g.nibbler].vy) < 20;
-      if (planner && !atNibbler) {
+      // Nor is stopping a seed: the rule book defends, as the hard bot does. Its
+      // way of cutting a carrier off beat the look-ahead's second-guessing of it.
+      const defending = mem.mode === 'deny';
+      if (planner && !atNibbler && !defending) {
         const rules = { mode: mem.mode, targetId: mem.targetId, path: mem.path, entryY: mem.entryY };
         const idea = planner.choose(g, id, (p, q) => blocked(p, q) + (me.carrying ? danger(p, q) : 0), rules);
         if (idea && idea !== rules) {

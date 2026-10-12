@@ -14,7 +14,10 @@ import { getNav } from './nav.js';
 // How far ahead a plan is played out, and how often the bot thinks again.
 // `edge` is how much better than the rule book's own plan another plan has to
 // look before the bot leaves the rule book; `keep` is the same for changing its mind.
-export const SEARCH = { horizon: 2.4, every: 0.3, keep: 25, edge: 60 };
+// A plan once chosen is given `commit` seconds: within that time only a much better
+// one (`jump` points) replaces it. The scores are rough, and a bot that changes
+// its mind three times a second gets nowhere.
+export const SEARCH = { horizon: 2.4, every: 0.3, keep: 25, edge: 60, commit: 1.2, jump: 320 };
 
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 
@@ -79,6 +82,7 @@ export function createPlanner({ seed = 1 } = {}) {
   // Bots do not all think on the same tick: each starts a little out of step.
   let lastAt = ((seed % 9) / 9) * SEARCH.every - SEARCH.every;
   let thought = 0;
+  let since = 0;
 
   // `rules` is what the rule book would do right now: { mode, targetId, path, entryY }.
   function choose(g, id, cost, rules) {
@@ -176,6 +180,9 @@ export function createPlanner({ seed = 1 } = {}) {
       if (plan.label === 'rules') plan.score += SEARCH.edge;
       if (!best || plan.score > best.score) best = plan;
     }
+    const same = last && plans.find((p) => p.label === last.label);
+    if (same && same !== best && now - since < SEARCH.commit && best.score < same.score + SEARCH.jump) best = same;
+    if (!last || best.label !== last.label) since = now;
     last = best;
     lastAt = now;
     return best.intent;
