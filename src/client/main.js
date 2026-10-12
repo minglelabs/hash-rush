@@ -1524,6 +1524,9 @@ function showChampions(champs) {
       return row;
     }),
   );
+  // The full record under the trophy: this is the last look at it before the
+  // room starts over.
+  fillScores($('champStats'));
   $('champNote').textContent = t('champNote', rounds);
   $('champ').hidden = false;
   cancelAnimationFrame(champFrame);
@@ -1538,7 +1541,7 @@ function showChampions(champs) {
   audio.play.cheer();
   // The host closes the season; everyone else follows it back to the lobby.
   clearTimeout(champTimer);
-  if (net.role !== 'guest') champTimer = setTimeout(endSeason, 14000);
+  if (net.role !== 'guest') champTimer = setTimeout(endSeason, 22000);
 }
 
 function hideChampions() {

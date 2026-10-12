@@ -1718,6 +1718,24 @@ button.primary:active {
   background: #ffe9a8;
 }
 
+/* The full record under the trophy. It has many columns: keep it inside the card,
+   and let the card scroll sideways on a narrow screen rather than spill out. */
+#champ .card {
+  box-sizing: border-box;
+  max-width: 98%;
+  overflow-x: auto;
+}
+
+#champStats {
+  margin: 4px auto 10px;
+  font-size: clamp(11px, 1.35cqw, 15px);
+}
+
+#champStats th,
+#champStats td {
+  padding: 4px 6px;
+}
+
 #champNote {
   margin: 0;
   color: #a07a45;
