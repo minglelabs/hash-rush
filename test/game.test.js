@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createGame, step, inHome } from '../src/sim/game.js';
+import { createGame, step, inHome, timeoutReason } from '../src/sim/game.js';
 import { createBot, predictSwing } from '../src/ai/bot.js';
 import { getNav, blockCost } from '../src/ai/nav.js';
 import { THROW, BONK, CARRY_SPEED, COUNTDOWN, GATHER_TIME, gatherTime, HAMSTER_R, LAST_STRETCH, OVERTIME, SPEED, TICK_RATE } from '../src/sim/constants.js';
@@ -402,6 +402,19 @@ test('when time runs out the most bonks win, then fewest deaths, then seeds, the
   assert.deepEqual(end((p) => { p[0].seeds = 1; p[3].seeds = 2; }), [3]);
   assert.deepEqual(end(() => {}), [0, 1, 2, 3]);
   assert.deepEqual(end((p) => { p[0].kills = 1; p[3].kills = 1; }), [0, 3]);
+});
+
+test('a round that ran out of time says what settled it', () => {
+  const side = (kills, deaths = 0, seeds = 0, throws = 0) => ({ id: 0, team: -1, kills, deaths, seeds, throws });
+  const reason = (...players) => timeoutReason(players.map((p, id) => ({ ...p, id })));
+  assert.deepEqual(reason(side(3), side(2)), { by: 'bonks', n: 3 });
+  // A thrown seed counts as a bonk.
+  assert.deepEqual(reason(side(1, 0, 0, 3), side(3)), { by: 'bonks', n: 4 });
+  assert.deepEqual(reason(side(3, 2), side(3, 1)), { by: 'bonked', n: 1 });
+  assert.deepEqual(reason(side(3, 1, 1), side(3, 1, 2)), { by: 'seeds', n: 2 });
+  assert.equal(reason(side(3, 1, 1), side(3, 1, 1)).by, 'tie');
+  // A team is one side.
+  assert.deepEqual(reason({ ...side(2), team: 0 }, { ...side(2), team: 0 }, { ...side(3), team: 1 }), { by: 'bonks', n: 4 });
 });
 
 test('a bonk on overlapping team-mates takes the whole clump, but not one standing apart', () => {

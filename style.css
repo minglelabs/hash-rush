@@ -825,6 +825,57 @@ button.primary:active {
   font-size: clamp(20px, 3.2cqw, 34px);
 }
 
+/* The verdict: a win is gold and bouncing, a loss is grey, heavy and sunk. */
+#resultTitle.win {
+  font-size: clamp(30px, 5.4cqw, 56px);
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  color: #ff9f1a;
+  background: linear-gradient(180deg, #ffe066, #ff8a00);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 2px 0 #b35a00) drop-shadow(0 0 10px rgba(255, 190, 40, 0.7));
+  animation: pulse 0.5s ease-in-out infinite alternate;
+}
+
+#resultTitle.lose {
+  font-size: clamp(28px, 5cqw, 52px);
+  font-weight: 900;
+  letter-spacing: 0.3em;
+  /* The spacing trails the last letter too; this keeps the word centred. */
+  padding-left: 0.3em;
+  color: #6b7280;
+  text-shadow: 0 2px 0 #374151;
+  filter: grayscale(1);
+  transform: rotate(-2deg);
+  animation: sink 0.6s ease-out both;
+}
+
+@keyframes sink {
+  from {
+    transform: translateY(-18px) rotate(0deg);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) rotate(-2deg);
+    opacity: 1;
+  }
+}
+
+#resultWinner {
+  margin: 0 0 6px;
+  font-size: clamp(15px, 2.2cqw, 22px);
+  font-weight: 800;
+}
+
+#resultWhy {
+  margin: 0 0 12px;
+  color: #a07a45;
+  font-size: clamp(12px, 1.6cqw, 16px);
+  font-weight: 700;
+}
+
 #resultWait {
   margin: 0 0 14px;
   color: #a07a45;
