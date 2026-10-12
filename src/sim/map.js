@@ -442,7 +442,14 @@ function segmentRectDistance(ax, ay, bx, by, x1, y1, x2, y2) {
 // True when a straight line from a to b stays `pad` away from every obstacle.
 export function segmentClear(map, ax, ay, bx, by, pad = 0) {
   const c = map.corner;
+  const m = c + pad;
+  const lx = Math.min(ax, bx) - m;
+  const hx = Math.max(ax, bx) + m;
+  const ly = Math.min(ay, by) - m;
+  const hy = Math.max(ay, by) + m;
   for (const r of map.rects) {
+    // Boxes apart by the margin on either axis cannot be nearer than it.
+    if (r.x + c >= hx || r.x + r.w - c <= lx || r.y + c >= hy || r.y + r.h - c <= ly) continue;
     if (segmentRectDistance(ax, ay, bx, by, r.x + c, r.y + c, r.x + r.w - c, r.y + r.h - c) < c + pad) return false;
   }
   const f = map.flower;
