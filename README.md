@@ -203,3 +203,7 @@ src/client/   로비, 렌더링, 입력 장치, 효과음
 방 연결은 `src/client/net.js`, 방장·손님 흐름은 `src/client/main.js`에 있습니다.
 
 밸런스 값은 `src/sim/constants.js`, 봇 성향은 `src/ai/bot.js`의 `DIFFICULTY`, 맵은 `src/sim/map.js`에 있습니다.
+
+## 강화학습 봇
+
+게임의 시뮬레이션을 그대로 써서 봇을 학습시키는 환경이 `rl/`에 있습니다. 사용법과 구성은 [rl/README.md](rl/README.md)를 보세요.
