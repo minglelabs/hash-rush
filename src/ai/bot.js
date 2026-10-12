@@ -1,7 +1,7 @@
 // Computer-controlled hamster. A bot only reads the public game state and returns
 // the same input object a human does, so any slot can be swapped between the two.
 
-import { DT, SPEED, CARRY_SPEED, HAMSTER_R, BONK, THROW } from '../sim/constants.js';
+import { DT, SPEED, CARRY_SPEED, HAMSTER_R, BONK, THROW, gatherTime } from '../sim/constants.js';
 import { distToSegment, isFree, segmentClear } from '../sim/map.js';
 import { inHome, allied } from '../sim/game.js';
 import { mulberry32 } from '../sim/rng.js';
@@ -44,7 +44,11 @@ export const DIFFICULTY = {
 //   it times the swing to how that rival comes in, or gives ground and waits for
 //   it to be properly in reach. The number is how often it holds fire while it
 //   still does not know the rival's habit.
-DIFFICULTY.ace = { ...DIFFICULTY.hard, search: true, dance: true, poach: 2, wary: 0.5 };
+// clock: at the flower it counts. A seed takes a couple of seconds of standing
+//   still, so it nibbles on only while no rival can reach it before the seed comes
+//   loose, and it does not budge then. When one can, it goes out and meets it
+//   first: a rival sent back to its nest is away for longer than a seed takes.
+DIFFICULTY.ace = { ...DIFFICULTY.hard, search: true, dance: true, poach: 2, wary: 0.5, clock: 0.15 };
 
 const TOUCH = 2 * HAMSTER_R;
 const DANGER_R = 110;
@@ -112,6 +116,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
     huntRoll: { id: -1, until: 0, yes: false },
     duel: { id: -1, expires: 0 },
     spot: null,
+    nibbling: false,
     cut: null,
     dance: { id: -1, expires: 0 },
     fooled: new Map(),
@@ -492,7 +497,29 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       // Nor is stopping a seed: the rule book defends, as the hard bot does. Its
       // way of cutting a carrier off beat the look-ahead's second-guessing of it.
       const defending = mem.mode === 'deny';
-      if (planner && !atNibbler && !defending) {
+      // At the flower with its own head down, the clock decides: stay if the seed
+      // comes loose before anyone can get here, otherwise deal with the first to come.
+      let counted = false;
+      mem.nibbling = false;
+      if (cfg.clock && g.nibbler === id && mem.mode === 'gather') {
+        const left = gatherTime(g.players.length) - me.gather;
+        let first = null;
+        let eta = Infinity;
+        for (const e of seen) {
+          if (e.home || e.carrying) continue;
+          const t = Math.max(0, (nav.clear(me, e) ? dist(me, e) : nav.distance(me, e)) - BONK.reach) / SPEED + BONK.windup;
+          if (t < eta) {
+            eta = t;
+            first = e;
+          }
+        }
+        if (eta > left + cfg.clock) {
+          counted = true;
+          mem.nibbling = true;
+          mem.path = null;
+        }
+      }
+      if (planner && !atNibbler && !defending && !counted) {
         const rules = { mode: mem.mode, targetId: mem.targetId, path: mem.path, entryY: mem.entryY };
         const idea = planner.choose(g, id, (p, q) => blocked(p, q) + (me.carrying ? danger(p, q) : 0), rules);
         if (idea && idea !== rules) {
@@ -765,7 +792,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
         if (!want || p.dist < want.dist) want = { ...p, id: e.id };
       }
     }
-    if (giveGround && !want) {
+    if (giveGround && !want && !mem.nibbling) {
       out.mx = giveGround.x;
       out.my = giveGround.y;
       // Not into a tunnel, though.
