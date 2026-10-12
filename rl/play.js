@@ -1,7 +1,7 @@
 // Pits a trained policy against the game's scripted bots and prints how often it wins.
-//   node rl/play.js rl/runs/first/policy.json [rounds per level] [players]
-// One seat is the policy, the rest are bots of one level. With four players an
-// even match is a 25% win rate.
+//   node rl/play.js rl/runs/first/policy.json [rounds per level] [players] [map]
+// One seat is the policy, the rest are bots of one level, everyone for themselves.
+// With four players an even match is a 25% win rate. Without a map, every map takes a turn.
 
 import { readFileSync } from 'node:fs';
 import { createEnvs, MAX_P, OBS } from './env.js';
@@ -14,7 +14,7 @@ const E = 16;
 
 console.log(`policy from iteration ${policy.meta.iter}, ${(policy.meta.decisions / 1e6).toFixed(1)}M decisions; ${players} players, even match = ${(100 / players).toFixed(0)}%`);
 for (const [level, name] of [[0, 'easy'], [1, 'normal'], [2, 'hard']]) {
-  const envs = createEnvs({ envs: E, seed: 7 + level, players: [players], teams: 0, botEnv: 1, botSeat: 1, botLevels: [level] });
+  const envs = createEnvs({ envs: E, seed: 7 + level, players: [players], teams: 0, botEnv: 1, botSeat: 1, botLevels: [level], ...(process.argv[5] ? { maps: [process.argv[5]] } : {}) });
   const actions = new Uint8Array(E * MAX_P * 3);
   let played = 0;
   let wins = 0;
