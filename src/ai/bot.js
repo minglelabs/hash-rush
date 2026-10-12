@@ -1,7 +1,7 @@
 // Computer-controlled hamster. A bot only reads the public game state and returns
 // the same input object a human does, so any slot can be swapped between the two.
 
-import { DT, SPEED, CARRY_SPEED, HAMSTER_R, BONK, THROW, gatherTime } from '../sim/constants.js';
+import { DT, SPEED, CARRY_SPEED, LAST_STRETCH, HAMSTER_R, BONK, THROW, gatherTime } from '../sim/constants.js';
 import { distToSegment, isFree, segmentClear, segmentHitsRect } from '../sim/map.js';
 import { inHome, allied } from '../sim/game.js';
 import { mulberry32 } from '../sim/rng.js';
@@ -210,7 +210,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
     // Pits, cannons about to fire and shut gates are as good as blocked too.
     const slippery = iceNow(map, now).some((r) => me.x >= r.x && me.x <= r.x + r.w && me.y >= r.y && me.y <= r.y + r.h);
     // How fast it can count on walking: a seed, and wet fur, slow it down.
-    const pace = cfg.nerve && !slippery ? { x: me.x, y: me.y, v: SPEED * (me.carrying ? 0.8 : 1) * (me.wet > 0 ? HAZARD.wave.slow : 1) } : null;
+    const pace = cfg.nerve && !slippery ? { x: me.x, y: me.y, v: SPEED * ((me.carrying ? LAST_STRETCH.speed : 1) - (me.wet > 0 ? HAZARD.wave.slow : 0)) } : null;
     const trouble = cfg.gatewise && map.gates.length ? hazardCost({ ...g, gates: [] }, pace) : hazardCost(g, pace);
     const blocked = cfg.gatewise && map.gates.length ? (p, q) => inLane(p, q) + trouble(p, q) + shut(p, q) : (p, q) => inLane(p, q) + trouble(p, q);
 

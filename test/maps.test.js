@@ -175,10 +175,10 @@ test('a wave leaves hamsters wet and a tenth slower for a while', () => {
   run(g, 0.3);
   assert.ok(Math.abs(a.wet - HAZARD.wave.wet) < 0.02, 'wet for the full five seconds while in the water');
   assert.equal(HAZARD.wave.wet, 5);
-  assert.equal(HAZARD.wave.slow, 0.8);
+  assert.equal(HAZARD.wave.slow, 0.2);
   assert.equal(b.wet, 0);
   step(g, [{ mx: 0, my: -1, bonk: false }, { mx: 0, my: 1, bonk: false }]);
-  assert.ok(Math.abs(Math.abs(a.vy) - SPEED * HAZARD.wave.slow) < 1e-6, `wet speed ${a.vy}`);
+  assert.ok(Math.abs(Math.abs(a.vy) - SPEED * (1 - HAZARD.wave.slow)) < 1e-6, `wet speed ${a.vy}`);
   assert.ok(Math.abs(b.vy - SPEED) < 1e-6);
   // Out of the water it lasts five more seconds, not for ever.
   run(g, HAZARD.wave.live);

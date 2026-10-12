@@ -14,8 +14,9 @@ export const HAZARD = {
   // it touches them.
   cannon: { warn: 1.5, speed: 480, max: 3, every: [0.7, 1.6], range: THROW.range, width: THROW.width },
   // A wave washes over a patch of ground. Whoever it catches stays wet, and slow,
-  // for `wet` seconds after getting out of the water.
-  wave: { warn: 1.5, live: 3.2, max: 4, every: [0.7, 1.5], r: 78, wet: 5, slow: 0.8 },
+  // for `wet` seconds after getting out of the water. `slow` is the share of full
+  // speed that wet fur takes off, on top of what a seed already takes.
+  wave: { warn: 1.5, live: 3.2, max: 4, every: [0.7, 1.5], r: 78, wet: 5, slow: 0.2 },
 };
 
 // The sky map turns from day to night and back. By day it has pits and waves, by
