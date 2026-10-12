@@ -14,6 +14,7 @@
 import { step } from '../sim/game.js';
 import { DT, SPEED } from '../sim/constants.js';
 import { gatesNow } from '../sim/hazards.js';
+import { createLaneHelp } from './assist.js';
 
 // Never play further ahead than this many ticks.
 const MAX_AHEAD = 60;
@@ -66,8 +67,9 @@ export function createPredictor() {
     // Seconds from pressing a key to seeing the host act on it, or null if unknown.
     lag: () => lag,
     // Where hamster `me` is by now, going by `game` as the last snapshot left it.
-    // Null when there is nothing to add to the snapshot.
-    view(now, game, me) {
+    // `steer` is what the host's lane help for it remembered at that point. Null
+    // when there is nothing to add to the snapshot.
+    view(now, game, me, steer = null) {
       const ahead = lag === null || offset === null || game.phase === 'over' ? 0 : Math.min(MAX_AHEAD, (now - offset + lag) / DT - tick);
       if (!(ahead > 0)) {
         drawn = null;
@@ -104,6 +106,8 @@ export function createPredictor() {
         })),
       };
       const mine = g.players[me];
+      // A push off the touch stick is straightened out as the host does it.
+      const help = createLaneHelp(steer);
 
       // The host has had everything up to the acknowledged input. What it has not
       // had yet goes in tick by tick, each at the time it would get there.
@@ -114,7 +118,9 @@ export function createPredictor() {
         const due = (tick + j) * DT + offset - lag;
         while (i + 1 < history.length && history[i + 1].at <= due) i++;
         const h = history[i];
-        inputs[me] = h ? { mx: h.mx, my: h.my, ax: h.ax, ay: h.ay, bonk: h.seq !== seq, throw: !!h.th } : undefined;
+        // The pits it steers round are the ones the snapshot showed.
+        const seen = { map: g.map, phase: g.phase, time: g.time, hazards: game.hazards || [] };
+        inputs[me] = h ? help(seen, mine, { mx: h.mx, my: h.my, ax: h.ax, ay: h.ay, bonk: h.seq !== seq, throw: !!h.th, stick: !!h.sk }) : undefined;
         if (h) seq = h.seq;
         step(g, inputs);
       };

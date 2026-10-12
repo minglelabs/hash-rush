@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createGame, step } from '../src/sim/game.js';
 import { createPredictor } from '../src/client/predict.js';
+import { createLaneHelp } from '../src/client/assist.js';
 import { COUNTDOWN, DT, SPEED, TICK_RATE } from '../src/sim/constants.js';
 
-const IDLE = { mx: 0, my: 0, ax: 0, ay: 0, seq: 0, th: 0 };
+const IDLE = { mx: 0, my: 0, ax: 0, ay: 0, seq: 0, th: 0, sk: 0 };
 
 // A host and one guest on a slow line, on one clock. The guest sends an input a
 // frame, `up` seconds later the host has it, and a snapshot takes `down` seconds
@@ -16,6 +17,8 @@ function play({ up, down, seconds, script, lose = () => false, late = () => 0 })
   for (let i = 0; i < COUNTDOWN * TICK_RATE + 2 && host.phase === 'countdown'; i++) step(host, []);
   const start = host.tick;
   const predictor = createPredictor();
+  const help = createLaneHelp();
+  let steer = null;
   const toHost = [];
   const toGuest = [];
   const ticks = [];
@@ -35,13 +38,14 @@ function play({ up, down, seconds, script, lose = () => false, late = () => 0 })
       if (snap.k < newest) continue;
       newest = snap.k;
       game = snap.game;
+      steer = snap.steer;
       predictor.heard(snap.at, snap.k, snap.ack);
     }
     const input = { ...IDLE, ...script(now), n: ++n };
     predictor.sent(now, input);
     if (!lose(f)) toHost.push({ at: now + up + late(f), input });
     toHost.sort((a, b) => a.at - b.at);
-    const view = game && predictor.view(now, game, 0);
+    const view = game && predictor.view(now, game, 0, steer);
     frames.push({ now, view, shown: game && { x: game.players[0].x, y: game.players[0].y } });
 
     // The host's tick, half a frame later.
@@ -50,7 +54,7 @@ function play({ up, down, seconds, script, lose = () => false, late = () => 0 })
       const { input: got } = toHost.shift();
       if (got.n > held.n) held = got;
     }
-    step(host, [{ mx: held.mx, my: held.my, ax: held.ax, ay: held.ay, bonk: held.seq !== seen, throw: !!held.th }]);
+    step(host, [help(host, host.players[0], { mx: held.mx, my: held.my, ax: held.ax, ay: held.ay, bonk: held.seq !== seen, throw: !!held.th, stick: !!held.sk })]);
     seen = held.seq;
     const me = host.players[0];
     ticks.push({ when, x: me.x, y: me.y, swing: !!me.swing });
@@ -59,6 +63,7 @@ function play({ up, down, seconds, script, lose = () => false, late = () => 0 })
       at: when + down + late(f + 3),
       k: host.tick - start,
       ack: held.n,
+      steer: { ...help.memory() },
       game: {
         map: host.map,
         time: host.time,
@@ -66,6 +71,7 @@ function play({ up, down, seconds, script, lose = () => false, late = () => 0 })
         countdown: host.countdown,
         homeX: host.homeX,
         nibbler: host.nibbler,
+        hazards: [],
         players: host.players.map((p) => ({ ...p, nest: p.nest, swing: p.swing && { ...p.swing } })),
       },
     });
@@ -154,4 +160,28 @@ test('on a jittery line the hamster is never jumped about, and still ends up rig
   // Standing still at the end, it is where the host has it.
   const end = frames.at(-1);
   assert.ok(Math.hypot(end.view.x - end.shown.x, end.view.y - end.shown.y) < 0.5);
+});
+
+test('a thumb on the touch stick is helped through the lanes the way the host helps it', () => {
+  // Out of the nest, then leaning on the stick down the lanes and round their corners.
+  const thumb = (now) => {
+    if (now < 0.5) return { sk: 1 };
+    if (now < 1.4) return { mx: 1, sk: 1 };
+    if (now < 2.4) return { mx: 1, my: 1, sk: 1 };
+    if (now < 3.2) return { my: -1, sk: 1 };
+    if (now < 4) return { mx: 1, my: -1, sk: 1 };
+    return { sk: 1 };
+  };
+  const { frames, truth } = play({ up: 0.12, down: 0.15, seconds: 4.5, script: thumb });
+  let worst = 0;
+  let helped = 0;
+  for (const frame of frames) {
+    const real = truth(frame);
+    if (!frame.view || !real || frame.now < 1) continue;
+    worst = Math.max(worst, Math.hypot(frame.view.x - real.x, frame.view.y - real.y));
+    // A slanted push that comes out as a straight run is the lane help at work.
+    if (frame.now > 1.5 && frame.now < 2.4 && (Math.abs(frame.view.vx) < 1) !== (Math.abs(frame.view.vy) < 1)) helped++;
+  }
+  assert.ok(helped > 5, `helped on ${helped} frames`);
+  assert.ok(worst < 2.5 * SPEED * DT, `off by ${worst}`);
 });

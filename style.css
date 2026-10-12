@@ -760,21 +760,40 @@ button.primary:active {
 
 #stick {
   position: fixed;
-  width: 110px;
-  height: 110px;
-  margin: -55px 0 0 -55px;
+  width: 92px;
+  height: 92px;
+  margin: -46px 0 0 -46px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.22);
   border: 2px solid rgba(255, 255, 255, 0.6);
   pointer-events: none;
+}
+
+/* The heading the stick has taken, pointed out on the rim where no thumb hides it. */
+#stick::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  margin: -12px 0 0 -6px;
+  border: 12px solid transparent;
+  border-right-width: 0;
+  border-left-color: #fff;
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.55));
+  transform: rotate(var(--heading, 0rad)) translateX(56px);
+  opacity: 0;
+}
+
+#stick.going::after {
+  opacity: 0.95;
 }
 
 #knob {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 46px;
-  height: 46px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.85);
   transform: translate(-50%, -50%);
@@ -806,6 +825,8 @@ button.primary:active {
   background: rgba(255, 226, 122, 0.95);
   border: 3px solid #fff;
   touch-action: none;
+  /* Over the ground the bonk button claims around itself. */
+  z-index: 1;
 }
 
 .bonk-left #throw {
@@ -815,6 +836,31 @@ button.primary:active {
 
 #bonk:active {
   transform: scale(0.92);
+}
+
+/* Glass has no edge to feel for, so a thumb that lands just off the button still
+   counts. */
+#bonk::before {
+  content: '';
+  position: absolute;
+  inset: -22px;
+  border-radius: 50%;
+}
+
+/* The wait until the next swing, wiped off the button like a clock hand: the arc
+   under the hamster is too small to read on a phone. */
+#bonk::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  background: conic-gradient(rgba(58, 42, 26, 0.6) calc(var(--cool, 0) * 1turn), transparent 0);
+  pointer-events: none;
+}
+
+/* No bonking at home. */
+#bonk.off {
+  opacity: 0.4;
 }
 
 .bonk-left #bonk {

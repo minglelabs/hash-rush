@@ -17,7 +17,9 @@ const game = (kinds, seed, map = MAPS.meadow) => {
 };
 
 test('the top bot has the hard bot\'s hands and adds looking ahead and footwork', () => {
-  const { search, dance, poach, wary, clock, boxed, toss, trail, lure, pincer, ...hands } = DIFFICULTY.ace;
+  const { search, dance, poach, wary, clock, boxed, toss, trail, lure, pincer, gatewise, ambush, ...hands } = DIFFICULTY.ace;
+  assert.ok(gatewise > 0);
+  assert.ok(ambush > 0);
   assert.ok(pincer > 0);
   assert.ok(trail > BONK.reach + BONK.windup * 166, 'it follows from beyond where a turn and a swing would reach');
   assert.ok(lure > BONK.reach, 'the dash at a nibbling rival turns back outside its reach');
@@ -451,4 +453,62 @@ test('two top bots on a team cover both ways home of a seed instead of running t
   assert.ok(ace.home < hard.home, `the seed got home less often: ${JSON.stringify(ace)} against the hard bots' ${JSON.stringify(hard)}`);
   assert.ok(ace.caught > hard.caught, `and was caught more often: ${JSON.stringify(ace)} against ${JSON.stringify(hard)}`);
   assert.ok(ace.home <= 10, `the seed got home ${ace.home} times in 24`);
+});
+
+test('the top bot waits at a shut gate instead of pushing against it', () => {
+  // Seconds a bot spends walking into a gate that is in its way, over two rounds
+  // on the graveyard map.
+  const pushing = (difficulty) => {
+    let ticks = 0;
+    for (let n = 0; n < 2; n++) {
+      const { g, bots } = game([difficulty, difficulty, difficulty, difficulty], n + 1, MAPS.graveyard);
+      while (g.phase !== 'over') {
+        const inputs = bots.map((b, i) => b.think(g, i));
+        step(g, inputs);
+        g.players.forEach((p, i) => {
+          if (p.swing || Math.hypot(inputs[i].mx, inputs[i].my) < 0.5) return;
+          for (const r of g.gates) {
+            const dx = Math.max(r.x, Math.min(p.x, r.x + r.w)) - p.x;
+            const dy = Math.max(r.y, Math.min(p.y, r.y + r.h)) - p.y;
+            if (Math.hypot(dx, dy) < 17 && dx * inputs[i].mx + dy * inputs[i].my > 4) {
+              ticks++;
+              break;
+            }
+          }
+        });
+      }
+    }
+    return ticks / TICK_RATE / 8;
+  };
+  const hard = pushing('hard');
+  const ace = pushing('ace');
+  assert.ok(hard > 2, `the hard bot does push: ${hard.toFixed(1)} s a round`);
+  assert.ok(ace < 1.2, `the top bot pushed for ${ace.toFixed(1)} s a round`);
+});
+
+test('the top bot turns on a rival running along at its heels and bonks it, every time', () => {
+  const tailed = (difficulty, n) => {
+    const g = createGame({ slots: Array.from({ length: 4 }, (_, i) => ({ name: `p${i}`, kind: i ? 'human' : 'bot' })), seed: n + 1 });
+    for (let i = 0; i < COUNTDOWN * TICK_RATE + 2; i++) step(g, []);
+    g.calm = true;
+    const [bot, tail, x, y] = g.players;
+    const b = g.map.bounds;
+    Object.assign(x, { x: b.x2 - 30, y: b.y1 + 30 });
+    Object.assign(y, { x: b.x2 - 30, y: b.y2 - 30 });
+    // On its way out to the flower along a lane, with a rival a little way behind.
+    const lane = g.map.laneYs[n % g.map.laneYs.length];
+    const gap = 46 + (n % 3) * 6;
+    Object.assign(bot, { x: g.homeX + 120, y: lane, vx: 185, vy: 0 });
+    Object.assign(tail, { x: bot.x - gap, y: lane, vx: 185, vy: 0 });
+    const brain = createBot({ difficulty, seed: n + 3 });
+    for (let t = 0; t < 1.2 * TICK_RATE && g.phase === 'playing'; t++) {
+      const d = Math.hypot(bot.x - tail.x, bot.y - tail.y) || 1;
+      step(g, [brain.think(g, 0), { mx: (bot.x - tail.x) / d, my: (bot.y - tail.y) / d, bonk: false }]);
+      if (tail.deaths) return true;
+    }
+    return false;
+  };
+  let ace = 0;
+  for (let n = 0; n < 12; n++) if (tailed('ace', n)) ace++;
+  assert.ok(ace >= 11, `the follower went down ${ace} times out of 12`);
 });
