@@ -16,13 +16,18 @@ const game = (kinds, seed, map = MAPS.meadow) => {
 };
 
 test('the top bot has the hard bot\'s hands and adds looking ahead and footwork', () => {
-  const { search, dance, poach, wary, clock, ...hands } = DIFFICULTY.ace;
+  const { search, dance, poach, wary, clock, boxed, toss, ...hands } = DIFFICULTY.ace;
   assert.ok(clock > 0);
+  assert.ok(boxed > 0);
+  assert.equal(toss, 0, 'no seed gambled on a single rival');
+  delete hands.toss;
+  const { toss: hardToss, ...hardHands } = DIFFICULTY.hard;
+  assert.ok(hardToss > 0);
   assert.equal(search, true);
   assert.equal(dance, true);
   assert.equal(poach, 2);
   assert.ok(wary > 0);
-  assert.deepEqual(hands, DIFFICULTY.hard);
+  assert.deepEqual(hands, hardHands);
 });
 
 test('thinking ahead leaves the real game untouched', () => {
