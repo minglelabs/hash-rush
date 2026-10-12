@@ -6,7 +6,7 @@ import { distToSegment, isFree, segmentClear } from '../sim/map.js';
 import { inHome, allied } from '../sim/game.js';
 import { mulberry32 } from '../sim/rng.js';
 import { getNav, blockCost } from './nav.js';
-import { HAZARD, hazardCost, inCannonLine } from '../sim/hazards.js';
+import { HAZARD, hazardCost, inCannonLine, iceNow } from '../sim/hazards.js';
 import { createPlanner, SEARCH } from './search.js';
 
 export const DIFFICULTY = {
@@ -47,11 +47,23 @@ export const DIFFICULTY = {
 // toss 0, boxed: it does not gamble its seed on one rival in the way. It throws for
 //   two at once, for a rival's seed, or when one is ahead and another is coming up
 //   within `boxed` pixels behind, so the seed is as good as lost anyway.
+// trail: behind a rival that is running away it keeps this far back. A swing from
+//   behind cannot reach anyone who keeps going, so all that happens at a rival's
+//   heels is that it turns and swings first. From here that swing hits nothing,
+//   and the bot is on it while it is stuck.
+// lure: a rival with its head down at the flower still swings at whoever walks up,
+//   and standing still it gets that swing in first. The bot dashes in to this
+//   distance, where a swing looks sure to land, and straight back out; when the
+//   swing has gone into thin air it goes in. With no time for that it goes straight in.
+// pincer: on a team, those after the same seed split up instead of all running the
+//   same way: the best placed cuts off the way it is going, the next covers the
+//   way it would turn to instead, any others run it down from behind. Within this
+//   many pixels of each other the lower-numbered one counts as better placed.
 // clock: at the flower it counts. A seed takes a couple of seconds of standing
 //   still, so it nibbles on only while no rival can reach it before the seed comes
 //   loose, and it does not budge then. When one can, it goes out and meets it
 //   first: a rival sent back to its nest is away for longer than a seed takes.
-DIFFICULTY.ace = { ...DIFFICULTY.hard, search: true, dance: true, poach: 2, wary: 0.5, clock: 0.15, toss: 0, boxed: 120 };
+DIFFICULTY.ace = { ...DIFFICULTY.hard, search: true, dance: true, poach: 2, wary: 0.5, clock: 0.15, toss: 0, boxed: 120, trail: 78, lure: 54, pincer: 60 };
 
 const TOUCH = 2 * HAMSTER_R;
 const DANGER_R = 110;
@@ -120,6 +132,8 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
     duel: { id: -1, expires: 0 },
     spot: null,
     nibbling: false,
+    flank: false,
+    flee: { id: -1, since: 0, tick: -1 },
     cut: null,
     dance: { id: -1, expires: 0 },
     fooled: new Map(),
@@ -217,17 +231,24 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
     };
 
     // Where could I cut off a seed carrier before they get home?
-    const intercept = (c, force) => {
+    // `shun`: places a team-mate has covered. The carrier is then taken to go home
+    // by the best way that keeps clear of them, and that is the way to cut off.
+    const intercept = (c, force, flank, shun) => {
       let entry = entries[0];
       let home = Infinity;
+      let way = null;
+      const wide = shun && ((p, q) => shun.reduce((k, at) => k + Math.max(0, 1 - distToSegment(at.x, at.y, p.x, p.y, q.x, q.y) / 130) * 900, 0));
       for (const en of entries) {
-        const d = nav.distance(c, en);
+        const r = wide ? nav.findPath(c, en, wide) : null;
+        const d = r ? r.cost : nav.distance(c, en);
         if (d < home) {
           home = d;
           entry = en;
+          way = r;
         }
       }
-      const pts = [c, ...nav.findPath(c, entry).points];
+      if (way) home = nav.distance(c, entry);
+      const pts = [c, ...(way || nav.findPath(c, entry)).points];
       let walked = 0;
       for (let i = 1; i < pts.length; i++) {
         const a = pts[i - 1];
@@ -260,12 +281,15 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       // on the way and at the door, so head there anyway.
       if (!force) return null;
       // Running at them shows the chase; the tunnel is only worth it when clearly quicker.
-      return nav.distance(me, door) / SPEED <= tunnelTime * 1.25 ? door : viaTunnel;
+      // With a team-mate already on its heels, running after it too adds nothing:
+      // then the tunnel is taken whenever it is the quicker way round to the door.
+      return nav.distance(me, door) / SPEED <= tunnelTime * (flank ? 1 : 1.25) ? door : viaTunnel;
     };
 
     const lastStandFor = (c) => c.x - g.homeX < LAST_STAND;
     const plan = () => {
       mem.targetId = -1;
+      mem.flank = false;
       if (me.carrying) {
         const cost = (p, q) => blocked(p, q) + danger(p, q);
         let best = null;
@@ -313,11 +337,41 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
         // on it, ready to nibble the moment the seed is knocked loose.
         const chasers = [me, ...mates, ...seen.filter((e) => e.id !== c.id && !allied(e, c))].filter((e) => !e.carrying);
         const stays = chasers.length >= 3 && chasers.every((e) => e === me || dist(e, f) > dist(me, f));
-        const at = near ? c : intercept(c, cfg.rally && (lastStand || !stays));
+        // With team-mates after the same seed, split up rather than all run the same
+        // way and leave it the other. Everyone works the roles out the same way from
+        // where everyone stands.
+        let press = false;
+        let flank = false;
+        let shun = null;
+        if (cfg.pincer) {
+          const free = mates.filter((m) => !m.carrying);
+          if (free.length) {
+            const entry = entries.reduce((best, en) => (nav.distance(c, en) < nav.distance(c, best) ? en : best), entries[0]);
+            const door = { x: g.homeX + 26, y: entry.y };
+            // Clearly nearer the door goes first; when it is close, the lower number
+            // does. Both sides of a pair come to the same answer that way, even
+            // standing on the same spot.
+            const mine = nav.distance(me, door);
+            const better = free.filter((m) => {
+              const theirs = nav.distance(m, door);
+              return theirs < mine - cfg.pincer || (theirs <= mine + cfg.pincer && m.id < id);
+            }).length;
+            // The best placed takes the way it is going. The next covers the way it
+            // would turn to instead. Any more run it down from behind.
+            press = better >= 2;
+            if (better === 1) {
+              const first = free.reduce((best, m) => (nav.distance(m, door) < nav.distance(best, door) ? m : best));
+              shun = [first, door];
+            }
+            // Cutting it off from behind it means going round, not after it.
+            flank = !press && mine >= nav.distance(c, door);
+          }
+        }
+        const at = flank || shun ? intercept(c, true, flank, shun) : near || press ? c : intercept(c, cfg.rally && (lastStand || !stays));
         if (!at) continue;
         if (c.x < urgent) {
           urgent = c.x;
-          target = { c, at };
+          target = { c, at, flank: flank || !!shun };
         }
       }
       if (target) {
@@ -332,6 +386,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
         if (jumped && now < was.until && was.at.x < target.c.x - 30 && !map.warps.includes(target.at)) target.at = was.at;
         else if (target.at !== target.c && (!was || was.id !== target.c.id || dist(was.at, target.at) > 110)) mem.cut = { id: target.c.id, at: target.at, until: now + 1.2 };
         mem.path = target.at === target.c ? null : route(target.at).points;
+        mem.flank = target.flank && !!mem.path;
         return;
       }
 
@@ -443,11 +498,39 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
         steerTo(e);
         return;
       }
+      // Right behind a rival that is running away there is nothing to hit: a swing
+      // from behind falls short of anyone who keeps going. All that can happen at
+      // its heels is that it turns and swings first. So follow a step out of that
+      // swing's reach, and be there when it has swung at nothing, or stops.
+      const fleeing = cfg.trail && !e.swing && d < 140 && (e.vx * dx + e.vy * dy) / d > 0.45 * SPEED;
+      if (!fleeing || mem.flee.id !== e.id || g.tick !== mem.flee.tick + 1) mem.flee = { id: fleeing ? e.id : -1, since: now, tick: g.tick };
+      else mem.flee.tick = g.tick;
+      // Only one that has been going for a while: a step back in the middle of a
+      // fight is footwork, and is answered as such below.
+      if (fleeing && now - mem.flee.since >= 0.35) {
+        // Not on ice, where nobody stops or turns on the spot.
+        const slippery = iceNow(map, now).some((r) => me.x >= r.x && me.x <= r.x + r.w && me.y >= r.y && me.y <= r.y + r.h);
+        if (!slippery) {
+          if (d > cfg.trail) steerTo({ x: e.x + e.vx * 0.12, y: e.y + e.vy * 0.12 });
+          return;
+        }
+      }
       const charging = -(e.vx * dx + e.vy * dy) / d > 0.5 * SPEED;
       if (mem.duel.hold && charging && d < 150) return;
-      // Someone nibbling is not going to swing: no feints, straight in.
-      // Nor against a rival with a seed: it is not there to fight, it is going past.
-      if (cfg.dance && !e.carrying && !(e.nibbler && Math.hypot(e.vx, e.vy) < 20)) {
+      // No feints against a rival with a seed: it is not there to fight, it is going
+      // past. Someone nibbling gets the short ones that draw its swing (see `lure`),
+      // unless its seed is about to come loose: then straight in.
+      const busy = e.nibbler && Math.hypot(e.vx, e.vy) < 20;
+      const hurry = busy && (!cfg.lure || gatherTime(g.players.length) - g.players[e.id].gather < Math.max(0, d - 60) / SPEED + 1.1);
+      if (cfg.dance && busy && !hurry && (mem.dance.id !== e.id || now > mem.dance.expires || !mem.dance.nib)) {
+        mem.dance = { id: e.id, nib: now, out: false, turn: cfg.lure + rng() * 6, until: 0, feints: 0, most: 3, expires: now + 4 };
+      } else if (mem.dance.nib) {
+        // These feints are for the rival with its head down. Once that is well
+        // over, the next meeting gets the full footwork again.
+        if (busy) mem.dance.nib = now;
+        else if (now - mem.dance.nib > 1.5) mem.dance = { id: -1, expires: 0 };
+      }
+      if (cfg.dance && !e.carrying && !hurry) {
         // Dash in to where a swing at me looks sure to land, then straight back
         // out before it does. A few feints, and if nothing bites, go in for real.
         let dn = mem.dance;
@@ -460,7 +543,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
             out.my = -dy / d;
             if (now >= dn.until || d > 92) {
               dn.out = false;
-              dn.turn = 58 + rng() * 10;
+              dn.turn = dn.nib ? cfg.lure + rng() * 6 : 58 + rng() * 10;
             }
           } else {
             out.mx = dx / d;
@@ -549,7 +632,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
         break;
       }
     } else if (mem.mode === 'deny' && target) {
-      if (dist(me, target) < 230 && nav.clear(me, target)) engage(target);
+      if (dist(me, target) < (mem.flank ? 100 : 230) && nav.clear(me, target)) engage(target);
       else if (mem.path) {
         follow(mem.path);
       } else engage(target);
