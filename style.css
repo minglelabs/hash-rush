@@ -15,7 +15,8 @@ html,
 body {
   margin: 0;
   touch-action: manipulation;
-  height: 100%;
+  /* The script pins this while a keyboard is up, so typing never squeezes the page. */
+  height: var(--app-h, 100%);
   background: #24572f;
   color: var(--ink);
   overscroll-behavior: none;
@@ -571,7 +572,7 @@ button.primary:active {
 
 #field {
   position: relative;
-  width: min(100vw, calc(100dvh * 914 / 560));
+  width: min(100vw, calc(var(--app-h, 100dvh) * 914 / 560));
   aspect-ratio: 914 / 560;
   container-type: inline-size;
   overflow: hidden;
@@ -1203,7 +1204,7 @@ button.primary:active {
   #field {
     /* The map takes the whole width so the hamsters are as big as they can be; the
        controls lie over its foot, on the burrow floor, where the screen is short. */
-    width: min(100vw, calc(100dvh * 560 / 914));
+    width: min(100vw, calc(var(--app-h, 100dvh) * 560 / 914));
     aspect-ratio: 560 / 914;
   }
 
