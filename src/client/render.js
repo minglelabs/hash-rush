@@ -688,7 +688,12 @@ export function createRenderer(canvas, firstMap) {
 
   function onEvent(ev, game, meId) {
     const color = (id) => colorOf(game.players[id]);
-    if (ev.type === 'impact') {
+    if (ev.type === 'swing') {
+      // Every swing is called out over the swinger, so a newcomer sees what the
+      // button does; the one it lands on gets the "pop" below.
+      const p = game.players[ev.id];
+      fx.push({ type: 'text', x: p.x, y: p.y - 24, text: tr('swingWord'), color: color(ev.id), t: 0, life: 0.5 });
+    } else if (ev.type === 'impact') {
       fx.push({ type: 'swoosh', x: ev.x, y: ev.y, a: Math.atan2(ev.dy, ev.dx), t: 0, life: 0.2, hit: ev.hit });
     } else if (ev.type === 'bonk') {
       burst(ev.x, ev.y, 9, '#ffe066', 190);
@@ -708,6 +713,7 @@ export function createRenderer(canvas, firstMap) {
       fx.push({ type: 'ring', x: ev.x, y: ev.y, color: '#ffffff', t: 0, life: 0.6 });
     } else if (ev.type === 'throw') {
       fx.push({ type: 'toss', x: ev.x, y: ev.y, dx: ev.dx, dy: ev.dy, t: 0, life: 0.22 });
+      fx.push({ type: 'text', x: ev.x, y: ev.y - 24, text: tr('throwWord'), color: color(ev.id), t: 0, life: 0.7 });
     } else if (ev.type === 'spawn') {
       fx.push({ type: 'ring', x: ev.x, y: ev.y, color: color(ev.id), t: 0, life: 0.45 });
     } else if (ev.type === 'seed') {
@@ -796,7 +802,7 @@ export function createRenderer(canvas, firstMap) {
         ctx.stroke();
       } else if (e.type === 'text') {
         ctx.globalAlpha = 1 - k * k;
-        ctx.font = `800 17px ${FONT}`;
+        ctx.font = `800 ${17 * (portrait ? 1.4 : 1)}px ${FONT}`;
         ctx.textAlign = 'center';
         ctx.lineWidth = 4;
         ctx.strokeStyle = '#ffffff';
@@ -1112,6 +1118,20 @@ export function createRenderer(canvas, firstMap) {
         ctx.strokeText(p.name, 0, ly);
         ctx.fillStyle = look.color;
         ctx.fillText(p.name, 0, ly);
+        // What is going on at the flower, in words: a seed takes standing still
+        // for, and only one hamster nibbles at a time. Everyone's nibbling is
+        // named; the reminders are for the player's own hamster.
+        const waiting = p.queued >= 0 && game.nibbler >= 0 && game.nibbler !== p.id;
+        const note = p.gather > 0 ? 'nibbling' : !me || game.phase !== 'playing' ? '' : waiting ? 'waitTurn' : game.nibbler === p.id ? 'holdStill' : '';
+        if (note) {
+          const size = 12 * (portrait ? 1.5 : 1);
+          ctx.font = `800 ${size}px ${FONT}`;
+          ctx.lineWidth = 3.5;
+          ctx.strokeText(tr(note), 0, ly - size * 1.35);
+          ctx.fillStyle = note === 'nibbling' ? '#a86a00' : note === 'holdStill' ? '#d92d2d' : '#555';
+          ctx.fillText(tr(note), 0, ly - size * 1.35);
+          ctx.fillStyle = look.color;
+        }
         // A computer's level, small, under its feet.
         const level = BOT_LEVEL[p.kind];
         if (level) {
