@@ -8,12 +8,14 @@ import { segmentClear } from '../sim/map.js';
 import { getNav, blockCost } from '../ai/nav.js';
 import { predictSwing } from '../ai/bot.js';
 
-const KEYS = {
+export const KEYS = {
   left: ['KeyA', 'ArrowLeft'],
   right: ['KeyD', 'ArrowRight'],
   up: ['KeyW', 'ArrowUp'],
   down: ['KeyS', 'ArrowDown'],
   bonk: ['Space', 'KeyJ'],
+  // A key of its own, next to each hand's bonk: holding the bonk key only bonks.
+  throw: ['KeyF', 'KeyK'],
 };
 const HANDLED = new Set(Object.values(KEYS).flat());
 // How far the stick trails behind the thumb. Every change of heading costs the
@@ -251,8 +253,7 @@ export function createInput({ stage, canvas, stick, knob, bonkBtn, throwBtn, toW
 
   function read(g, id) {
     const me = g.players[id];
-    // On the keyboard the bonk key doubles as the throw: keep it held with a seed.
-    const out = { mx: 0, my: 0, bonk: held('bonk'), ax: 0, ay: 0, throw: held('bonk') || throwHeld, stick: false };
+    const out = { mx: 0, my: 0, bonk: held('bonk'), ax: 0, ay: 0, throw: held('throw') || throwHeld, stick: false };
     if (held('left')) out.mx -= 1;
     if (held('right')) out.mx += 1;
     if (held('up')) out.my -= 1;
