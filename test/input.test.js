@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { stickDir, stickStart, stickMove, holdSwing } from '../src/client/input.js';
+import { stickDir, stickStart, stickMove, holdSwing, KEYS } from '../src/client/input.js';
 import { createGame } from '../src/sim/game.js';
 import { BONK, HAMSTER_R } from '../src/sim/constants.js';
 
@@ -154,4 +154,11 @@ test('no swing is asked for while one cannot start', () => {
   const { g, me } = duel(2 * HAMSTER_R + 2);
   me.cooldown = 0.3;
   assert.equal(holdSwing(g, me, true), null);
+});
+
+test('throwing has keys of its own, so holding the bonk key only ever bonks', () => {
+  assert.ok(KEYS.throw.length > 0);
+  for (const key of KEYS.throw) assert.ok(!KEYS.bonk.includes(key), `${key} is not a bonk key too`);
+  const all = Object.values(KEYS).flat();
+  assert.equal(new Set(all).size, all.length, 'no key does two things');
 });
