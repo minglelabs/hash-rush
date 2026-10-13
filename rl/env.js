@@ -49,6 +49,10 @@ export const DEFAULTS = {
   // with the seed), so it adds up to nothing over a round trip and does not
   // change which way of playing is best.
   shape: 1,
+  // Team spirit (OpenAI Five): in a team round each hamster is paid this share of
+  // its team's average instead of its own, so clearing the way for a teammate's
+  // seed pays too. The win bonus is shared anyway; 0 is everyone for themselves.
+  teamSpirit: 0,
   // Share of the policy's seats, in rounds without scripted bots, that start at the
   // flower, half of them already holding a seed, so nibbling and the run home are
   // seen early instead of waiting on luck.
@@ -207,6 +211,21 @@ export function createEnvs(settings = {}) {
           final[e * MAX_P + i] = s;
         }
         reward[e * MAX_P + i] = r;
+      }
+      if (cfg.teamSpirit) {
+        const own = reward.slice(e * MAX_P, e * MAX_P + n);
+        for (let i = 0; i < n; i++) {
+          const p = g.players[i];
+          if (p.team < 0) continue;
+          let sum = 0;
+          let k = 0;
+          for (let j = 0; j < n; j++) {
+            if (g.players[j].team !== p.team) continue;
+            sum += own[j];
+            k++;
+          }
+          reward[e * MAX_P + i] = (1 - cfg.teamSpirit) * own[i] + (cfg.teamSpirit * sum) / k;
+        }
       }
       done[e] = over ? 1 : 0;
       timedOut[e] = over && g.timeout ? 1 : 0;
