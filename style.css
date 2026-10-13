@@ -1184,9 +1184,13 @@ button.primary:active {
     justify-content: flex-start;
   }
 
-  .chip small,
+  /* No room for the dot, but how many wins each has is the whole race. */
   .chip i {
     display: none;
+  }
+
+  .chip {
+    gap: 0.25em;
   }
 }
 
@@ -1676,6 +1680,13 @@ button.primary:active {
   white-space: nowrap;
 }
 
+/* What all these games are for, under the game's number. */
+.scoreTable .groups th small {
+  display: block;
+  font-weight: 600;
+  opacity: 0.7;
+}
+
 /* A narrow screen shows this round or the running totals, one at a time. */
 .scoreTable caption {
   display: none;
@@ -1721,6 +1732,20 @@ button.primary:active {
     border-left: 0;
   }
 
+  /* The row's other headings are gone here, so it sits beside the number, out
+     of the name column's width. */
+  .scoreTable .groups th:first-child {
+    position: relative;
+  }
+
+  .scoreTable .groups th small {
+    position: absolute;
+    left: 100%;
+    bottom: 0;
+    margin-left: 0.6em;
+    font-size: 1em;
+  }
+
   .scoreTable th {
     white-space: normal;
   }
@@ -1738,10 +1763,14 @@ button.primary:active {
 
 #resultClose {
   position: absolute;
-  top: 10px;
-  right: 10px;
-  padding: 0.15em 0.6em;
-  font-size: 15px;
+  top: 8px;
+  right: 8px;
+  width: 46px;
+  height: 46px;
+  padding: 0;
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1;
 }
 
 /* An empty or closed seat is one big button for the host. */
@@ -1836,10 +1865,14 @@ button.primary:active {
 
 #champClose {
   position: absolute;
-  top: 10px;
-  right: 10px;
-  padding: 0.15em 0.6em;
-  font-size: 15px;
+  top: 8px;
+  right: 8px;
+  width: 46px;
+  height: 46px;
+  padding: 0;
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1;
 }
 
 #champLobby {
