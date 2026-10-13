@@ -1145,6 +1145,20 @@ function seatChatBar(now) {
 }
 if (window.visualViewport) for (const type of ['resize', 'scroll']) window.visualViewport.addEventListener(type, seatChatBar);
 window.addEventListener('resize', seatChatBar);
+// Some phones shrink the page itself when the keyboard comes up, and everything
+// sized from its height would shrink along. So the page's height is written down
+// while nobody is typing, and held there while somebody is: the keyboard only
+// ever covers the foot of the screen.
+const typing = () => /^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName || '') && !document.activeElement.readOnly;
+function pinHeight() {
+  if (typing()) return;
+  document.documentElement.style.setProperty('--app-h', `${window.innerHeight}px`);
+}
+pinHeight();
+window.addEventListener('resize', pinHeight);
+window.addEventListener('orientationchange', () => setTimeout(pinHeight, 300));
+// The keyboard may still be on its way down when the box lets go.
+document.addEventListener('focusout', () => setTimeout(pinHeight, 400));
 // A touch anywhere on the game puts the keyboard away, and does nothing else.
 window.addEventListener(
   'pointerdown',
