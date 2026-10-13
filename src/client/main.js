@@ -9,6 +9,7 @@ import { createGame, step, allied, inHome, timeoutReason } from '../sim/game.js'
 import { DT, OVERTIME, COUNTDOWN, BONK } from '../sim/constants.js';
 import { MAP, MAPS, MAP_IDS } from '../sim/map.js';
 import { createBot } from '../ai/bot.js';
+import { createRLBot, loadRLPolicy } from '../ai/rl-bot.js';
 import { createRenderer, drawHamster, drawSeed, nearHome } from './render.js';
 import { createInput } from './input.js';
 import { createLaneHelp } from './assist.js';
@@ -29,7 +30,7 @@ const STICK_STORE = 'hash-rush-stick';
 const ASSIST_STORE = 'hash-rush-assist';
 // What the host can set a slot to. 'open' is an empty seat anyone with the link
 // can take, and 'remote' is one a friend has taken.
-const KINDS = ['human', 'open', 'bot:easy', 'bot:normal', 'bot:hard', 'bot:ace', 'closed'];
+const KINDS = ['human', 'open', 'bot:easy', 'bot:normal', 'bot:hard', 'bot:ace', 'bot:rl', 'closed'];
 // Every slot keeps a team, used only while team play is on. Teams need not be even: 3 v 2 is fine.
 // The lobby always shows every seat, the way old kart lobbies did: the host, three
 // computers, and the rest empty for friends. An empty seat can be closed.
@@ -414,6 +415,7 @@ function setKind(slot, kind) {
   kick(slot);
   slot.kind = kind;
   if (kind === 'open') openRoom();
+  if (kind === 'bot:rl') loadRLPolicy();
   saveSlots();
   renderLobby();
   sendLobby();
@@ -1088,7 +1090,8 @@ function startGame() {
         return help(g, g.players[id], { mx: i.mx, my: i.my, ax: i.ax, ay: i.ay, bonk, throw: i.th, stick: i.sk });
       };
     }
-    const bot = createBot({ difficulty: slot.kind.split(':')[1], seed: seed + id * 7919 });
+    const level = slot.kind.split(':')[1];
+    const bot = level === 'rl' ? createRLBot({ seed: seed + id * 7919 }) : createBot({ difficulty: level, seed: seed + id * 7919 });
     return (g) => bot.think(g, id);
   });
   meId = active.findIndex((a) => a.slot.kind === 'human');

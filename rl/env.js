@@ -16,27 +16,16 @@
 //   win    uint8    envs * MAX_P   who won the round that just ended
 // A round that ends is replaced at once; `role` then describes the new one.
 
-import { createGame, step, inHome, allied, lastStretch } from '../src/sim/game.js';
-import { MAPS, MAP_IDS, WORLD, isFree } from '../src/sim/map.js';
-import { HAZARD, iceNow, isNight, untilNight, inCannonLine } from '../src/sim/hazards.js';
-import { SPEED, BONK, THROW, OVERTIME, HAMSTER_R, gatherTime } from '../src/sim/constants.js';
+import { createGame, step } from '../src/sim/game.js';
+import { MAPS, MAP_IDS, isFree } from '../src/sim/map.js';
+import { HAMSTER_R, gatherTime } from '../src/sim/constants.js';
+import { MAX_P, OBS, DIRS, fields, fieldAt, observe } from '../src/ai/observe.js';
+
+export { MAX_P, OBS };
 import { createBot } from '../src/ai/bot.js';
 import { MVP_POINTS } from '../src/client/mvp.js';
 
-export const MAX_P = 8;
-const SELF = 19;
-const WORLD_F = 11 + MAP_IDS.length;
-const NAV = 9;
-const RAYS = 8;
-const HAZARDS = 4;
-const HAZARD_F = 12;
-const GATES = 2;
-const GATE_F = 3;
-const OTHER = 13;
-export const OBS = SELF + WORLD_F + NAV + RAYS + HAZARDS * HAZARD_F + GATES * GATE_F + (MAX_P - 1) * OTHER;
-const HAZARD_KINDS = ['trap', 'cannon', 'wave'];
 const BOT_LEVELS = ['easy', 'normal', 'hard', 'ace'];
-const DIRS = [[0, 0], ...Array.from({ length: 8 }, (_, k) => [Math.cos((k * Math.PI) / 4), Math.sin((k * Math.PI) / 4)])];
 
 export const DEFAULTS = {
   envs: 16,
@@ -69,130 +58,8 @@ export const DEFAULTS = {
   lineup: null,
 };
 
-// ---------- what the map looks like to a policy ----------
-
-const CELL = 8;
-const fieldsOf = new Map();
-
-// Walking distance to the flower, to home and to the nearest tunnel from every
-// 8px cell of the map, worked out once. A policy is told which way is downhill.
-function fields(map) {
-  if (fieldsOf.has(map)) return fieldsOf.get(map);
-  const cols = Math.ceil(WORLD.w / CELL);
-  const rows = Math.ceil(WORLD.h / CELL);
-  const free = new Uint8Array(cols * rows);
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) free[r * cols + c] = isFree(map, (c + 0.5) * CELL, (r + 0.5) * CELL, HAMSTER_R * 0.8) ? 1 : 0;
-  }
-  const flood = (isSource) => {
-    const dist = new Float32Array(cols * rows).fill(Infinity);
-    let frontier = [];
-    for (let i = 0; i < dist.length; i++) {
-      if (free[i] && isSource((i % cols + 0.5) * CELL, (Math.floor(i / cols) + 0.5) * CELL)) {
-        dist[i] = 0;
-        frontier.push(i);
-      }
-    }
-    // The steps cost 1 or 1.41, so a few relaxation sweeps settle it.
-    while (frontier.length) {
-      const next = [];
-      for (const i of frontier) {
-        const c = i % cols;
-        const r = (i - c) / cols;
-        for (let dr = -1; dr <= 1; dr++) {
-          for (let dc = -1; dc <= 1; dc++) {
-            if (!dr && !dc) continue;
-            const nc = c + dc;
-            const nr = r + dr;
-            if (nc < 0 || nr < 0 || nc >= cols || nr >= rows) continue;
-            const j = nr * cols + nc;
-            if (!free[j]) continue;
-            // No cutting a corner between two walls.
-            if (dr && dc && (!free[r * cols + nc] || !free[nr * cols + c])) continue;
-            const d = dist[i] + (dr && dc ? 1.4142 : 1);
-            if (d < dist[j] - 1e-4) {
-              dist[j] = d;
-              next.push(j);
-            }
-          }
-        }
-      }
-      frontier = next;
-    }
-    return dist;
-  };
-  const f = map.flower;
-  const out = {
-    cols,
-    rows,
-    free,
-    flower: flood((x, y) => Math.hypot(x - f.x, y - f.y) < f.gatherR - 6),
-    home: flood((x) => x < map.home.x2 - 12),
-    warp: flood((x, y) => map.warps.some((w) => Math.hypot(x - w.x, y - w.y) < w.r - 4)),
-  };
-  fieldsOf.set(map, out);
-  return out;
-}
-
-function cellOf(F, x, y) {
-  const c = Math.max(0, Math.min(F.cols - 1, Math.floor(x / CELL)));
-  const r = Math.max(0, Math.min(F.rows - 1, Math.floor(y / CELL)));
-  let i = r * F.cols + c;
-  if (F.free[i]) return i;
-  // Pressed against a wall: use the nearest walkable cell.
-  let best = -1;
-  let bestD = Infinity;
-  for (let dr = -2; dr <= 2; dr++) {
-    for (let dc = -2; dc <= 2; dc++) {
-      const nc = c + dc;
-      const nr = r + dr;
-      if (nc < 0 || nr < 0 || nc >= F.cols || nr >= F.rows) continue;
-      i = nr * F.cols + nc;
-      if (F.free[i] && dr * dr + dc * dc < bestD) {
-        bestD = dr * dr + dc * dc;
-        best = i;
-      }
-    }
-  }
-  return best;
-}
-
-// Which way to walk to get nearer `dist`'s target, and how far it is.
-function hint(F, dist, x, y, out, at) {
-  const i = cellOf(F, x, y);
-  out[at] = out[at + 1] = 0;
-  out[at + 2] = 1;
-  if (i < 0 || dist[i] === Infinity) return;
-  const c = i % F.cols;
-  const r = (i - c) / F.cols;
-  let best = dist[i];
-  let bx = 0;
-  let by = 0;
-  for (let dr = -1; dr <= 1; dr++) {
-    for (let dc = -1; dc <= 1; dc++) {
-      const nc = c + dc;
-      const nr = r + dr;
-      if ((!dr && !dc) || nc < 0 || nr < 0 || nc >= F.cols || nr >= F.rows) continue;
-      const d = dist[nr * F.cols + nc];
-      if (d < best) {
-        best = d;
-        bx = dc;
-        by = dr;
-      }
-    }
-  }
-  const len = Math.hypot(bx, by) || 1;
-  out[at] = bx / len;
-  out[at + 1] = by / len;
-  out[at + 2] = Math.min(1, (dist[i] * CELL) / 1000);
-}
-
 // ---------- one round ----------
 
-const fieldAt = (F, dist, p) => {
-  const i = cellOf(F, p.x, p.y);
-  return i < 0 || dist[i] === Infinity ? 1 : Math.min(1, (dist[i] * CELL) / 1000);
-};
 
 // How far along a hamster is towards bringing a seed home, from 0 to 12: up to 1
 // for getting to the flower, 6 more for nibbling the seed loose, 5 more for the
@@ -280,133 +147,11 @@ export function createEnvs(settings = {}) {
         }
       }
     }
-    envs[e] = { g, bots, teams: cfg.lineup ? new Set(lineup.map((s) => s.team).filter((t) => t >= 0)).size : teams, mapIndex: MAP_IDS.indexOf(g.map.id), prev: g.players.map(() => 0), deaths: g.players.map(() => 0), phi: g.players.map((p) => potential(g, p)) };
+    envs[e] = { g, bots, prev: g.players.map(() => 0), deaths: g.players.map(() => 0), phi: g.players.map((p) => potential(g, p)) };
   }
 
-  function observe(e) {
-    const { g, teams, mapIndex } = envs[e];
-    const F = fields(g.map);
-    const ice = iceNow(g.map, g.time);
-    const gates = g.gates || [];
-    const night = isNight(g.map, g.time) ? 1 : 0;
-    const dusk = g.map.cycle ? Math.min(1, untilNight(g.map, g.time) / 24) : 0;
-    const players = g.players;
-    const need = gatherTime(players.length, g.time);
-    for (let i = 0; i < MAX_P; i++) {
-      const base = (e * MAX_P + i) * OBS;
-      obs.fill(0, base, base + OBS);
-      const me = players[i];
-      if (!me) continue;
-      let o = base;
-      const home = inHome(g, me);
-      obs[o++] = me.x / WORLD.w;
-      obs[o++] = me.y / WORLD.h;
-      obs[o++] = me.vx / SPEED;
-      obs[o++] = me.vy / SPEED;
-      obs[o++] = me.fx;
-      obs[o++] = me.fy;
-      obs[o++] = me.carrying ? 1 : 0;
-      obs[o++] = me.cooldown / BONK.cooldown;
-      obs[o++] = me.swing && me.swing.phase === 'windup' ? 1 : 0;
-      obs[o++] = me.swing && me.swing.phase === 'recovery' ? 1 : 0;
-      obs[o++] = me.charge / THROW.max;
-      obs[o++] = me.charge >= THROW.charge ? 1 : 0;
-      obs[o++] = me.gather / need;
-      obs[o++] = home ? 1 : 0;
-      obs[o++] = lastStretch(g, me) ? 1 : 0;
-      obs[o++] = me.wet > 0 ? 1 : 0;
-      obs[o++] = (me.x - g.homeX) / WORLD.w;
-      obs[o++] = Math.hypot(me.x - g.map.flower.x, me.y - g.map.flower.y) / WORLD.w;
-      obs[o++] = ice.some((r) => me.x >= r.x && me.x <= r.x + r.w && me.y >= r.y && me.y <= r.y + r.h) ? 1 : 0;
-
-      obs[o++] = g.time / OVERTIME.end;
-      obs[o++] = g.time > OVERTIME.start ? 1 : 0;
-      obs[o++] = g.homeX / WORLD.w;
-      obs[o++] = g.nibbler === me.id ? 1 : 0;
-      obs[o++] = g.nibbler >= 0 && g.nibbler !== me.id ? 1 : 0;
-      obs[o++] = players.length / MAX_P;
-      obs[o++] = me.team >= 0 ? 1 : 0;
-      obs[o++] = players.some((p) => p !== me && p.carrying && !allied(p, me)) ? 1 : 0;
-      obs[o++] = teams / 4;
-      obs[o++] = night;
-      obs[o++] = dusk;
-      // Which map this is.
-      obs[o + mapIndex] = 1;
-      o += MAP_IDS.length;
-
-      hint(F, F.flower, me.x, me.y, obs, o);
-      hint(F, F.home, me.x, me.y, obs, o + 3);
-      hint(F, F.warp, me.x, me.y, obs, o + 6);
-      o += NAV;
-
-      // How far it is to a wall in eight directions, out to 120px.
-      for (let k = 1; k <= RAYS; k++) {
-        let reach = 1;
-        for (let s = CELL; s <= 120; s += CELL) {
-          const x = me.x + DIRS[k][0] * s;
-          const y = me.y + DIRS[k][1] * s;
-          const c = Math.floor(x / CELL);
-          const r = Math.floor(y / CELL);
-          const shut = gates.some((q) => x >= q.x - 6 && x <= q.x + q.w + 6 && y >= q.y - 6 && y <= q.y + q.h + 6);
-          if (shut || c < 0 || r < 0 || c >= F.cols || r >= F.rows || !F.free[r * F.cols + c]) {
-            reach = s / 120;
-            break;
-          }
-        }
-        obs[o++] = reach;
-      }
-
-      // Trouble on the map, nearest first: where it is, what it is, whether it has
-      // gone off yet, and for a cannon which way it points and whether I am in its line.
-      const near = (a, b) => Math.hypot(a.x - me.x, a.y - me.y) - Math.hypot(b.x - me.x, b.y - me.y);
-      const trouble = g.hazards.length > 1 ? [...g.hazards].sort(near) : g.hazards;
-      for (let k = 0; k < HAZARDS; k++) {
-        const h = trouble[k];
-        if (h) {
-          const spec = HAZARD[h.kind];
-          obs[o] = 1;
-          obs[o + 1] = (h.x - me.x) / WORLD.w;
-          obs[o + 2] = (h.y - me.y) / WORLD.h;
-          obs[o + 3] = Math.min(1, Math.hypot(h.x - me.x, h.y - me.y) / 200);
-          obs[o + 4 + HAZARD_KINDS.indexOf(h.kind)] = 1;
-          obs[o + 7] = h.age >= spec.warn ? 1 : 0;
-          obs[o + 8] = Math.min(1, h.age / spec.warn);
-          obs[o + 9] = h.dx || 0;
-          obs[o + 10] = h.dy || 0;
-          obs[o + 11] = h.kind === 'cannon' && inCannonLine(g.map, h, me) ? 1 : 0;
-        }
-        o += HAZARD_F;
-      }
-      // The nearest gates that are shut right now.
-      const doors = gates.length > 1 ? gates.map((q) => ({ x: q.x + q.w / 2, y: q.y + q.h / 2 })).sort(near) : gates.map((q) => ({ x: q.x + q.w / 2, y: q.y + q.h / 2 }));
-      for (let k = 0; k < GATES; k++) {
-        const q = doors[k];
-        if (q) {
-          obs[o] = 1;
-          obs[o + 1] = (q.x - me.x) / WORLD.w;
-          obs[o + 2] = (q.y - me.y) / WORLD.h;
-        }
-        o += GATE_F;
-      }
-
-      // Everyone else, nearest first.
-      const others = players.filter((p) => p !== me).sort((a, b) => Math.hypot(a.x - me.x, a.y - me.y) - Math.hypot(b.x - me.x, b.y - me.y));
-      for (const p of others) {
-        obs[o++] = 1;
-        obs[o++] = (p.x - me.x) / WORLD.w;
-        obs[o++] = (p.y - me.y) / WORLD.h;
-        obs[o++] = Math.min(1, Math.hypot(p.x - me.x, p.y - me.y) / (4 * BONK.reach));
-        obs[o++] = p.vx / SPEED;
-        obs[o++] = p.vy / SPEED;
-        obs[o++] = p.carrying ? 1 : 0;
-        obs[o++] = allied(p, me) ? 1 : 0;
-        obs[o++] = p.swing && p.swing.phase === 'windup' ? 1 : 0;
-        obs[o++] = p.swing && p.swing.phase === 'recovery' ? 1 : 0;
-        obs[o++] = p.cooldown / BONK.cooldown;
-        obs[o++] = inHome(g, p) ? 1 : 0;
-        obs[o++] = (p.x - g.homeX) / WORLD.w;
-      }
-    }
+  function observeEnv(e) {
+    observe(envs[e].g, obs, e * MAX_P * OBS);
   }
 
   // actions: Uint8Array, envs * MAX_P * 3
@@ -466,13 +211,13 @@ export function createEnvs(settings = {}) {
       done[e] = over ? 1 : 0;
       timedOut[e] = over && g.timeout ? 1 : 0;
       if (over) reset(e);
-      observe(e);
+      observeEnv(e);
     }
   }
 
   for (let e = 0; e < E; e++) {
     reset(e);
-    observe(e);
+    observeEnv(e);
   }
   return { cfg, obs, reward, final, done, role, win, timedOut, botAct, steer, act };
 }
