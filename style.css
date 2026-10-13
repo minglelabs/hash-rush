@@ -1125,8 +1125,9 @@ button.primary:active {
   }
 
   #field {
-    /* Leave a strip under the map for the controls so nothing covers the burrow. */
-    width: min(100vw, calc((100dvh - 152px) * 560 / 914));
+    /* The map takes the whole width so the hamsters are as big as they can be; the
+       controls lie over its foot, on the burrow floor, where the screen is short. */
+    width: min(100vw, calc(100dvh * 560 / 914));
     aspect-ratio: 560 / 914;
   }
 
@@ -1250,7 +1251,7 @@ button.primary:active {
 
   #bonk {
     right: max(14px, env(safe-area-inset-right));
-    bottom: max(14px, env(safe-area-inset-bottom));
+    bottom: max(6px, env(safe-area-inset-bottom));
     width: 100px;
     height: 100px;
     font-size: 22px;

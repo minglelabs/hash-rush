@@ -382,6 +382,9 @@ function buildObstacles(w, h, base, map, up) {
   return c;
 }
 
+// How long into a round the player's own hamster stays ringed, in seconds.
+const ME_RING = 5;
+
 export function createRenderer(canvas, firstMap) {
   let map = firstMap;
   const ctx = canvas.getContext('2d');
@@ -1064,6 +1067,22 @@ export function createRenderer(canvas, firstMap) {
           ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
           for (let i = 0; i < 3; i++) circle(ctx, -7 + i * 7, -24 - 2 * Math.max(0, Math.sin(t * 6 - i)), 2.4);
         }
+        // "This one is you": a blue ring round the player's own hamster through the
+        // countdown and the first seconds of the round, fading out at the end.
+        const fresh = game.phase === 'countdown' ? 1 : Math.min(1, ME_RING - game.time);
+        if (p.id === view.meId && fresh > 0) {
+          const beat = 0.5 + 0.5 * Math.sin(t * 7);
+          ctx.fillStyle = `rgba(40, 130, 255, ${0.22 * fresh})`;
+          circle(ctx, 0, 0, 30 + 4 * beat);
+          ctx.lineWidth = 5;
+          ctx.strokeStyle = `rgba(30, 120, 255, ${0.95 * fresh})`;
+          ctx.stroke();
+          ctx.lineWidth = 2;
+          ctx.strokeStyle = `rgba(255, 255, 255, ${0.9 * fresh})`;
+          ctx.beginPath();
+          ctx.arc(0, 0, 34 + 4 * beat, 0, TAU);
+          ctx.stroke();
+        }
         if (p.id === view.meId && p.cooldown > 0) {
           const half = 0.9 * (p.cooldown / BONK.cooldown);
           ctx.lineCap = 'round';
@@ -1102,17 +1121,6 @@ export function createRenderer(canvas, firstMap) {
           ctx.fillStyle = level.color;
           ctx.fillText(tr('botLevels')[level.key], 0, portrait ? 36 : 31);
           ctx.fillStyle = look.color;
-        }
-        if (me) {
-          const ay = ly - 15 + Math.sin(t * 6) * 2;
-          ctx.beginPath();
-          ctx.moveTo(-7, ay - 8);
-          ctx.lineTo(7, ay - 8);
-          ctx.lineTo(0, ay + 2);
-          ctx.closePath();
-          ctx.fill();
-          ctx.lineWidth = 2;
-          ctx.stroke();
         }
       });
     }
