@@ -895,15 +895,17 @@ const cleanChat = (raw) => String(raw || '').replace(/\s+/g, ' ').trim().slice(0
 // One conversation runs through the whole room: the lobby box and the box on the
 // result screen show the same history, and a round shows new lines as an overlay.
 const CHAT_BOXES = ['lobbyChat', 'resultChat'];
-let chatOpen = false;
+// The boxes in the lobby and on the result card are always there.
+let chatOpen = true;
 let unread = 0;
 
-// The chat boxes start closed; a button on each screen opens them.
+// The lobby's and the result card's chat boxes are simply there in a room; a round
+// has a button for its typing bar.
 function syncChat() {
   for (const id of ['gameChat', 'chatBtn']) $(id).hidden = !net.role;
   for (const id of CHAT_BOXES) {
-    $(id).hidden = !net.role || !chatOpen;
-    $(`${id}Btn`).hidden = !net.role;
+    $(id).hidden = !net.role;
+    $(`${id}Btn`).hidden = true;
     $(`${id}Btn`).textContent = t('chatLabel') + (unread ? ` (${unread})` : '');
   }
   // Folded away on a tall screen, the chat button cannot show its count itself.
@@ -994,33 +996,50 @@ function sendChat(raw) {
   const send = document.createElement('button');
   send.textContent = '↑';
   bar.append(field, send);
-  $('stage').append(bar);
+  document.body.append(bar);
 }
+const onPhone = () => matchMedia('(pointer: coarse)').matches;
+let barTimer = 0;
+
 function toggleGameChat(open) {
   const bar = $('chatBar');
   if (bar.hidden === !open) return;
   bar.hidden = !open;
-  if (open) {
-    liftChatBar();
-    bar.querySelector('input').focus();
-  } else bar.querySelector('input').blur();
+  clearTimeout(barTimer);
+  if (!open) {
+    bar.querySelector('input').blur();
+    return;
+  }
+  // A phone slides the whole page up when the box being typed in would end up
+  // under its keyboard. So the bar starts high on the screen, where no keyboard
+  // reaches, and only comes down onto the keyboard once that is up.
+  bar.classList.toggle('rising', onPhone());
+  if (onPhone()) {
+    bar.style.top = `${Math.round(window.innerHeight * 0.2)}px`;
+    barTimer = setTimeout(() => seatChatBar(true), 700);
+  } else seatChatBar(true);
+  bar.querySelector('input').focus();
 }
 
-// A phone's keyboard covers the bottom of the page without resizing it, and the
-// browser slides the page up to show the box. Put the page back and raise the bar
-// by the keyboard's height instead.
-function liftChatBar() {
+// Sits the bar on the bottom of what can be seen: the top of the keyboard.
+function seatChatBar(now) {
+  const bar = $('chatBar');
   const vv = window.visualViewport;
-  if (!vv || $('chatBar').hidden) return;
-  if (window.scrollY) window.scrollTo(0, 0);
-  $('chatBar').style.bottom = `${Math.max(0, window.innerHeight - vv.height - vv.offsetTop)}px`;
+  if (bar.hidden) return;
+  const seen = vv ? vv.offsetTop + vv.height : window.innerHeight;
+  // Until the keyboard has come up there is nothing to sit on yet.
+  if (now !== true && bar.classList.contains('rising') && vv && vv.height > window.innerHeight - 80) return;
+  clearTimeout(barTimer);
+  bar.classList.remove('rising');
+  bar.style.top = `${Math.round(seen - bar.offsetHeight)}px`;
 }
-if (window.visualViewport) for (const type of ['resize', 'scroll']) window.visualViewport.addEventListener(type, liftChatBar);
+if (window.visualViewport) for (const type of ['resize', 'scroll']) window.visualViewport.addEventListener(type, seatChatBar);
+window.addEventListener('resize', seatChatBar);
 // A touch anywhere on the game puts the keyboard away, and does nothing else.
 window.addEventListener(
   'pointerdown',
   (e) => {
-    if ($('chatBar').hidden || $('chatBar').contains(e.target) || e.target === $('chatBtn')) return;
+    if ($('chatBar').hidden || $('chatBar').contains(e.target) || e.target === $('chatBtn') || e.target.closest('.chatForm')) return;
     toggleGameChat(false);
     e.stopPropagation();
   },
@@ -1036,11 +1055,17 @@ for (const id of [...CHAT_BOXES, 'gameChat']) {
     sendChat(field.value);
     field.value = '';
     // On a phone the keyboard stays up for the next line, as in a messenger.
-    if (id === 'gameChat' && !matchMedia('(pointer: coarse)').matches) toggleGameChat(false);
+    if (id === 'gameChat' && !onPhone()) toggleGameChat(false);
   });
   field.addEventListener('keydown', (e) => {
     if (e.code === 'Escape' && id === 'gameChat') toggleGameChat(false);
   });
+  // On a phone every box is typed into through the bar on the keyboard, so the
+  // page behind never has to move: the box itself only opens it.
+  if (id !== 'gameChat' && onPhone()) {
+    field.readOnly = true;
+    field.addEventListener('click', () => toggleGameChat(true));
+  }
 }
 // Ready-made lines that send with one tap, in the lobby and on the result card.
 for (const box of document.querySelectorAll('.quick')) {
