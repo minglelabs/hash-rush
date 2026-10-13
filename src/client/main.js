@@ -119,8 +119,9 @@ try {
 const renderer = createRenderer($('canvas'), MAP);
 const query = new URLSearchParams(location.search);
 // The phone controls can be tried out from the address bar, and the phone keeps
-// what it was last given: ?stick=30 sets how far the stick trails the thumb
-// (pixels), ?assist=0 turns the lane help off. Left out, the built-in values apply.
+// what it was last given: ?stick=30 makes the stick trail the thumb at that many
+// pixels instead of staying put (?stick=0 puts it back), ?assist=0 turns the lane
+// help off. Left out, the built-in values apply.
 function tuned(name, key) {
   try {
     if (query.has(name)) localStorage.setItem(key, query.get(name));

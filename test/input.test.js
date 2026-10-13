@@ -29,8 +29,8 @@ test('a thumb wobbling on a boundary keeps its heading', () => {
 // A thumb sliding from point to point at `speed` pixels a second, sampled the way a
 // phone reports it. Returns each heading the stick took and how far the thumb had
 // travelled since the last point of the path when it did.
-function slide(points, speed = 400) {
-  const s = stickStart(...points[0], 800, 800, 0);
+function slide(points, speed = 400, range) {
+  const s = stickStart(...points[0], 800, 800, 0, range);
   const took = [];
   let t = 0;
   for (let i = 1; i < points.length; i++) {
@@ -53,22 +53,38 @@ test('a thumb resting where it landed does not move the hamster', () => {
   assert.deepEqual([s.x, s.y], [0, 0]);
 });
 
-test('turning takes a short slide of the thumb, not a trip across the stick', () => {
+test('the stick stays where the thumb came down, and only the angle from there counts', () => {
+  const s = stickStart(400, 400, 800, 800, 0);
+  const at = (deg, r, t) => stickMove(s, 400 + Math.cos((deg * Math.PI) / 180) * r, 400 + Math.sin((deg * Math.PI) / 180) * r, t);
+  // Near or far, the same angle is the same heading, and the centre never moves.
+  for (const [deg, r, want] of [[0, 12, [1, 0]], [0, 150, [1, 0]], [80, 150, [0, 1]], [100, 20, [0, 1]], [180, 60, [-1, 0]], [-135, 90, [-1, -1]], [-90, 200, [0, -1]]]) {
+    at(deg, r, 1);
+    assert.deepEqual([s.x, s.y], want, `${deg}° at ${r}px`);
+    assert.deepEqual([s.ox, s.oy], [400, 400]);
+  }
+  // However long the thumb sits far out, coming back to the centre stops.
+  at(0, 150, 2);
+  at(0, 150, 9);
+  at(0, 5, 9.1);
+  assert.deepEqual([s.x, s.y], [0, 0]);
+});
+
+test('a stick set to trail the thumb turns on a short slide', () => {
   // Pushing right, then sliding straight up: the lean shows first, then the turn.
-  const up = slide([[400, 400], [480, 400], [480, 320]]).took.filter((h) => h.last);
+  const up = slide([[400, 400], [480, 400], [480, 320]], 400, 22).took.filter((h) => h.last);
   assert.deepEqual(up.map((h) => [h.x, h.y]), [[1, -1], [0, -1]]);
   assert.ok(up[0].after < 24, `leans after ${up[0].after}px`);
   assert.ok(up[1].after < 45, `turns after ${up[1].after}px`);
 
   // Sliding straight back: a stop, then the other way.
-  const back = slide([[400, 400], [480, 400], [400, 400]]).took.filter((h) => h.last);
+  const back = slide([[400, 400], [480, 400], [400, 400]], 400, 22).took.filter((h) => h.last);
   assert.deepEqual(back.map((h) => [h.x, h.y]), [[0, 0], [-1, 0]]);
   assert.ok(back[0].after < 20, `stops after ${back[0].after}px`);
   assert.ok(back[1].after < 36, `turns back after ${back[1].after}px`);
 });
 
-test('a thumb creeping sideways on a long push keeps its heading', () => {
-  const s = stickStart(400, 400, 800, 800, 0);
+test('a trailing stick: a thumb creeping sideways on a long push keeps its heading', () => {
+  const s = stickStart(400, 400, 800, 800, 0, 22);
   let t = 0;
   for (let i = 1; i <= 24; i++) stickMove(s, 400 + i * 2.5, 400, (t += 1 / 120));
   // Two seconds of holding on, drifting 25px to one side on the way.
@@ -81,9 +97,9 @@ test('a thumb creeping sideways on a long push keeps its heading', () => {
   assert.deepEqual([s.x, s.y], [1, -1]);
 });
 
-test('a thumb easing back on a long push does not stop the hamster, a pull back does', () => {
+test('a trailing stick: a thumb easing back on a long push does not stop the hamster, a pull back does', () => {
   const hold = () => {
-    const s = stickStart(400, 400, 800, 800, 0);
+    const s = stickStart(400, 400, 800, 800, 0, 22);
     let t = 0;
     for (let i = 1; i <= 24; i++) stickMove(s, 400 + i * 2.5, 400, (t += 1 / 120));
     return { s, t };
@@ -100,8 +116,8 @@ test('a thumb easing back on a long push does not stop the hamster, a pull back 
   assert.deepEqual([pulled.s.x, pulled.s.y], [0, 0]);
 });
 
-test('a turn settles: the thumb has to come well back to undo it', () => {
-  const { s } = slide([[400, 400], [460, 400], [460, 382]]);
+test('a trailing stick: a turn settles, the thumb has to come well back to undo it', () => {
+  const { s } = slide([[400, 400], [460, 400], [460, 382]], 400, 22);
   assert.deepEqual([s.x, s.y], [1, -1]);
   let t = 10;
   stickMove(s, 460, 386, (t += 0.01));

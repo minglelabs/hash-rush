@@ -18,9 +18,12 @@ export const KEYS = {
   throw: ['KeyF', 'KeyK'],
 };
 const HANDLED = new Set(Object.values(KEYS).flat());
-// How far the stick trails behind the thumb. Every change of heading costs the
-// thumb a trip of about this length, so it is kept short: nothing here is analogue.
-const STICK_RANGE = 22;
+// The stick stays where the thumb first came down, and only the angle of the thumb
+// from there counts: point the thumb somewhere and the hamster goes that way. (A
+// number of pixels here instead makes the stick trail the thumb at that distance.)
+const STICK_RANGE = Infinity;
+// How far the knob is drawn from the centre at most.
+const KNOB_REACH = 30;
 // Past this the hamster runs flat out, the way a held arrow key does.
 const STICK_DEAD = 8;
 // Lanes run along the axes, so a push counts as straight unless it is this close
@@ -82,7 +85,8 @@ export function stickMove(s, x, y, t) {
       s.oy = s.sy;
     }
   }
-  if (s.x || s.y) {
+  const fixed = s.range === Infinity;
+  if (!fixed && (s.x || s.y)) {
     // While the thumb sat where it was, the stick slid round to sit right behind it.
     const k = s.range / Math.hypot(s.x, s.y);
     const gx = s.px - s.x * k - s.ox;
@@ -106,7 +110,7 @@ export function stickMove(s, x, y, t) {
     dy = (dy / d) * s.range;
   }
   const dir = stickDir(dx, dy, s);
-  if ((dir.x || dir.y) && (dir.x !== s.x || dir.y !== s.y)) {
+  if (!fixed && (dir.x || dir.y) && (dir.x !== s.x || dir.y !== s.y)) {
     // A new heading starts dead on: the stick swings round behind the thumb, so
     // the next turn is as near on one side as on the other.
     const k = Math.hypot(dx, dy) / Math.hypot(dir.x, dir.y);
@@ -135,8 +139,8 @@ export function holdSwing(g, me, fresh) {
   return fresh && !near ? { ax: 0, ay: 0, dist: 0 } : null;
 }
 
-// `stickRange` and `laneHelp` are there for trying the phone controls out: how far
-// the stick trails the thumb, and whether stick moves ask for the lane help.
+// `stickRange` and `laneHelp` are there for trying the phone controls out: a stick
+// that trails the thumb at that distance, and whether stick moves ask for the lane help.
 export function createInput({ stage, canvas, stick, knob, bonkBtn, throwBtn, toWorld, toWorldDir, stickRange = STICK_RANGE, laneHelp = true }) {
   const down = new Set();
   let enabled = false;
@@ -183,7 +187,10 @@ export function createInput({ stage, canvas, stick, knob, bonkBtn, throwBtn, toW
   function showStick() {
     stick.style.left = `${touch.ox}px`;
     stick.style.top = `${touch.oy}px`;
-    knob.style.transform = `translate(calc(-50% + ${touch.px - touch.ox}px), calc(-50% + ${touch.py - touch.oy}px))`;
+    const kx = touch.px - touch.ox;
+    const ky = touch.py - touch.oy;
+    const k = Math.min(1, KNOB_REACH / (Math.hypot(kx, ky) || 1));
+    knob.style.transform = `translate(calc(-50% + ${kx * k}px), calc(-50% + ${ky * k}px))`;
     stick.classList.toggle('going', !!(touch.x || touch.y));
     if (touch.x || touch.y) stick.style.setProperty('--heading', `${Math.atan2(touch.y, touch.x)}rad`);
   }
