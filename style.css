@@ -1665,7 +1665,7 @@ button.primary:active {
 }
 
 #trophy {
-  width: min(300px, 70vw);
+  width: min(220px, 46vw);
   aspect-ratio: 300 / 250;
   display: block;
   margin: 0 auto;
@@ -1697,31 +1697,59 @@ button.primary:active {
   height: 46px;
 }
 
-#champTable {
-  margin: 0 auto 8px;
-  border-collapse: collapse;
-  font-size: clamp(13px, 1.7cqw, 17px);
+/* The full record under the trophy. It has many columns: keep it inside the card,
+   and let the card scroll sideways on a narrow screen rather than spill out. */
+#champ .card {
+  box-sizing: border-box;
+  max-width: 98%;
+  overflow-x: auto;
 }
 
-#champTable td {
-  padding: 3px 14px;
-  text-align: left;
-  font-weight: 700;
+#champStats {
+  margin: 4px auto 10px;
+  font-size: clamp(11px, 1.35cqw, 15px);
 }
 
-#champTable td:last-child {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-
-#champTable tr.winner td {
-  background: #ffe9a8;
+#champStats th,
+#champStats td {
+  padding: 4px 6px;
 }
 
 #champNote {
   margin: 0;
   color: #a07a45;
   font-size: 13px;
+}
+
+#champ .card {
+  position: relative;
+}
+
+#champClose {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  padding: 0.15em 0.6em;
+  font-size: 15px;
+}
+
+#champLobby {
+  margin-top: 10px;
+}
+
+@media (max-width: 640px), (orientation: portrait) {
+  #champ .card {
+    padding: 12px 8px 14px;
+  }
+
+  #champStats {
+    font-size: 11px;
+  }
+
+  #champStats th,
+  #champStats td {
+    padding: 4px 2px;
+  }
 }
 
 #seasonList {

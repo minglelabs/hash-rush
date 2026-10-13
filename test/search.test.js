@@ -17,7 +17,8 @@ const game = (kinds, seed, map = MAPS.meadow) => {
 };
 
 test('the top bot has the hard bot\'s hands and adds looking ahead and footwork', () => {
-  const { search, dance, poach, wary, clock, boxed, toss, trail, lure, pincer, gatewise, ambush, ...hands } = DIFFICULTY.ace;
+  const { search, dance, poach, wary, clock, boxed, toss, trail, lure, pincer, gatewise, ambush, dodge, ...hands } = DIFFICULTY.ace;
+  assert.ok(dodge > 0);
   assert.ok(gatewise > 0);
   assert.ok(ambush > 0);
   assert.ok(pincer > 0);
@@ -511,4 +512,53 @@ test('the top bot turns on a rival running along at its heels and bonks it, ever
   let ace = 0;
   for (let n = 0; n < 12; n++) if (tailed('ace', n)) ace++;
   assert.ok(ace >= 11, `the follower went down ${ace} times out of 12`);
+});
+
+test('carrying a seed past a side lane, the top bot steps back from a person who pops out to swing as it crosses', () => {
+  // Junctions the way home runs straight through, with a lane off to the side.
+  const spots = [
+    { x: 350, y: 160, from: { x: 440, y: 160 } },
+    { x: 390, y: 320, from: { x: 470, y: 320 } },
+  ];
+  const cross = (n) => {
+    const g = createGame({ slots: Array.from({ length: 4 }, (_, i) => ({ name: `p${i}`, kind: i ? 'human' : 'bot' })), seed: n + 1, map: MAPS.meadow });
+    for (let i = 0; i < COUNTDOWN * TICK_RATE + 2; i++) step(g, []);
+    g.calm = true;
+    const [bot, lurk, x, y] = g.players;
+    const b = g.map.bounds;
+    Object.assign(x, { x: b.x2 - 30, y: b.y1 + 30 });
+    Object.assign(y, { x: b.x2 - 30, y: b.y2 - 30 });
+    const j = spots[n % 2];
+    // Deep enough in the side lane to be out of sight.
+    const back = 58 + (n % 4) * 5;
+    Object.assign(bot, { x: j.from.x, y: j.from.y, carrying: true });
+    Object.assign(lurk, { x: j.x, y: j.y + back });
+    const brain = createBot({ difficulty: 'ace', seed: n + 3 });
+    let go = false;
+    for (let t = 0; t < 2.5 * TICK_RATE && g.phase === 'playing'; t++) {
+      const px = bot.x + bot.vx * 0.14 - lurk.x;
+      const py = bot.y + bot.vy * 0.14 - lurk.y;
+      const pd = Math.hypot(px, py) || 1;
+      // It sets off so that its swing lands just as the bot crosses.
+      if (Math.hypot(bot.x - j.x, bot.y - j.y) < 166 * ((back - 38) / 185 + BONK.windup)) go = true;
+      const swing = go && pd <= 38 && !lurk.swing && lurk.cooldown <= 0;
+      step(g, [brain.think(g, 0), go ? { mx: px / pd, my: py / pd, bonk: swing, ax: px / pd, ay: py / pd } : { mx: 0, my: 0, bonk: false }]);
+      if (bot.deaths) return 'bonked';
+      if (lurk.deaths) return 'won';
+    }
+    return 'through';
+  };
+  const tally = () => {
+    const r = { bonked: 0, won: 0, through: 0 };
+    for (let n = 0; n < 16; n++) r[cross(n)]++;
+    return r;
+  };
+  const wise = tally();
+  const { dodge } = DIFFICULTY.ace;
+  DIFFICULTY.ace.dodge = 0;
+  const blind = tally();
+  DIFFICULTY.ace.dodge = dodge;
+  assert.ok(blind.bonked >= 6, `walking on, it goes down: ${JSON.stringify(blind)}`);
+  assert.ok(wise.bonked <= 1, `stepping back, it does not: ${JSON.stringify(wise)}`);
+  assert.ok(wise.won >= 8, `and it is the one waiting that goes down: ${JSON.stringify(wise)}`);
 });

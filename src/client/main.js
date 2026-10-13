@@ -1513,17 +1513,13 @@ function showChampions(champs) {
       return who;
     }),
   );
-  const ranked = [...game.players].sort((a, b) => wins[b.look] - wins[a.look]);
-  $('champTable').replaceChildren(
-    ...ranked.map((p) => {
-      const row = document.createElement('tr');
-      row.classList.toggle('winner', champs.includes(p));
-      const name = row.insertCell();
-      name.append(champs.includes(p) ? '🏆 ' : '', nameTag(p));
-      row.insertCell().textContent = t('tally', wins[p.look]);
-      return row;
-    }),
-  );
+  // The full record under the trophy: this is the last look at it before the
+  // room starts over.
+  fillScores($('champStats'));
+  // Where the two halves are tabs, open on the totals: the title is won on those.
+  setScoreView('total');
+  // Only the host can take the room back to the lobby; anyone can put the card away.
+  $('champLobby').hidden = net.role === 'guest';
   $('champNote').textContent = t('champNote', rounds);
   $('champ').hidden = false;
   cancelAnimationFrame(champFrame);
@@ -1538,13 +1534,14 @@ function showChampions(champs) {
   audio.play.cheer();
   // The host closes the season; everyone else follows it back to the lobby.
   clearTimeout(champTimer);
-  if (net.role !== 'guest') champTimer = setTimeout(endSeason, 14000);
+  if (net.role !== 'guest') champTimer = setTimeout(endSeason, 22000);
 }
 
 function hideChampions() {
   clearTimeout(champTimer);
   cancelAnimationFrame(champFrame);
   $('champ').hidden = true;
+  setScoreView('round');
 }
 
 // The title is decided: keep the record, wipe the scores and take the room back
@@ -1843,6 +1840,13 @@ $('boardBtn').addEventListener('click', () => {
   else if (!reopenResult()) showBoard($('board').hidden);
 });
 $('resultClose').addEventListener('click', () => ($('result').hidden = true));
+// Putting the card away shows the field again; the room still goes back to the
+// lobby when the host's time is up, or at once when the host says so.
+$('champClose').addEventListener('click', () => {
+  cancelAnimationFrame(champFrame);
+  $('champ').hidden = true;
+});
+$('champLobby').addEventListener('click', endSeason);
 // A click on the dimmed map around the card also puts it away.
 $('result').addEventListener('click', (e) => e.target === $('result') && ($('result').hidden = true));
 $('againBtn').addEventListener('click', startGame);
@@ -1902,6 +1906,10 @@ const tryUnlock = () => {
   if (audio.ready()) for (const type of tapEvents) window.removeEventListener(type, tryUnlock, true);
 };
 for (const type of tapEvents) window.addEventListener(type, tryUnlock, true);
+// Joining from the room list and leaving a room both load the page afresh, and a
+// guest then has nothing to tap. A browser that remembers the tap on the page
+// before lets sound start straight away; the others wait for the next tap as before.
+tryUnlock();
 // The context is suspended again when the tab comes back on some phones.
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && !audio.ready()) for (const type of tapEvents) window.addEventListener(type, tryUnlock, true);

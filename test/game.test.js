@@ -245,6 +245,19 @@ test('a seed slows its carrier, and slows it more on the last stretch home', () 
   assert.equal(pace(a, g.homeX + LAST_STRETCH.range + 40, true), CARRY_SPEED);
   assert.equal(pace(b, g.homeX + LAST_STRETCH.range - 10, true), LAST_STRETCH.speed);
   assert.equal(pace(b, g.homeX + LAST_STRETCH.range - 10, false), 1);
+  assert.equal(CARRY_SPEED, 0.85);
+  assert.equal(LAST_STRETCH.speed, 0.7);
+  // Wet fur takes another fifth of full speed off, on top: the shares add up.
+  const wet = (p, x, carrying) => {
+    p.wet = 2;
+    const v = pace(p, x, carrying);
+    p.wet = 0;
+    return v;
+  };
+  const near = (v, want) => assert.ok(Math.abs(v - want) < 1e-9, `${v} is not ${want}`);
+  near(wet(a, g.homeX + LAST_STRETCH.range + 40, false), 0.8);
+  near(wet(a, g.homeX + LAST_STRETCH.range + 40, true), 0.65);
+  near(wet(b, g.homeX + LAST_STRETCH.range - 10, true), 0.5);
 });
 
 test('a tunnel sends an empty-handed hamster home, but not one carrying a seed', () => {

@@ -1,7 +1,7 @@
 // Computer-controlled hamster. A bot only reads the public game state and returns
 // the same input object a human does, so any slot can be swapped between the two.
 
-import { DT, SPEED, CARRY_SPEED, HAMSTER_R, BONK, THROW, gatherTime } from '../sim/constants.js';
+import { DT, SPEED, CARRY_SPEED, LAST_STRETCH, HAMSTER_R, BONK, THROW, gatherTime } from '../sim/constants.js';
 import { distToSegment, isFree, segmentClear, segmentHitsRect } from '../sim/map.js';
 import { inHome, allied } from '../sim/game.js';
 import { mulberry32 } from '../sim/rng.js';
@@ -23,6 +23,9 @@ export const DIFFICULTY = {
   // volley: chance to throw it when it would take down two, or a rival's seed
   // thrifty: within this many pixels of home it never throws its seed away. The
   //   seed is the win; a rival knocked down there is worth nothing next to it.
+  // nerve: it times a cannon instead of stopping the moment one shows red: it walks
+  //   on through the line while it can be out again before the seed is fired, and
+  //   holds back only when it cannot.
   // freeze: how long it dithers before a swing it has decided on (seconds)
   // rally: whether it joins the chase after a seed it cannot head off in time
   // The rookie keeps to four simple things: go for a seed, go and stop a rival who
@@ -33,7 +36,7 @@ export const DIFFICULTY = {
   normal: { reaction: 0.24, lead: 0.4, margin: 2, jitter: 4, bait: 0.25, hold: 0.5, deny: 0.7, hunt: 0.7, opportunism: 0.8, caution: 0.8, freeze: 0.09, rally: true, toss: 0.3, volley: 0.8 },
   // search: instead of the fixed rules below, it plays each plan forward in a copy
   //   of the game and picks the best (see search.js). Hands as good as hard's.
-  hard: { reaction: 0.12, lead: 0.9, margin: 3, jitter: 1, bait: 0.55, hold: 1, deny: 1, hunt: 1, opportunism: 1.5, caution: 1.2, freeze: 0, rally: true, toss: 0.5, volley: 1, thrifty: 330 },
+  hard: { reaction: 0.12, lead: 0.9, margin: 3, jitter: 1, bait: 0.55, hold: 1, deny: 1, hunt: 1, opportunism: 1.5, caution: 1.2, freeze: 0, rally: true, toss: 0.5, volley: 1, thrifty: 330, nerve: true },
 };
 // dance: up close it feints instead of walking in: a dash at the rival to draw a
 //   swing, a step back out of reach so the swing misses, then in for the hit.
@@ -71,7 +74,11 @@ export const DIFFICULTY = {
 //   feinting, it is following, and a follower runs straight into a swing: the bot
 //   stops dead, turns and swings the moment that swing would land. Every time,
 //   where the hard bot only does it when it happens to feel like a swing.
-DIFFICULTY.ace = { ...DIFFICULTY.hard, search: true, dance: true, poach: 2, wary: 0.5, clock: 0.15, toss: 0, boxed: 120, trail: 78, lure: 54, pincer: 60, gatewise: 300, ambush: 0.2 };
+// dodge: carrying a seed past a side lane, it watches for a person waiting in
+//   there who sets off to swing just as it crosses. Walking on is walking into
+//   that swing, so it goes straight back the way it came for this many seconds:
+//   the swing lands on nothing, and the bot is on whoever is stuck after it.
+DIFFICULTY.ace = { ...DIFFICULTY.hard, search: true, dance: true, poach: 2, wary: 0.5, clock: 0.15, toss: 0, boxed: 120, trail: 78, lure: 54, pincer: 60, gatewise: 300, ambush: 0.2, dodge: 0.3 };
 
 const TOUCH = 2 * HAMSTER_R;
 const DANGER_R = 110;
@@ -143,6 +150,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
     flank: false,
     flee: { id: -1, since: 0, tick: -1 },
     tail: new Map(),
+    dodge: { id: -1, until: 0, x: 0, y: 0 },
     cut: null,
     dance: { id: -1, expires: 0 },
     fooled: new Map(),
@@ -200,7 +208,10 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
     const eta = (p) => now + (dist(me, p) * 1.3) / SPEED;
     const shut = (p, q) => (gateHit(p, q, gatesWhen(eta(p)), 3) || gateHit(p, q, gatesWhen(eta(q)), 3) ? cfg.gatewise : 0);
     // Pits, cannons about to fire and shut gates are as good as blocked too.
-    const trouble = cfg.gatewise && map.gates.length ? hazardCost({ ...g, gates: [] }) : hazardCost(g);
+    const slippery = iceNow(map, now).some((r) => me.x >= r.x && me.x <= r.x + r.w && me.y >= r.y && me.y <= r.y + r.h);
+    // How fast it can count on walking: a seed, and wet fur, slow it down.
+    const pace = cfg.nerve && !slippery ? { x: me.x, y: me.y, v: SPEED * ((me.carrying ? LAST_STRETCH.speed : 1) - (me.wet > 0 ? HAZARD.wave.slow : 0)) } : null;
+    const trouble = cfg.gatewise && map.gates.length ? hazardCost({ ...g, gates: [] }, pace) : hazardCost(g, pace);
     const blocked = cfg.gatewise && map.gates.length ? (p, q) => inLane(p, q) + trouble(p, q) + shut(p, q) : (p, q) => inLane(p, q) + trouble(p, q);
 
     const steerTo = (pt) => {
@@ -644,6 +655,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
     const target = mem.targetId >= 0 ? seen.find((e) => e.id === mem.targetId) : null;
     if (mem.mode === 'home') {
       follow(mem.path);
+      let met = false;
       // Someone standing in the way: fight through rather than walk into a bonk.
       for (const e of seen) {
         if (e.home) continue;
@@ -653,7 +665,43 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
         out.mx = 0;
         out.my = 0;
         engage(e);
+        met = true;
         break;
+      }
+      // Someone in a side lane setting off for the spot I am about to cross
+      // means to be there with a swing as I pass (see `dodge`).
+      if (cfg.dodge && !met && (out.mx || out.my)) {
+        const hx = out.mx;
+        const hy = out.my;
+        const lag = cfg.reaction + cfg.dodge;
+        const from = now < mem.dodge.until ? seen.find((e) => e.id === mem.dodge.id && !e.home && e.swing !== 'recovery') : null;
+        if (from) {
+          out.mx = mem.dodge.x;
+          out.my = mem.dodge.y;
+        } else {
+          for (const e of seen) {
+            // A person's trick. A bot never swings round a corner at what it cannot
+            // see, so from a bot there is nothing to step back from.
+            if (e.home || e.carrying || e.swing || g.players[e.id].kind !== 'human') continue;
+            const dx = e.x - me.x;
+            const dy = e.y - me.y;
+            const d = Math.hypot(dx, dy) || 1;
+            // From the side, that is: one ahead is met head on, one behind cannot reach.
+            if (d > 130 || (hx * dx + hy * dy) / d < -0.2 || Math.abs(e.vx * hy - e.vy * hx) < 0.4 * SPEED) continue;
+            // Only one that can have its swing there just as I cross.
+            const mine = (hx * dx + hy * dy) / Math.max(1, Math.hypot(me.vx, me.vy)) - cfg.reaction;
+            const its = Math.max(0, Math.abs(hx * dy - hy * dx) - BONK.reach) / SPEED + BONK.windup;
+            if (mine > its + 0.1) continue;
+            const at = { x: e.x + e.vx * lag, y: e.y + e.vy * lag };
+            if (distToSegment(at.x, at.y, me.x, me.y, me.x + hx * 100, me.y + hy * 100) > BONK.reach + 6) continue;
+            // Not back into somebody else.
+            if (seen.some((r) => r !== e && !r.home && dist(me, r) < 110 && (r.x - me.x) * hx + (r.y - me.y) * hy < 0)) continue;
+            mem.dodge = { id: e.id, until: now + cfg.dodge, x: -hx, y: -hy };
+            out.mx = -hx;
+            out.my = -hy;
+            break;
+          }
+        }
       }
     } else if (mem.mode === 'deny' && target) {
       if (dist(me, target) < (mem.flank ? 100 : 230) && clear(me, target)) engage(target);
@@ -672,7 +720,19 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       const ahead = { x: me.x + out.mx * 26, y: me.y + out.my * 26 };
       for (const h of g.hazards) {
         const pit = h.kind === 'trap' && Math.hypot(ahead.x - h.x, ahead.y - h.y) < HAZARD.trap.r + 8 && Math.hypot(me.x - h.x, me.y - h.y) >= HAZARD.trap.r;
-        const shot = h.kind === 'cannon' && inCannonLine(map, h, ahead) && !inCannonLine(map, h, me);
+        let shot = h.kind === 'cannon' && inCannonLine(map, h, ahead) && !inCannonLine(map, h, me);
+        // Walk on if that gets it out of the line again before the seed comes by.
+        if (shot && pace) {
+          const spec = HAZARD.cannon;
+          shot = false;
+          for (let t = 0; t < spec.warn - h.age + spec.range / spec.speed + 0.1 && !shot; t += 2 * DT) {
+            const at = { x: me.x + out.mx * pace.v * t, y: me.y + out.my * pace.v * t };
+            if (!inCannonLine(map, h, at)) continue;
+            const along = (at.x - h.x) * h.dx + (at.y - h.y) * h.dy;
+            const age = h.age + t;
+            shot = age > spec.warn - 0.15 && age < spec.warn + (along + HAMSTER_R) / spec.speed + 0.06;
+          }
+        }
         if (pit || shot) {
           out.mx = 0;
           out.my = 0;
