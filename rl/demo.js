@@ -1,22 +1,23 @@
 // Records the scripted bots playing each other, for rl/pretrain.py to learn from:
 // what each bot saw, what it did (in the policy's own actions), the discounted
 // reward that followed, and whether it won the round.
-//   node rl/demo.js <out prefix> <samples> <seed> <gamma> <frameSkip> [policy.json share]
+//   node rl/demo.js <out prefix> <samples> <seed> <gamma> <frameSkip> [policy.json share [levels teams]]
 // With a policy, that share of the seats is played by the policy instead, still
 // labelled with what the bot there would have done (DAgger), so the learner is
-// taught how to get out of the spots only it gets itself into.
+// taught how to get out of the spots only it gets itself into. `levels` picks the
+// bots to copy ("1,2" normal and hard, "3" the ace), `teams` the share of team rounds.
 // Writes <prefix>.obs (float32), .act (uint8 x3), .ret (float32), .win (uint8).
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createEnvs, MAX_P, OBS } from './env.js';
 import { loadPolicy } from './policy.js';
 
-const [out, want = '100000', seed = '1', gamma = '0.997', frameSkip = '4', policyPath = '', share = '0.5'] = process.argv.slice(2);
+const [out, want = '100000', seed = '1', gamma = '0.997', frameSkip = '4', policyPath = '', share = '0.5', levels = '1,2', teams = '0.5'] = process.argv.slice(2);
 const policy = policyPath ? loadPolicy(JSON.parse(readFileSync(policyPath, 'utf8'))) : null;
 const N = Number(want);
 const G = Number(gamma);
 const E = 16;
-const envs = createEnvs({ envs: E, seed: Number(seed), allBots: true, botEnv: 1, botSeat: 1, botLevels: [1, 2], frameSkip: Number(frameSkip) });
+const envs = createEnvs({ envs: E, seed: Number(seed), allBots: true, botEnv: 1, botSeat: 1, botLevels: levels.split(',').map(Number), teams: Number(teams), frameSkip: Number(frameSkip) });
 
 const obs = new Float32Array(N * OBS);
 const act = new Uint8Array(N * 3);
