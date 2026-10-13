@@ -19,7 +19,7 @@ const GATE_F = 3;
 const OTHER = 13;
 // The first policies saw only this much; team play was added after it.
 const BASE_OBS = SELF + WORLD_F + NAV + RAYS + HAZARDS * HAZARD_F + GATES * GATE_F + (MAX_P - 1) * OTHER;
-const TEAM_F = 8;
+const TEAM_F = 10;
 export const OBS = BASE_OBS + TEAM_F;
 const HAZARD_KINDS = ['trap', 'cannon', 'wave'];
 export const DIRS = [[0, 0], ...Array.from({ length: 8 }, (_, k) => [Math.cos((k * Math.PI) / 4), Math.sin((k * Math.PI) / 4)])];
@@ -147,33 +147,58 @@ export const fieldAt = (F, dist, p) => {
   return i < 0 || dist[i] === Infinity ? 1 : Math.min(1, (dist[i] * CELL) / 1000);
 };
 
-// A hamster's job in a team round: whoever on the team has the seed runs it home;
-// with no seed on the team, the one nearest the flower (by walking) goes for it.
-// Everyone else defends. Worked out from the game alone, so the bot in the game
-// plays the role it trained for, beside people or bots.
-export function roleOf(g, p) {
-  if (p.team < 0) return 'solo';
-  const mates = g.players.filter((q) => q.team === p.team);
-  const runner = mates.find((q) => q.carrying);
-  if (runner) return runner === p ? 'attack' : 'defend';
+// Everyone's job, worked out from the game alone so the bot in the game plays the
+// job it trained for, beside people or bots. In a team round:
+//   attack: carries the team's seed home, or with no seed on the team, is the one
+//           nearest the flower (by walking) and goes for it;
+//   mark:   each rival seed carrier gets its own marker, the nearest teammate not
+//           attacking, so two carriers are never both left to one hamster;
+//   guard:  the rest watch the rival nearest the flower, the next seed's way.
+// In a free-for-all everyone plays alone and marks the nearest rival carrier.
+// Returns, per player index, { job, mark } with mark a player or null.
+const jobsOf = new WeakMap();
+export function jobs(g) {
+  const cached = jobsOf.get(g);
+  if (cached && cached.tick === g.tick) return cached.out;
+  const players = g.players;
   const F = fields(g.map);
-  let best = null;
-  let near = Infinity;
-  for (const q of mates) {
-    const d = fieldAt(F, F.flower, q);
-    if (d < near) [best, near] = [q, d];
+  const far = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  const out = players.map(() => ({ job: 'solo', mark: null }));
+  for (const p of players) {
+    if (p.team >= 0) continue;
+    let best = null;
+    for (const q of players) if (q !== p && q.carrying && (!best || far(q, p) < far(best, p))) best = q;
+    out[p.id].mark = best;
   }
-  return best === p ? 'attack' : 'defend';
-}
-
-// The rival seed carrier nearest to `me`, if any.
-export function nearestCarrier(g, me) {
-  let best = null;
-  for (const q of g.players) {
-    if (q === me || !q.carrying || allied(q, me)) continue;
-    if (!best || Math.hypot(q.x - me.x, q.y - me.y) < Math.hypot(best.x - me.x, best.y - me.y)) best = q;
+  const teams = [...new Set(players.filter((p) => p.team >= 0).map((p) => p.team))];
+  const f = g.map.flower;
+  for (const t of teams) {
+    const mates = players.filter((p) => p.team === t);
+    const rivals = players.filter((p) => p.team !== t);
+    let free = mates.filter((p) => !p.carrying);
+    for (const p of mates) if (p.carrying) out[p.id].job = 'attack';
+    if (free.length === mates.length) {
+      let best = null;
+      for (const p of mates) if (!best || fieldAt(F, F.flower, p) < fieldAt(F, F.flower, best)) best = p;
+      out[best.id].job = 'attack';
+      free = free.filter((p) => p !== best);
+    }
+    // Nearest pairs first, each carrier and each marker used once.
+    const pairs = [];
+    for (const c of rivals) if (c.carrying) for (const p of free) pairs.push([far(c, p), c, p]);
+    pairs.sort((x, y) => x[0] - y[0]);
+    const taken = new Set();
+    for (const [, c, p] of pairs) {
+      if (taken.has(c) || taken.has(p)) continue;
+      taken.add(c).add(p);
+      out[p.id] = { job: 'mark', mark: c };
+    }
+    let threat = null;
+    for (const q of rivals) if (!q.carrying && (!threat || far(q, f) < far(threat, f))) threat = q;
+    for (const p of free) if (!taken.has(p)) out[p.id] = { job: 'guard', mark: threat };
   }
-  return best;
+  jobsOf.set(g, { tick: g.tick, out });
+  return out;
 }
 
 // Fills one row of OBS numbers per seat, MAX_P rows from `at`; empty seats are zeros.
@@ -302,19 +327,20 @@ export function observe(g, out, at = 0) {
       out[o++] = (p.x - g.homeX) / WORLD.w;
     }
 
-    // Team play: my role, who has a seed, and where the rival carrier is going.
+    // Team play: my job, who has a seed, and whom I am watching.
     o = base + BASE_OBS;
-    const role = roleOf(g, me);
-    out[o] = role === 'attack' ? 1 : 0;
-    out[o + 1] = role === 'defend' ? 1 : 0;
-    out[o + 2] = players.some((p) => p !== me && p.carrying && allied(p, me)) ? 1 : 0;
-    const c = nearestCarrier(g, me);
-    if (c) {
-      out[o + 3] = 1;
-      out[o + 4] = (c.x - me.x) / WORLD.w;
-      out[o + 5] = (c.y - me.y) / WORLD.h;
-      out[o + 6] = fieldAt(F, F.home, c);
-      out[o + 7] = Math.min(1, Math.hypot(c.x - me.x, c.y - me.y) / 1000);
+    const { job, mark } = jobs(g)[me.id];
+    out[o] = job === 'attack' ? 1 : 0;
+    out[o + 1] = job === 'mark' ? 1 : 0;
+    out[o + 2] = job === 'guard' ? 1 : 0;
+    out[o + 3] = players.some((p) => p !== me && p.carrying && allied(p, me)) ? 1 : 0;
+    out[o + 4] = players.filter((p) => p.carrying && !allied(p, me) && p !== me).length / 4;
+    if (mark) {
+      out[o + 5] = 1;
+      out[o + 6] = (mark.x - me.x) / WORLD.w;
+      out[o + 7] = (mark.y - me.y) / WORLD.h;
+      out[o + 8] = fieldAt(F, F.home, mark);
+      out[o + 9] = Math.min(1, Math.hypot(mark.x - me.x, mark.y - me.y) / 1000);
     }
   }
 }

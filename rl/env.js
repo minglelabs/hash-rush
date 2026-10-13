@@ -19,7 +19,7 @@
 import { createGame, step, carrySpeed } from '../src/sim/game.js';
 import { MAPS, MAP_IDS, isFree } from '../src/sim/map.js';
 import { HAMSTER_R, SPEED, DT, gatherTime } from '../src/sim/constants.js';
-import { MAX_P, OBS, DIRS, fields, fieldAt, observe, roleOf, nearestCarrier } from '../src/ai/observe.js';
+import { MAX_P, OBS, DIRS, fields, fieldAt, observe, jobs } from '../src/ai/observe.js';
 
 export { MAX_P, OBS };
 import { createBot } from '../src/ai/bot.js';
@@ -53,12 +53,14 @@ export const DEFAULTS = {
   // its team's average instead of its own, so clearing the way for a teammate's
   // seed pays too. The win bonus is shared anyway; 0 is everyone for themselves.
   teamSpirit: 0,
-  // Defence. `catch`: extra pay for bonking a rival who has a seed. `delay`: pay
-  // per decision to each rival near a seed carrier (within DELAY_R) for every bit
-  // of the run home it did not make, from 0 when it ran freely to `delay` when it
-  // got nowhere. `role`: pay for doing one's job in a team round (roleOf): a
-  // defender is paid for closing in on the rival carrier, or with none, on the
-  // rival nearest the flower.
+  // Defence and team jobs (jobs() in src/ai/observe.js).
+  // `catch`: extra pay for bonking a rival who has a seed, up to three times as
+  //   much the nearer that rival was to home.
+  // `delay`: pay per decision to whoever is on a rival seed carrier (its marker in
+  //   a team round, anyone within DELAY_R alone) for the ground the carriers did not
+  //   cover, counting the freest of them, so holding one up while another walks
+  //   home earns nothing.
+  // `role`: pay for a marker or guard closing in on the rival it watches.
   catch: 0,
   delay: 0,
   role: 0,
@@ -94,20 +96,17 @@ const score = (g, p) => {
 const DELAY_R = 200;
 const homeLeft = (g, p) => fieldAt(fields(g.map), fields(g.map).home, p);
 
-// How close a defender is to its mark: the rival carrier, or with none, the rival
-// nearest the flower. Higher is closer.
+// How close a marker or guard is to the rival it watches. Higher is closer.
 function guardPhi(g, p) {
-  if (roleOf(g, p) !== 'defend') return 0;
-  let mark = nearestCarrier(g, p);
-  if (!mark) {
-    const f = g.map.flower;
-    for (const q of g.players) {
-      if (q.team === p.team) continue;
-      if (!mark || Math.hypot(q.x - f.x, q.y - f.y) < Math.hypot(mark.x - f.x, mark.y - f.y)) mark = q;
-    }
-  }
-  return mark ? -Math.min(1, Math.hypot(mark.x - p.x, mark.y - p.y) / 1000) : 0;
+  const { job, mark } = jobs(g)[p.id];
+  if ((job !== 'mark' && job !== 'guard') || !mark) return 0;
+  return -Math.min(1, Math.hypot(mark.x - p.x, mark.y - p.y) / 1000);
 }
+
+const jobKey = (g, p) => {
+  const { job, mark } = jobs(g)[p.id];
+  return `${job}:${mark ? mark.id : -1}`;
+};
 
 export function createEnvs(settings = {}) {
   const cfg = { ...DEFAULTS, ...settings };
@@ -178,7 +177,7 @@ export function createEnvs(settings = {}) {
         }
       }
     }
-    envs[e] = { g, bots, home: g.players.map((p) => homeLeft(g, p)), job: g.players.map((p) => roleOf(g, p)), guard: g.players.map((p) => guardPhi(g, p)), stops: g.players.map(() => 0), prev: g.players.map(() => 0), deaths: g.players.map(() => 0), phi: g.players.map((p) => potential(g, p)) };
+    envs[e] = { g, bots, home: g.players.map((p) => homeLeft(g, p)), job: g.players.map((p) => jobKey(g, p)), guard: g.players.map((p) => guardPhi(g, p)), caught: g.players.map(() => 0), prev: g.players.map(() => 0), deaths: g.players.map(() => 0), phi: g.players.map((p) => potential(g, p)) };
   }
 
   function observeEnv(e) {
@@ -218,6 +217,9 @@ export function createEnvs(settings = {}) {
           inputs.push({ mx: dir[0], my: dir[1], bonk: actions[a + 1] === 1 && k === 0, throw: actions[a + 2] === 1 });
         }
         step(g, inputs);
+        for (const ev of g.events) {
+          if (ev.type === 'bonk' && ev.seed && cfg.catch) env.caught[ev.by] += cfg.catch * (1 + 2 * (1 - homeLeft(g, ev)));
+        }
       }
       const over = g.phase === 'over';
       for (let i = 0; i < n; i++) {
@@ -237,10 +239,10 @@ export function createEnvs(settings = {}) {
           win[e * MAX_P + i] = won ? 1 : 0;
           final[e * MAX_P + i] = s;
         }
-        r += (p.stops - env.stops[i]) * cfg.catch;
-        env.stops[i] = p.stops;
+        r += env.caught[i];
+        env.caught[i] = 0;
         if (!over && cfg.role) {
-          const job = roleOf(g, p);
+          const job = jobKey(g, p);
           const phi = guardPhi(g, p);
           // A new role starts a new measure; only a kept role is paid.
           if (job === env.job[i]) r += cfg.role * (phi - env.guard[i]);
@@ -249,21 +251,25 @@ export function createEnvs(settings = {}) {
         }
         reward[e * MAX_P + i] = r;
       }
-      // Rivals near a seed carrier are paid for the ground it did not cover.
-      for (let j = 0; j < n && cfg.delay && !over; j++) {
-        const c = g.players[j];
-        const left = homeLeft(g, c);
-        if (c.carrying && env.home[j] < 1) {
+      // Whoever is on a rival carrier is paid for the ground the carriers did not cover.
+      if (cfg.delay && !over) {
+        const slow = g.players.map((c, j) => {
+          if (!c.carrying || env.home[j] >= 1) return 1;
           const could = (SPEED * carrySpeed(g, c) * DT * cfg.frameSkip) / 1000;
-          const slow = Math.max(0, Math.min(1, 1 - (env.home[j] - left) / could));
-          for (let i = 0; i < n; i++) {
-            const p = g.players[i];
-            if (i === j || (p.team >= 0 && p.team === c.team) || Math.hypot(p.x - c.x, p.y - c.y) > DELAY_R) continue;
-            reward[e * MAX_P + i] += cfg.delay * slow;
-          }
+          return Math.max(0, Math.min(1, 1 - (env.home[j] - homeLeft(g, c)) / could));
+        });
+        const job = jobs(g);
+        for (let i = 0; i < n; i++) {
+          const p = g.players[i];
+          const { mark } = job[i];
+          if (!mark || !mark.carrying || Math.hypot(mark.x - p.x, mark.y - p.y) > DELAY_R) continue;
+          if (job[i].job !== 'mark' && job[i].job !== 'solo') continue;
+          let least = 1;
+          for (let j = 0; j < n; j++) if (j !== i && g.players[j].carrying && !(p.team >= 0 && g.players[j].team === p.team)) least = Math.min(least, slow[j]);
+          reward[e * MAX_P + i] += cfg.delay * least;
         }
-        env.home[j] = left;
       }
+      for (let j = 0; j < n; j++) env.home[j] = homeLeft(g, g.players[j]);
       if (cfg.teamSpirit) {
         const own = reward.slice(e * MAX_P, e * MAX_P + n);
         for (let i = 0; i < n; i++) {
