@@ -59,10 +59,10 @@ class Workers:
         self.E = envs
         self.N = workers * envs
         ep = self.E * self.P
-        self.frame = 4 * ep * self.obs_dim + 4 * ep + 4 * ep + self.E + ep + ep
+        self.frame = 4 * ep * self.obs_dim + 4 * ep + 4 * ep + self.E + ep + ep + 3 * ep + ep
 
     def _read(self):
-        obs, rew, score, done, role, win = [], [], [], [], [], []
+        obs, rew, score, done, role, win, teach, taught = [], [], [], [], [], [], [], []
         ep = self.E * self.P
         for p in self.procs:
             buf = p.stdout.read(self.frame)
@@ -80,7 +80,11 @@ class Workers:
             role.append(np.frombuffer(buf, np.uint8, ep, o).reshape(self.E, self.P))
             o += ep
             win.append(np.frombuffer(buf, np.uint8, ep, o).reshape(self.E, self.P))
-        return tuple(np.concatenate(x) for x in (obs, rew, score, done, role, win))
+            o += ep
+            teach.append(np.frombuffer(buf, np.uint8, 3 * ep, o).reshape(self.E, self.P, 3))
+            o += 3 * ep
+            taught.append(np.frombuffer(buf, np.uint8, ep, o).reshape(self.E, self.P))
+        return tuple(np.concatenate(x) for x in (obs, rew, score, done, role, win, teach, taught))
 
     def first(self):
         return self._read()
@@ -270,6 +274,8 @@ def main():
     ap.add_argument("--catch", type=float, default=4, help="extra pay for bonking a rival who has a seed")
     ap.add_argument("--delay", type=float, default=0.05, help="pay per decision near a rival carrier for the ground it did not cover")
     ap.add_argument("--role", type=float, default=1, help="pay for a team defender closing in on its mark")
+    ap.add_argument("--kick", type=float, default=0, help="weight on copying the teacher bot, fading to 0 by the end of the run")
+    ap.add_argument("--teacher", type=int, default=3, help="the bot level copied with --kick: 0 easy .. 3 ace")
     ap.add_argument("--team-spirit", type=float, default=0.5, help="share of a teammate's pay each hamster gets in team rounds")
     ap.add_argument("--shape", type=float, default=1, help="weight of the progress pay; 0 turns it off")
     ap.add_argument("--maps", default="all", help="comma separated map ids, or all")
@@ -295,7 +301,7 @@ def main():
             pass
     stage = min(stage, len(STAGES) - 1)
     spar = lambda: (args.bot_env, [0, 1, 2]) if args.no_curriculum else STAGES[stage]
-    settings = {"botEnv": spar()[0], "botLevels": spar()[1], "win": args.win, "lose": args.lose, "shape": args.shape, "teams": args.teams, "frameSkip": args.frame_skip, "headStart": args.head_start, "teamSpirit": args.team_spirit, "catch": args.catch, "delay": args.delay, "role": args.role}
+    settings = {"botEnv": spar()[0], "botLevels": spar()[1], "win": args.win, "lose": args.lose, "shape": args.shape, "teams": args.teams, "frameSkip": args.frame_skip, "headStart": args.head_start, "teamSpirit": args.team_spirit, "catch": args.catch, "delay": args.delay, "role": args.role, "teacher": args.teacher if args.kick else -1}
     if args.maps != "all":
         settings["maps"] = args.maps.split(",")
     env = Workers(args.workers, args.envs, args.seed, settings)
@@ -316,7 +322,7 @@ def main():
         print(f"rival {path}")
     league.keep = len(args.rivals) + 1
 
-    obs, _, _, _, role, _ = env.first()
+    obs, _, _, _, role, _, _, _ = env.first()
     # Who plays each seat: -1 nobody we control, 0 the learner, k a league member (k-1).
     assign = np.full((N, P), -1, np.int64)
     opponent = np.full(N, -1, np.int64)
@@ -350,6 +356,8 @@ def main():
     b_rew = np.zeros((T, N, P), np.float32)
     b_done = np.zeros((T, N), np.float32)
     b_mask = np.zeros((T, N, P), bool)
+    b_teach = np.zeros((T, N, P, 3), np.int64)
+    b_taught = np.zeros((T, N, P), bool)
 
     log_path = os.path.join(out_dir, "log.csv")
     with open(log_path, "w") as f:
@@ -388,7 +396,10 @@ def main():
             had_bots = (role > 1).any(1)
             players = (role > 0).sum(1)
             before = role
-            obs, rew, score, done, role, win = env.step(actions, *spar())
+            obs, rew, score, done, role, win, teach, taught = env.step(actions, *spar())
+            # What the teacher would have done from the same spot, for the seats it watched.
+            b_teach[t] = teach
+            b_taught[t] = taught.astype(bool) & learner
             b_rew[t] = rew * args.reward_scale
             b_done[t] = done
             for n in np.flatnonzero(done):
@@ -430,13 +441,18 @@ def main():
         d_adv = torch.from_numpy(adv[m]).to(dev)
         d_adv = (d_adv - d_adv.mean()) / (d_adv.std() + 1e-8)
         d_ret = torch.from_numpy(ret[m]).to(dev)
+        d_teach = torch.from_numpy(b_teach[m]).to(dev)
+        d_taught = torch.from_numpy(b_taught[m]).to(dev).float()
         model.observe(d_obs)
 
         frac = min(1.0, (time.time() - start) / 60 / args.minutes)
         for g in opt.param_groups:
             g["lr"] = args.lr * (1 - 0.8 * frac)
         size = d_obs.shape[0]
-        kl = ent_mean = v_loss = 0.0
+        kl = ent_mean = v_loss = copied = 0.0
+        # Kickstarting (Schmitt et al. 2018): also copy the teacher, less and less
+        # as the run goes on, so its play is the start and the reward takes over.
+        kick = args.kick * (1 - frac)
         stop = False
         for _ in range(args.epochs):
             order = torch.randperm(size, device=dev)
@@ -450,6 +466,11 @@ def main():
                 pg = -torch.min(ratio * a, ratio.clamp(1 - args.clip, 1 + args.clip) * a).mean()
                 vl = F.smooth_l1_loss(value, d_ret[idx])
                 loss = pg + 0.5 * vl - args.entropy * entropy.mean()
+                if kick and d_taught[idx].sum() > 0:
+                    w = d_taught[idx]
+                    teach_logp, _, _ = model.evaluate(d_obs[idx], d_teach[idx])
+                    loss = loss - kick * (teach_logp * w).sum() / w.sum()
+                    copied = float(((teach_logp.detach() * w).sum() / w.sum()).exp())
                 opt.zero_grad()
                 loss.backward()
                 nn.utils.clip_grad_norm_(model.parameters(), 0.5)
@@ -483,7 +504,7 @@ def main():
         with open(log_path, "a") as f:
             f.write(",".join(str(v) for v in row) + "\n")
         if it % 5 == 0 or it == 1:
-            print(f"it {it:4d}  stage {stage}  {minutes:5.1f}m  {total/1e6:6.2f}M decisions  {int(sps):6d}/s  score {mean('score'):5.2f}  win vs bots {mean('bot_win'):.2f} (fair {mean('bot_fair'):.2f})  vs league {mean('league_win'):.2f}  ent {ent_mean:.2f}", flush=True)
+            print(f"it {it:4d}  stage {stage}  {minutes:5.1f}m  {total/1e6:6.2f}M decisions  {int(sps):6d}/s  score {mean('score'):5.2f}  win vs bots {mean('bot_win'):.2f} (fair {mean('bot_fair'):.2f})  vs league {mean('league_win'):.2f}  ent {ent_mean:.2f}" + (f"  copies the teacher {copied:.2f}" if kick else ""), flush=True)
             stats = {k: [] for k in stats}
 
     torch.save(model.state_dict(), os.path.join(out_dir, "policy.pt"))
