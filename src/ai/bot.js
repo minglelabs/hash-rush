@@ -74,11 +74,15 @@ export const DIFFICULTY = {
 //   feinting, it is following, and a follower runs straight into a swing: the bot
 //   stops dead, turns and swings the moment that swing would land. Every time,
 //   where the hard bot only does it when it happens to feel like a swing.
+// flinch: a swing is the one thing it sees sooner than the rest: this many seconds
+//   after it starts instead of `reaction`. A swing takes a moment to land and
+//   roots whoever started it, so that is time to step straight back out of its
+//   reach, and then to go back in while the rival is stuck after hitting nothing.
 // dodge: carrying a seed past a side lane, it watches for a person waiting in
 //   there who sets off to swing just as it crosses. Walking on is walking into
 //   that swing, so it goes straight back the way it came for this many seconds:
 //   the swing lands on nothing, and the bot is on whoever is stuck after it.
-DIFFICULTY.ace = { ...DIFFICULTY.hard, search: true, dance: true, poach: 1, wary: 0.5, clock: 0.15, toss: 0, boxed: 120, trail: 78, lure: 54, pincer: 60, gatewise: 300, ambush: 0.2, dodge: 0.3 };
+DIFFICULTY.ace = { ...DIFFICULTY.hard, search: true, dance: true, poach: 1, wary: 0.5, clock: 0.15, toss: 0, boxed: 120, trail: 78, lure: 54, pincer: 60, gatewise: 300, ambush: 0.2, dodge: 0.3, flinch: 0.07 };
 
 const TOUCH = 2 * HAMSTER_R;
 const DANGER_R = 110;
@@ -121,6 +125,8 @@ function snapshot(g, p) {
     vy: p.vy,
     carrying: p.carrying,
     swing: p.swing ? p.swing.phase : null,
+    aimX: p.swing ? p.swing.dx : 0,
+    aimY: p.swing ? p.swing.dy : 0,
     seeds: p.seeds,
     nibbler: g.nibbler === p.id,
     home: inHome(g, p),
@@ -151,6 +157,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
     flee: { id: -1, since: 0, tick: -1 },
     tail: new Map(),
     dodge: { id: -1, until: 0, x: 0, y: 0 },
+    flinch: { id: -1, until: 0 },
     cut: null,
     dance: { id: -1, expires: 0 },
     fooled: new Map(),
@@ -714,6 +721,36 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       follow(mem.path);
     }
 
+    // A swing seen coming (see `flinch`): out of its reach, straight back. Nothing
+    // else it could do in that moment is worth being sent home for.
+    let flinching = false;
+    if (cfg.flinch && !me.swing && !meHome) {
+      const fresh = history[Math.max(0, history.length - 1 - Math.round(cfg.flinch / DT))];
+      for (const e of fresh) {
+        if (e.id === id || allied(e, me) || e.home || !e.swing) continue;
+        const dx = me.x - e.x;
+        const dy = me.y - e.y;
+        const d = Math.hypot(dx, dy) || 1;
+        if (e.swing === 'windup') {
+          // Only one that would land: in reach, in its arc, nothing in between.
+          if (d > BONK.reach + 3 || (d > HAMSTER_R && (dx * e.aimX + dy * e.aimY) / d < BONK.arcCos - 0.1)) continue;
+          if (!segmentClear(map, me.x, me.y, e.x, e.y, 0)) continue;
+          out.mx = dx / d;
+          out.my = dy / d;
+          flinching = true;
+          mem.flinch = { id: e.id, until: now + BONK.windup + BONK.recovery };
+          break;
+        }
+        // It has swung at nothing and is stuck: back in for the hit, unless there is
+        // a seed to take home instead.
+        if (e.id === mem.flinch.id && now < mem.flinch.until && !me.carrying && d < 90) {
+          out.mx = -dx / d;
+          out.my = -dy / d;
+          break;
+        }
+      }
+    }
+
     // Do not walk into a pit, and do not step into a line a cannon is about to
     // fire down. Waiting a moment is cheaper than a trip home.
     if (g.hazards.length && (out.mx || out.my)) {
@@ -980,7 +1017,8 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
         if (!want || p.dist < want.dist) want = { ...p, id: e.id };
       }
     }
-    if (giveGround && !want && !mem.nibbling) {
+    if (flinching) want = null;
+    if (giveGround && !want && !mem.nibbling && !flinching) {
       out.mx = giveGround.x;
       out.my = giveGround.y;
       // Not into a tunnel, though.

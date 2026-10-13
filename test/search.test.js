@@ -17,7 +17,8 @@ const game = (kinds, seed, map = MAPS.meadow) => {
 };
 
 test('the top bot has the hard bot\'s hands and adds looking ahead and footwork', () => {
-  const { search, dance, poach, wary, clock, boxed, toss, trail, lure, pincer, gatewise, ambush, dodge, ...hands } = DIFFICULTY.ace;
+  const { search, dance, poach, wary, clock, boxed, toss, trail, lure, pincer, gatewise, ambush, dodge, flinch, ...hands } = DIFFICULTY.ace;
+  assert.ok(flinch > 0 && flinch < DIFFICULTY.hard.reaction, 'it sees a swing sooner than anything else');
   assert.ok(dodge > 0);
   assert.ok(gatewise > 0);
   assert.ok(ambush > 0);
@@ -554,11 +555,52 @@ test('carrying a seed past a side lane, the top bot steps back from a person who
     return r;
   };
   const wise = tally();
-  const { dodge } = DIFFICULTY.ace;
-  DIFFICULTY.ace.dodge = 0;
+  // Without either of the two things that get it out of the way of that swing.
+  const { dodge, flinch } = DIFFICULTY.ace;
+  Object.assign(DIFFICULTY.ace, { dodge: 0, flinch: 0 });
   const blind = tally();
-  DIFFICULTY.ace.dodge = dodge;
+  Object.assign(DIFFICULTY.ace, { dodge, flinch });
   assert.ok(blind.bonked >= 6, `walking on, it goes down: ${JSON.stringify(blind)}`);
   assert.ok(wise.bonked <= 1, `stepping back, it does not: ${JSON.stringify(wise)}`);
   assert.ok(wise.won >= 8, `and it is the one waiting that goes down: ${JSON.stringify(wise)}`);
+});
+
+test('the top bot steps back from a swing it sees coming, and bonks whoever is stuck after it', () => {
+  const duel = (difficulty, n) => {
+    const g = createGame({ slots: Array.from({ length: 4 }, (_, i) => ({ name: `p${i}`, kind: i ? 'human' : 'bot' })), seed: n + 1, map: MAPS.meadow });
+    for (let i = 0; i < COUNTDOWN * TICK_RATE + 2; i++) step(g, []);
+    g.calm = true;
+    const [bot, rival, x, y] = g.players;
+    const b = g.map.bounds;
+    Object.assign(x, { x: b.x2 - 30, y: b.y1 + 30 });
+    Object.assign(y, { x: b.x2 - 30, y: b.y2 - 30 });
+    // Head down at the flower, nobody near. Then a rival is suddenly right next to
+    // it, already swinging: all there is to go on is the swing itself.
+    const spot = g.map.gatherSpots[n % g.map.gatherSpots.length];
+    Object.assign(bot, { x: spot.x, y: spot.y });
+    Object.assign(rival, { x: b.x1 + 40, y: b.y2 - 40 });
+    const brain = createBot({ difficulty, seed: n + 3 });
+    const still = { mx: 0, my: 0, bonk: false };
+    for (let t = 0; t < 30; t++) step(g, [brain.think(g, 0), still]);
+    const ux = (spot.x - f0.x) / 55;
+    const uy = (spot.y - f0.y) / 55;
+    const gap = 31 + (n % 4) * 2;
+    Object.assign(rival, { x: bot.x + ux * gap, y: bot.y + uy * gap });
+    for (let t = 0; t < 1.2 * TICK_RATE; t++) {
+      step(g, [brain.think(g, 0), { mx: 0, my: 0, bonk: t === 0, ax: -ux, ay: -uy }]);
+      if (bot.deaths) return 'bonked';
+      if (rival.deaths) return 'countered';
+    }
+    return 'away';
+  };
+  const tally = (difficulty) => {
+    const r = { bonked: 0, countered: 0, away: 0 };
+    for (let n = 0; n < 16; n++) r[duel(difficulty, n)]++;
+    return r;
+  };
+  const hard = tally('hard');
+  const ace = tally('ace');
+  assert.ok(hard.bonked >= 14, `the hard bot sees it too late: ${JSON.stringify(hard)}`);
+  assert.ok(ace.bonked <= 2, `the top bot is gone when it lands: ${JSON.stringify(ace)}`);
+  assert.ok(ace.countered >= 10, `and has the rival before it can move again: ${JSON.stringify(ace)}`);
 });
