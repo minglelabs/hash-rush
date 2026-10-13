@@ -1075,18 +1075,23 @@ export function createRenderer(canvas, firstMap) {
         }
         // "This one is you": a blue ring round the player's own hamster through the
         // countdown and the first seconds of the round, fading out at the end.
-        const fresh = game.phase === 'countdown' ? 1 : Math.min(1, ME_RING - game.time);
-        if (p.id === view.meId && fresh > 0) {
-          const beat = 0.5 + 0.5 * Math.sin(t * 7);
-          ctx.fillStyle = `rgba(40, 130, 255, ${0.22 * fresh})`;
-          circle(ctx, 0, 0, 30 + 4 * beat);
-          ctx.lineWidth = 5;
-          ctx.strokeStyle = `rgba(30, 120, 255, ${0.95 * fresh})`;
-          ctx.stroke();
-          ctx.lineWidth = 2;
-          ctx.strokeStyle = `rgba(255, 255, 255, ${0.9 * fresh})`;
+        const fresh = game.phase === 'countdown' ? 1 : Math.max(0, Math.min(1, ME_RING - game.time));
+        if (p.id === view.meId) {
+          // After that a thinner ring stays on to the end of the round.
+          const beat = fresh * (0.5 + 0.5 * Math.sin(t * 7));
+          if (fresh > 0) {
+            ctx.fillStyle = `rgba(40, 130, 255, ${0.22 * fresh})`;
+            circle(ctx, 0, 0, 30 + 4 * beat);
+          }
+          ctx.lineWidth = 3 + 2 * fresh;
+          ctx.strokeStyle = `rgba(30, 120, 255, ${0.75 + 0.2 * fresh})`;
           ctx.beginPath();
-          ctx.arc(0, 0, 34 + 4 * beat, 0, TAU);
+          ctx.arc(0, 0, 26 + 4 * fresh + 4 * beat, 0, TAU);
+          ctx.stroke();
+          ctx.lineWidth = 1.5 + 0.5 * fresh;
+          ctx.strokeStyle = `rgba(255, 255, 255, ${0.7 + 0.2 * fresh})`;
+          ctx.beginPath();
+          ctx.arc(0, 0, 29 + 5 * fresh + 4 * beat, 0, TAU);
           ctx.stroke();
         }
         if (p.id === view.meId && p.cooldown > 0) {
