@@ -1480,9 +1480,9 @@ function fillScores(table) {
   const cols = t('columns');
   const groups = table.insertRow();
   groups.className = 'groups';
-  const goal = document.createElement('small');
-  goal.textContent = t('firstTo', TITLE_WINS);
-  th(groups, t('gameNo', rounds + (game.counted ? 0 : 1))).append(goal);
+  const race = document.createElement('small');
+  race.textContent = t('firstTo', TITLE_WINS);
+  th(groups, t('gameNo', rounds + (game.counted ? 0 : 1))).append(race);
   th(groups, t('thisRound'), ROUND_COLS.length).classList.add('round');
   th(groups, t('totals'), TOTAL_COLS.length + 3).classList.add('total', 'split');
   const head = table.insertRow();
