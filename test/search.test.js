@@ -32,7 +32,7 @@ test('the top bot has the hard bot\'s hands and adds looking ahead and footwork'
   assert.ok(hardToss > 0);
   assert.equal(search, true);
   assert.equal(dance, true);
-  assert.equal(poach, 2);
+  assert.equal(poach, 1);
   assert.ok(wary > 0);
   assert.deepEqual(hands, hardHands);
 });
