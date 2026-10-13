@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { stickDir, holdSwing, KEYS } from '../src/client/input.js';
+import { stickDir, holdSwing, nearestGround, KEYS } from '../src/client/input.js';
 import { createGame } from '../src/sim/game.js';
+import { MAPS, isFree } from '../src/sim/map.js';
 import { BONK, HAMSTER_R } from '../src/sim/constants.js';
 
 const at = (deg, r = 30) => [Math.cos((deg * Math.PI) / 180) * r, Math.sin((deg * Math.PI) / 180) * r];
@@ -43,6 +44,25 @@ test('sliding the thumb across the pad changes key without lifting it', () => {
     round.push(`${dir.x},${dir.y}`);
   }
   assert.deepEqual([...new Set(round)], ['1,0', '1,-1', '0,-1']);
+});
+
+test('a tap in a hedge, on the flower or off the map means the nearest ground to it', () => {
+  const map = MAPS.meadow;
+  const R = HAMSTER_R;
+  // Open ground is taken as it is.
+  assert.deepEqual(nearestGround(map, 100, 280), { x: 100, y: 280 });
+  // Every wall cell, the flower and points well off the map land somewhere a hamster fits.
+  const spots = [...map.walls, map.flower, { x: -200, y: 300 }, { x: 2000, y: -50 }, { x: 450, y: 900 }];
+  for (const p of spots) {
+    const to = nearestGround(map, p.x, p.y);
+    assert.ok(isFree(map, to.x, to.y, R - 0.01), `(${p.x}, ${p.y}) -> (${to.x}, ${to.y})`);
+    assert.ok(to.x >= map.bounds.x1 + R && to.x <= map.bounds.x2 - R && to.y >= map.bounds.y1 + R && to.y <= map.bounds.y2 - R);
+  }
+  // And not far: a wall cell is never more than a few cells from a lane.
+  for (const p of map.walls) {
+    const to = nearestGround(map, p.x, p.y);
+    assert.ok(Math.hypot(to.x - p.x, to.y - p.y) < 130, `(${p.x}, ${p.y})`);
+  }
 });
 
 function duel(gap) {

@@ -757,56 +757,63 @@ button.primary:active {
   display: none;
 }
 
-/* A faint pad of arrow keys, always in the same corner. The thumb's angle from its
-   middle picks the key, so a touch a little outside it still counts. */
+/* A faint ring of four arrow keys, always in the same corner: a doughnut cut in
+   quarters, with a small hole in the middle that is no key at all. The thumb's
+   angle from the middle picks the key, so a touch a little outside still counts. */
 #pad {
   display: none;
   position: fixed;
-  left: max(10px, env(safe-area-inset-left));
-  bottom: max(4px, env(safe-area-inset-bottom));
-  width: 128px;
-  height: 128px;
-  grid-template: repeat(3, 1fr) / repeat(3, 1fr);
-  gap: 3px;
+  left: max(6px, env(safe-area-inset-left));
+  bottom: max(2px, env(safe-area-inset-bottom));
+  width: 148px;
+  height: 148px;
+  border-radius: 50%;
   touch-action: none;
 }
 
 #pad::before {
   content: '';
   position: absolute;
-  inset: -14px;
+  inset: -12px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.07);
 }
 
-#pad b {
-  position: relative;
-  display: grid;
-  place-items: center;
-  font-size: 18px;
-  color: rgba(255, 255, 255, 0.8);
-  background: rgba(255, 255, 255, 0.2);
-  border: 2px solid rgba(255, 255, 255, 0.45);
-  border-radius: 12px;
+#pad svg {
+  display: block;
+  width: 100%;
+  height: 100%;
   pointer-events: none;
 }
 
-#pad .u { grid-area: 1 / 2; }
-#pad .l { grid-area: 2 / 1; }
-#pad .r { grid-area: 2 / 3; }
-#pad .d { grid-area: 3 / 2; }
+#pad path {
+  fill: rgba(255, 255, 255, 0.2);
+  stroke: rgba(255, 255, 255, 0.55);
+  stroke-width: 1.2;
+  stroke-linejoin: round;
+}
 
-#pad[data-y='-1'] .u,
-#pad[data-x='-1'] .l,
-#pad[data-x='1'] .r,
-#pad[data-y='1'] .d {
-  color: var(--ink);
-  background: rgba(255, 255, 255, 0.8);
+#pad .arrow {
+  fill: rgba(255, 255, 255, 0.8);
+  stroke: none;
+}
+
+#pad[data-y='-1'] .u path,
+#pad[data-x='-1'] .l path,
+#pad[data-x='1'] .r path,
+#pad[data-y='1'] .d path {
+  fill: rgba(255, 255, 255, 0.8);
+}
+
+#pad[data-y='-1'] .u .arrow,
+#pad[data-x='-1'] .l .arrow,
+#pad[data-x='1'] .r .arrow,
+#pad[data-y='1'] .d .arrow {
+  fill: var(--ink);
 }
 
 .bonk-left #pad {
   left: auto;
-  right: max(10px, env(safe-area-inset-right));
+  right: max(6px, env(safe-area-inset-right));
 }
 
 #bonk {
@@ -1119,7 +1126,7 @@ button.primary:active {
 
   #field {
     /* Leave a strip under the map for the controls so nothing covers the burrow. */
-    width: min(100vw, calc((100dvh - 136px) * 560 / 914));
+    width: min(100vw, calc((100dvh - 152px) * 560 / 914));
     aspect-ratio: 560 / 914;
   }
 
@@ -1233,7 +1240,7 @@ button.primary:active {
   #hintTouch {
     position: fixed;
     left: 50%;
-    bottom: calc(max(4px, env(safe-area-inset-bottom)) + 146px);
+    bottom: calc(max(2px, env(safe-area-inset-bottom)) + 162px);
     width: max-content;
     max-width: 92vw;
     white-space: normal;
