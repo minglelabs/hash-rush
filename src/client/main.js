@@ -363,7 +363,12 @@ function renderLobby() {
   // Chat exists only inside a room.
   syncChat();
   showLobbyBubbles();
-  $('netStatus').hidden = !guest;
+  // A room that could not be reached, or was lost, says so at the top with the way
+  // on: a room of one's own first, trying the same one again second.
+  const failed = guest && !!net.failed;
+  $('joinFail').hidden = !failed;
+  $('joinFailText').textContent = net.status;
+  $('netStatus').hidden = !guest || failed;
   $('netStatus').textContent = netLine();
   updateStart();
 }
@@ -452,10 +457,11 @@ function saveSlots() {
 
 function updateStart() {
   if (net.role === 'guest') {
-    // Until the host is actually reached the button says so, and after a failure
-    // it becomes a retry button.
-    $('start').disabled = !net.failed;
-    $('start').textContent = net.failed ? t('retry') : net.host ? t('waitingHost') : t('connecting');
+    // Until the host is actually reached the button says so. After a failure the
+    // buttons at the top take over.
+    $('start').disabled = true;
+    $('start').hidden = !!net.failed;
+    $('start').textContent = net.host ? t('waitingHost') : t('connecting');
     return;
   }
   const playing = slots.filter(isPlaying);
@@ -1791,6 +1797,18 @@ function toLobby() {
   announce();
 }
 
+// The box for a room that could not be joined sits right under the room list
+// button. It is built here, so a page cached from before it existed still gets one.
+$('roomListBtn').insertAdjacentHTML(
+  'afterend',
+  '<div id="joinFail" hidden><p id="joinFailText"></p><button id="newRoom" class="primary" data-i18n="newRoom"></button><button id="retryJoin" data-i18n="retry"></button></div>',
+);
+// Out of a dead link and into a lobby of one's own, as its host.
+$('newRoom').addEventListener('click', () => (location.href = location.pathname));
+$('retryJoin').addEventListener('click', () => {
+  audio.unlock();
+  enterRoom();
+});
 $('start').addEventListener('click', () => {
   audio.unlock();
   if (net.role === 'guest') enterRoom();
