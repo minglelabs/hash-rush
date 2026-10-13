@@ -78,7 +78,7 @@ export const DIFFICULTY = {
 //   there who sets off to swing just as it crosses. Walking on is walking into
 //   that swing, so it goes straight back the way it came for this many seconds:
 //   the swing lands on nothing, and the bot is on whoever is stuck after it.
-DIFFICULTY.ace = { ...DIFFICULTY.hard, search: true, dance: true, poach: 2, wary: 0.5, clock: 0.15, toss: 0, boxed: 120, trail: 78, lure: 54, pincer: 60, gatewise: 300, ambush: 0.2, dodge: 0.3 };
+DIFFICULTY.ace = { ...DIFFICULTY.hard, search: true, dance: true, poach: 1, wary: 0.5, clock: 0.15, toss: 0, boxed: 120, trail: 78, lure: 54, pincer: 60, gatewise: 300, ambush: 0.2, dodge: 0.3 };
 
 const TOUCH = 2 * HAMSTER_R;
 const DANGER_R = 110;
