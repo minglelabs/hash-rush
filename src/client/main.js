@@ -26,6 +26,9 @@ const STORE = 'seed-rush-slots';
 const SIDE_STORE = 'hash-rush-bonk-left';
 const MODE_STORE = 'seed-rush-teams';
 const MAP_STORE = 'seed-rush-map';
+// Kept for as long as the tab lives, so a reload comes back to the same room.
+const ROOM_STORE = 'hash-rush-room';
+const REJOIN_STORE = 'hash-rush-rejoin';
 const ASSIST_STORE = 'hash-rush-assist';
 // What the host can set a slot to. 'open' is an empty seat anyone with the link
 // can take, and 'remote' is one a friend has taken.
@@ -570,13 +573,48 @@ function announce() {
 
 // ---------- hosting ----------
 
+// What a host's tab remembers over a reload: the room's id, its scores, and who
+// sat where. Friends are sent to reload too and find the same room waiting.
+function loadRoom() {
+  try {
+    return JSON.parse(sessionStorage.getItem(ROOM_STORE)) || {};
+  } catch {
+    return {};
+  }
+}
+
+function saveRoom() {
+  if (net.role !== 'host' || !net.room) return;
+  try {
+    sessionStorage.setItem(
+      ROOM_STORE,
+      JSON.stringify({ room: net.room, wins, career, rounds, seasons, pw: roomPw, seats: slots.map((s) => (s.kind === 'remote' ? s.said || s.name : '')) }),
+    );
+  } catch {
+    // not remembered: a reload opens a new room
+  }
+}
+
+function restoreRoom() {
+  const saved = loadRoom();
+  if (!saved.room || joinId) return;
+  (saved.wins || []).forEach((n, i) => i < wins.length && (wins[i] = Number(n) || 0));
+  (saved.career || []).forEach((c, i) => i < career.length && Array.isArray(c) && (career[i] = c.map((v) => Number(v) || 0)));
+  rounds = Number(saved.rounds) || 0;
+  if (Array.isArray(saved.seasons)) seasons = saved.seasons;
+  roomPw = cleanPw(saved.pw);
+  // Each friend's seat is held for them by name.
+  (saved.seats || []).forEach((name, i) => slots[i] && (slots[i].held = name || ''));
+}
+
 async function openRoom() {
   if (net.role === 'host') return;
   net.role = 'host';
   net.status = '';
   try {
-    const room = await hostRoom({ join: guestJoined, data: guestData, leave: guestLeft });
+    const room = await hostRoom({ join: guestJoined, data: guestData, leave: guestLeft }, loadRoom().room);
     net.room = room.room;
+    saveRoom();
     // The room works by link even if it cannot be listed.
     announceRoom(net.room)
       .then((a) => {
@@ -612,8 +650,13 @@ function welcome(conn, msg) {
     else conn.send({ t: 'pw', wrong: !!cleanPw(msg.pw) });
     return;
   }
-  const slot = msg.watch ? null : slots.find((s) => s.kind === 'open');
+  // Back after a reload, a friend gets the seat they had; a newcomer one nobody is due back in.
+  const said = String(msg.name || '');
+  const free = msg.watch ? [] : slots.filter((s) => s.kind === 'open');
+  const slot = free.find((s) => s.held && s.held === said) || free.find((s) => !s.held) || free[0];
   if (slot) {
+    slot.held = '';
+    slot.said = said;
     // An empty seat has no team of its own: the newcomer goes to the smaller side.
     if (teamMode) slot.team = smallerTeam();
     slot.kind = 'remote';
@@ -756,8 +799,10 @@ function snapshot(events) {
 
 // ---------- joining ----------
 
-async function enterRoom() {
-  net.status = t('connecting');
+// `until` is a time up to which a room that is not there is tried again: its host
+// is reloading and will be back with it in a moment.
+async function enterRoom(until = 0) {
+  net.status = t(until ? 'hostReloading' : 'connecting');
   net.failed = false;
   net.kicked = false;
   renderLobby();
@@ -766,6 +811,10 @@ async function enterRoom() {
     sayHello();
     net.status = '';
   } catch (err) {
+    if (Date.now() < until) {
+      setTimeout(() => !net.host && enterRoom(until), 1500);
+      return;
+    }
     net.failed = true;
     net.status = t(err && err.noRoom ? 'noRoom' : 'joinFail');
   }
@@ -781,10 +830,31 @@ function sayHello() {
 function hostGone() {
   net.host = null;
   net.lobby = null;
-  net.failed = true;
-  net.status = t(net.kicked ? 'kicked' : 'hostLeft');
   toLobby();
+  // About to reload along with the host: nothing to say or do until then.
+  if (net.reloading) return;
+  if (!net.kicked) {
+    // The host may only have reloaded. Keep knocking for a while before giving up.
+    enterRoom(Date.now() + 20000);
+    return;
+  }
+  net.failed = true;
+  net.status = t('kicked');
   renderLobby();
+}
+
+// The host is reloading and wants everyone on the same version: follow, and come
+// back to the same room, which takes the host a few seconds to reopen.
+function reloadWithHost() {
+  net.reloading = true;
+  net.status = t('hostReloading');
+  try {
+    sessionStorage.setItem(REJOIN_STORE, String(Date.now() + 30000));
+  } catch {
+    // one try at the room, then
+  }
+  if ($('stage').hidden) renderLobby();
+  setTimeout(() => location.reload(), 2500);
 }
 
 function hostData(msg) {
@@ -802,6 +872,8 @@ function hostData(msg) {
     if (msg.rd >= 0) rounds = msg.rd;
     if (Array.isArray(msg.hist)) seasons = msg.hist;
     if ($('stage').hidden) renderLobby();
+  } else if (msg.t === 'reload') {
+    reloadWithHost();
   } else if (msg.t === 'kicked') {
     net.kicked = true;
     const host = net.host;
@@ -2045,9 +2117,23 @@ setInterval(() => {
   if (!document.hidden && !$('lobby').hidden) checkUpdate();
 }, 180000);
 $('updateBtn').addEventListener('click', () => {
-  // Reloading breaks up the room, so anyone sharing one is asked first.
-  const shared = net.role === 'guest' || net.watchers.length > 0 || slots.some((s) => s.conn);
+  // A host takes the whole room along, so it is asked first.
+  const shared = net.role === 'host' && (net.watchers.length > 0 || slots.some((s) => s.conn));
   if (!shared || confirm(t('updateLeave'))) location.reload();
+});
+// However a host's page goes away to be loaded again, the room is noted down and
+// everyone in it is told to reload too. (A tab that is closed for good tells them
+// the same; they knock at the room for a while and then say it cannot be found.)
+window.addEventListener('pagehide', () => {
+  if (net.role !== 'host') return;
+  saveRoom();
+  broadcast(() => ({ t: 'reload' }));
+});
+// Reloading in the middle of a round with friends in it loses the round: ask.
+window.addEventListener('beforeunload', (e) => {
+  if (net.role !== 'host' || !game || $('stage').hidden || game.phase === 'over' || !slots.some((s) => s.conn)) return;
+  e.preventDefault();
+  e.returnValue = '';
 });
 
 if ('serviceWorker' in navigator) {
@@ -2062,10 +2148,21 @@ if ('serviceWorker' in navigator) {
 
 localizePage();
 // The room exists from the start, so the invite link is always there to share.
+restoreRoom();
 if (!joinId) openRoom();
 renderLobby();
 show('lobby');
-if (net.role === 'guest') enterRoom();
+if (net.role === 'guest') {
+  // Straight after reloading along with the host, the room may not be back yet.
+  let until = 0;
+  try {
+    until = Number(sessionStorage.getItem(REJOIN_STORE)) || 0;
+    sessionStorage.removeItem(REJOIN_STORE);
+  } catch {
+    // one try
+  }
+  enterRoom(until);
+}
 requestAnimationFrame((now) => {
   last = now;
   frame(now);
