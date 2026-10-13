@@ -2,9 +2,9 @@
 // expects. Mouse clicks work like an RTS right-click: walk there, or chase and bonk
 // the hamster that was clicked. A tap on a phone's map is the same click.
 
-import { BONK } from '../sim/constants.js';
+import { BONK, HAMSTER_R } from '../sim/constants.js';
 import { inHome, allied } from '../sim/game.js';
-import { segmentClear } from '../sim/map.js';
+import { segmentClear, isFree } from '../sim/map.js';
 import { getNav, blockCost } from '../ai/nav.js';
 import { predictSwing } from '../ai/bot.js';
 
@@ -27,8 +27,6 @@ const DIAGONAL = (15 * Math.PI) / 180;
 const STICKY = (6 * Math.PI) / 180;
 // A fingertip is wider than a mouse pointer: a tap this near a rival (world pixels) means that rival.
 const TAP_REACH = 48;
-// A touch on the map that lifts this soon (ms) without sliding is a tap, not a push.
-const TAP = 300;
 
 // The touch pad is eight-way, like arrow keys: no slow walk, and a thumb a little
 // off a key still runs straight down a lane. (dx, dy) is where the thumb lies from
@@ -44,6 +42,40 @@ export function stickDir(dx, dy, was = null) {
   let snap = Math.round(a / (Math.PI / 4)) * (Math.PI / 4);
   if (Math.abs(a - snap) > DIAGONAL) snap = Math.round(a / (Math.PI / 2)) * (Math.PI / 2);
   return { x: Math.round(Math.cos(snap)) || 0, y: Math.round(Math.sin(snap)) || 0 };
+}
+
+// Where a hamster told to go to (x, y) can actually stand: the spot itself, or the
+// nearest ground to it when it is inside a hedge, on the flower or off the map.
+export function nearestGround(map, x, y) {
+  const b = map.bounds;
+  const r = HAMSTER_R;
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(v, hi));
+  x = clamp(x, b.x1 + r, b.x2 - r);
+  y = clamp(y, b.y1 + r, b.y2 - r);
+  if (isFree(map, x, y, r)) return { x, y };
+  let best = null;
+  let near = Infinity;
+  const offer = (x1, y1, x2, y2) => {
+    const px = clamp(x, x1, x2);
+    const py = clamp(y, y1, y2);
+    const d = Math.hypot(px - x, py - y);
+    if (d < near) {
+      near = d;
+      best = { x: px, y: py };
+    }
+  };
+  // The room a hamster has inside each lane cell, and the open ground either side of the hedge.
+  const slack = map.laneWidth / 2 - r;
+  for (const c of map.cells) offer(c.x - slack, c.y - slack, c.x + slack, c.y + slack);
+  offer(b.x1 + r, b.y1 + r, map.lanes.x1 - r, b.y2 - r);
+  offer(map.lanes.x2 + r, b.y1 + r, b.x2 - r, b.y2 - r);
+  const f = map.flower;
+  const d = Math.hypot(best.x - f.x, best.y - f.y);
+  if (d < f.r + r) {
+    const k = (f.r + r) / (d || 1);
+    best = { x: f.x + (d ? best.x - f.x : -1) * k, y: f.y + (best.y - f.y) * k };
+  }
+  return best;
 }
 
 // Holding the touch button waits for the swing that connects instead of whiffing.
@@ -70,7 +102,6 @@ export function createInput({ stage, canvas, pad, bonkBtn, throwBtn, toWorld, to
   const down = new Set();
   let enabled = false;
   let touch = null;
-  const taps = new Map();
   let button = false;
   let throwHeld = false;
   let buttonWas = false;
@@ -89,7 +120,6 @@ export function createInput({ stage, canvas, pad, bonkBtn, throwBtn, toWorld, to
     throwHeld = false;
     click = null;
     order = null;
-    taps.clear();
     showPad();
   }
 
@@ -131,18 +161,17 @@ export function createInput({ stage, canvas, pad, bonkBtn, throwBtn, toWorld, to
     stage.classList.add('played');
     e.preventDefault();
   });
-  // A finger that taps the map gives an order, like a mouse click.
+  // A finger touching the map gives an order the moment it lands, like a mouse
+  // click, so quick taps one after another steer the hamster step by step. A touch
+  // beside the map counts for the nearest ground to it.
   stage.addEventListener('pointerdown', (e) => {
-    if (!enabled || e.pointerType !== 'touch' || e.target !== canvas) return;
-    taps.set(e.pointerId, { x: e.clientX, y: e.clientY, at: e.timeStamp });
+    if (!enabled || e.pointerType !== 'touch' || (e.target !== canvas && e.target !== stage)) return;
+    click = { ...toWorld(e.clientX, e.clientY), reach: TAP_REACH };
   });
   window.addEventListener('pointermove', (e) => {
     if (touch && e.pointerId === touch.id) press(e);
   });
   const release = (e) => {
-    const tap = taps.get(e.pointerId);
-    taps.delete(e.pointerId);
-    if (tap && e.type === 'pointerup' && e.timeStamp - tap.at < TAP && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) < 10) click = { ...toWorld(tap.x, tap.y), reach: TAP_REACH };
     if (!touch || e.pointerId !== touch.id) return;
     touch = null;
     showPad();
@@ -185,7 +214,7 @@ export function createInput({ stage, canvas, pad, bonkBtn, throwBtn, toWorld, to
       const d = Math.hypot(dx, dy) || 1;
       return { type: 'move', x: f.x + (dx / d) * 52, y: f.y + (dy / d) * 52 };
     }
-    return { type: 'move', x: at.x, y: at.y };
+    return { type: 'move', ...nearestGround(g.map, at.x, at.y) };
   }
 
   function read(g, id) {
