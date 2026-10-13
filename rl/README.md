@@ -8,14 +8,18 @@
 ## 사용법
 
 ```bash
-python3 rl/train.py --name first --minutes 60
+python3 rl/pretrain.py --name pre
+python3 rl/train.py --name first --minutes 60 --resume rl/runs/pre/policy.pt
 ```
+
+- `pretrain.py`는 봇끼리 둔 판으로 정책(봇 따라 하기)과 가치(누가 이길지)를 먼저 배웁니다. 따라 하기만 하면 봇이 안 가는 곳에서 막히므로, 학습본이 직접 둔 판에 봇의 정답을 붙여 다시 배우는 DAgger를 3번 거칩니다. 이게 없으면 해씨 물기를 끝내 못 찾고 꿀밤만 배웁니다.
 
 ```bash
 node rl/play.js rl/runs/first/policy.json 200
 ```
 
 - `train.py`는 `rl/runs/<이름>/`에 `policy.pt`(이어서 학습용), `policy.json`(브라우저·Node용 가중치), `log.csv`를 남깁니다.
+- 구성별·맵별 표: `node rl/report.js rl/runs/first/policy.json 30` (개인전 6구성·팀전 8구성 × 맵 7개, 구성마다 Node 하나씩 동시에 돌림)
 - `play.js`는 학습된 봇 한 마리를 초보·중수·고수 봇 세 마리와 붙여 승률을 냅니다. 4인전이면 25%가 본전입니다.
 - 이어서 학습: `--resume rl/runs/first/policy.pt` (10회 반복마다 저장되므로 중간에 꺼져도 여기서 이어집니다)
 - 맥북을 덜 쓰게 하려면 `--workers 4`.

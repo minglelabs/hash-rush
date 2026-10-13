@@ -35,7 +35,7 @@ const GATE_F = 3;
 const OTHER = 13;
 export const OBS = SELF + WORLD_F + NAV + RAYS + HAZARDS * HAZARD_F + GATES * GATE_F + (MAX_P - 1) * OTHER;
 const HAZARD_KINDS = ['trap', 'cannon', 'wave'];
-const BOT_LEVELS = ['easy', 'normal', 'hard'];
+const BOT_LEVELS = ['easy', 'normal', 'hard', 'ace'];
 const DIRS = [[0, 0], ...Array.from({ length: 8 }, (_, k) => [Math.cos((k * Math.PI) / 4), Math.sin((k * Math.PI) / 4)])];
 
 export const DEFAULTS = {
@@ -64,6 +64,9 @@ export const DEFAULTS = {
   // flower, half of them already holding a seed, so nibbling and the run home are
   // seen early instead of waiting on luck.
   headStart: 0,
+  allBots: false, // every seat a scripted bot, to record their play (rl/demo.js)
+  // A fixed line-up instead of a random one: [{ level: -1 policy or 0..2 bot, team: -1 or a side }].
+  lineup: null,
 };
 
 // ---------- what the map looks like to a policy ----------
@@ -224,6 +227,13 @@ export function createEnvs(settings = {}) {
   const done = new Uint8Array(E);
   const role = new Uint8Array(E * MAX_P);
   const win = new Uint8Array(E * MAX_P);
+  // What each scripted bot did over the last decision, in the policy's own actions.
+  const botAct = new Uint8Array(E * MAX_P * 3);
+  // Seats set here play `actions` even when a bot sits there; the bot still says
+  // what it would have done, which is how rl/demo.js corrects a learner (DAgger).
+  const steer = new Uint8Array(E * MAX_P);
+  // Whether the round that just ended ran out of time.
+  const timedOut = new Uint8Array(E);
   const envs = [];
 
   function reset(e) {
@@ -241,9 +251,13 @@ export function createEnvs(settings = {}) {
       const j = Math.floor(rnd() * (i + 1));
       [sides[i], sides[j]] = [sides[j], sides[i]];
     }
-    for (let i = 0; i < n; i++) {
-      const level = withBots && i > 0 && rnd() < cfg.botSeat ? pick(cfg.botLevels) : -1;
-      slots.push({ name: `p${i}`, kind: level < 0 ? 'human' : 'bot', team: teamed ? sides[i] : -1 });
+    const lineup = cfg.lineup || Array.from({ length: n }, (_, i) => ({
+      level: withBots && (i > 0 || cfg.allBots) && rnd() < cfg.botSeat ? pick(cfg.botLevels) : -1,
+      team: teamed ? sides[i] : -1,
+    }));
+    for (let i = 0; i < lineup.length; i++) {
+      const { level, team } = lineup[i];
+      slots.push({ name: `p${i}`, kind: level < 0 ? 'human' : 'bot', team });
       bots.push(level < 0 ? null : createBot({ difficulty: BOT_LEVELS[level], seed: Math.floor(rnd() * 1e9) }));
       role[e * MAX_P + i] = level < 0 ? 1 : 2 + level;
     }
@@ -266,7 +280,7 @@ export function createEnvs(settings = {}) {
         }
       }
     }
-    envs[e] = { g, bots, teams, mapIndex: MAP_IDS.indexOf(g.map.id), prev: g.players.map(() => 0), deaths: g.players.map(() => 0), phi: g.players.map((p) => potential(g, p)) };
+    envs[e] = { g, bots, teams: cfg.lineup ? new Set(lineup.map((s) => s.team).filter((t) => t >= 0)).size : teams, mapIndex: MAP_IDS.indexOf(g.map.id), prev: g.players.map(() => 0), deaths: g.players.map(() => 0), phi: g.players.map((p) => potential(g, p)) };
   }
 
   function observe(e) {
@@ -408,8 +422,19 @@ export function createEnvs(settings = {}) {
         const inputs = [];
         for (let i = 0; i < n; i++) {
           if (bots[i]) {
-            inputs.push(bots[i].think(g, i));
-            continue;
+            const inp = bots[i].think(g, i);
+            inputs.push(inp);
+            const a = (e * MAX_P + i) * 3;
+            if (k === 0) {
+              const still = Math.hypot(inp.mx || 0, inp.my || 0) < 0.3;
+              botAct[a] = still ? 0 : 1 + ((Math.round(Math.atan2(inp.my, inp.mx) / (Math.PI / 4)) + 8) % 8);
+              botAct[a + 1] = 0;
+              botAct[a + 2] = 0;
+            }
+            if (inp.bonk) botAct[a + 1] = 1;
+            if (inp.throw) botAct[a + 2] = 1;
+            if (!steer[e * MAX_P + i]) continue;
+            inputs.pop();
           }
           const a = (e * MAX_P + i) * 3;
           const dir = DIRS[actions[a] % 9];
@@ -439,6 +464,7 @@ export function createEnvs(settings = {}) {
         reward[e * MAX_P + i] = r;
       }
       done[e] = over ? 1 : 0;
+      timedOut[e] = over && g.timeout ? 1 : 0;
       if (over) reset(e);
       observe(e);
     }
@@ -448,7 +474,7 @@ export function createEnvs(settings = {}) {
     reset(e);
     observe(e);
   }
-  return { cfg, obs, reward, final, done, role, win, act };
+  return { cfg, obs, reward, final, done, role, win, timedOut, botAct, steer, act };
 }
 
 // ---------- the pipe ----------
