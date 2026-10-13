@@ -1,39 +1,41 @@
-// The RL bots: play with networks trained in rl/, each level from its own weights
-// file (RL from rl-policy.bin, RL2 from rl2-policy.bin). A bot sees what it saw in
-// training (observe.js) and, like there, picks a move every few ticks and holds it.
+// The RL bot: plays with networks trained in rl/, one for free-for-all rounds
+// (rl-solo.bin) and one for team rounds (rl-team.bin), picked by the round it is
+// in. It sees what it saw in training (observe.js) and, like there, picks a move
+// every few ticks and holds it in between.
 
 import { mulberry32 } from '../sim/rng.js';
 import { MAX_P, OBS, DIRS, observe } from './observe.js';
 import { decodePolicy, loadPolicy } from './policy.js';
 
-const FILES = { rl: 'rl-policy.bin', rl2: 'rl2-policy.bin' };
+const FILES = { solo: 'rl-solo.bin', team: 'rl-team.bin' };
 const policies = {};
 const loading = {};
 
-// Starts fetching a level's weights; its bot stands still until they are in.
-export function loadRLPolicy(level = 'rl') {
-  const file = FILES[level];
-  loading[level] ||= fetch(new URL(`./${file}`, import.meta.url))
-    .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`${file} ${r.status}`))))
-    .then((b) => {
-      policies[level] = loadPolicy(decodePolicy(b));
-    })
-    .catch((err) => {
-      loading[level] = null;
-      console.warn(`${level} bot weights did not load`, err);
-    });
-  return loading[level];
+// Starts fetching both sets of weights; the bot stands still until one is in.
+export function loadRLPolicy() {
+  for (const [mode, file] of Object.entries(FILES)) {
+    loading[mode] ||= fetch(new URL(`./${file}`, import.meta.url))
+      .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`${file} ${r.status}`))))
+      .then((b) => {
+        policies[mode] = loadPolicy(decodePolicy(b));
+      })
+      .catch((err) => {
+        loading[mode] = null;
+        console.warn(`RL ${mode} weights did not load`, err);
+      });
+  }
 }
 
-export function createRLBot({ seed = 1, level = 'rl' } = {}) {
-  loadRLPolicy(level);
+export function createRLBot({ seed = 1 } = {}) {
+  loadRLPolicy();
   const random = mulberry32(seed);
   const seen = new Float32Array(MAX_P * OBS);
   let choice = null;
   let tick = 0;
 
   function think(g, id) {
-    const policy = policies[level];
+    // Without team weights, the free-for-all ones play team rounds too.
+    const policy = (g.players[id].team >= 0 && policies.team) || policies.solo;
     if (!policy) return { mx: 0, my: 0, bonk: false, throw: false };
     const every = policy.meta.frameSkip || 4;
     const fresh = tick++ % every === 0;

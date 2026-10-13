@@ -1,7 +1,8 @@
 // Packs a trained policy for the game: half-precision weights, about a quarter of
 // policy.json's size, loaded by the RL bot (src/ai/rl-bot.js).
-//   node rl/export.js rl/runs/long/policy.json [rl | rl2]
-// Writes src/ai/rl-policy.bin, or rl2-policy.bin for the RL2 level.
+//   node rl/export.js rl/runs/long/policy.json solo   (free-for-all rounds)
+//   node rl/export.js rl/runs/team/policy.json team   (team rounds)
+// Writes src/ai/rl-solo.bin or src/ai/rl-team.bin.
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -18,7 +19,7 @@ head.copy(out, 4);
 let at = 4 + head.length;
 for (const [k] of tensors) for (const v of json[k]) at = out.writeUInt16LE(half(v), at);
 
-const path = fileURLToPath(new URL(`../src/ai/${process.argv[3] || 'rl'}-policy.bin`, import.meta.url));
+const path = fileURLToPath(new URL(`../src/ai/rl-${process.argv[3] || 'solo'}.bin`, import.meta.url));
 writeFileSync(path, out);
 console.log(`${path}: ${(out.length / 1e6).toFixed(1)} MB, iteration ${json.meta.iter}`);
 
