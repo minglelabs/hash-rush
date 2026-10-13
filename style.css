@@ -127,6 +127,51 @@ button.primary:active {
   grid-template-columns: 52px 1fr 96px 148px;
 }
 
+/* What each column of the list is, over the first row and lined up with it. */
+#slotHead {
+  display: grid;
+  grid-template-columns: 52px 1fr 148px;
+  gap: 10px;
+  padding: 0 12px 0 16px;
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #a07a45;
+}
+
+#slotHead span {
+  padding-left: 0.7em;
+}
+
+#slotHead .team {
+  display: none;
+}
+
+#slotHead.teamed {
+  grid-template-columns: 52px 1fr 96px 148px;
+}
+
+#slotHead.teamed .team {
+  display: block;
+}
+
+/* Somebody new: said in a line, and their row glows yellow for a while. */
+#newcomer {
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: #ffe066;
+  font-weight: 700;
+  text-align: center;
+  animation: appear 0.3s;
+}
+
+#slots li.fresh {
+  background: #fff3b0;
+  border-color: #f2b705;
+  box-shadow: 0 0 0 4px rgba(255, 210, 40, 0.55);
+}
+
 #mode {
   display: flex;
   align-items: center;
@@ -1184,11 +1229,13 @@ button.primary:active {
     font-size: 32px;
   }
 
-  #slots li {
+  #slots li,
+  #slotHead {
     grid-template-columns: 46px 1fr 118px;
   }
 
-  #slots li.teamed {
+  #slots li.teamed,
+  #slotHead.teamed {
     grid-template-columns: 46px 1fr 78px 96px;
     gap: 6px;
   }

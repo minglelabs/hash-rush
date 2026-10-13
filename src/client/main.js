@@ -366,6 +366,8 @@ function renderLobby() {
   // Chat exists only inside a room.
   syncChat();
   showLobbyBubbles();
+  markFresh();
+  $('slotHead').classList.toggle('teamed', teams);
   // A room that could not be reached, or was lost, says so at the top with the way
   // on: a room of one's own first, trying the same one again second.
   const failed = guest && !!net.failed;
@@ -654,6 +656,8 @@ function welcome(conn, msg) {
   const said = String(msg.name || '');
   const free = msg.watch ? [] : slots.filter((s) => s.kind === 'open');
   const slot = free.find((s) => s.held && s.held === said) || free.find((s) => !s.held) || free[0];
+  // Somebody the room has not seen before is pointed out to everyone.
+  const isNew = !!slot && slot.held !== said;
   if (slot) {
     slot.held = '';
     slot.said = said;
@@ -670,6 +674,11 @@ function welcome(conn, msg) {
   }
   renderLobby();
   sendLobby();
+  if (isNew) {
+    const hello = { t: 'new', look: slots.indexOf(slot), name: slot.name };
+    broadcast(() => hello);
+    newcomer(hello);
+  }
   // Arriving mid-round, they watch it; a new player gets a hamster next round.
   if (game && !$('stage').hidden) conn.send({ t: 'start', g: net.round, map: game.map.id, players: roster(), you: -1, wins, tot: career, rd: rounds, hist: seasons });
 }
@@ -947,6 +956,8 @@ function hostData(msg) {
     renderLobby();
   } else if (msg.t === 'chat') {
     addChat(msg);
+  } else if (msg.t === 'new') {
+    newcomer(msg);
   }
 }
 
@@ -958,6 +969,33 @@ function readPlayer(p, s) {
   p.queued = s[8];
   p.swing = s[9] ? { phase: s[9][0], t: s[9][1], dx: s[9][2], dy: s[9][3] } : null;
   [p.cooldown, p.kills, p.deaths, p.seeds, p.supers = 0, p.charge = 0, p.throws = 0, p.wet = 0, p.stops = 0, p.dazed = 0] = s.slice(10);
+}
+
+// Somebody new has sat down: their row in the lobby glows yellow for a while and a
+// line says so, in the lobby and over a round alike.
+const fresh = new Map();
+let freshTimer = 0;
+$('slots').insertAdjacentHTML('beforebegin', '<p id="newcomer" hidden></p><div id="slotHead"><span></span><span data-i18n="colName"></span><span class="team" data-i18n="colTeam"></span><span data-i18n="colKind"></span></div>');
+
+function newcomer({ look, name }) {
+  const text = t('newcomer', String(name || '').slice(0, 8));
+  fresh.set(Number(look), performance.now() + 8000);
+  $('newcomer').textContent = text;
+  if (!$('stage').hidden) banner(text);
+  markFresh();
+}
+
+function markFresh() {
+  const now = performance.now();
+  let next = Infinity;
+  [...$('slots').children].forEach((li, i) => {
+    const until = fresh.get(i) || 0;
+    li.classList.toggle('fresh', until > now);
+    if (until > now) next = Math.min(next, until);
+  });
+  $('newcomer').hidden = next === Infinity;
+  clearTimeout(freshTimer);
+  if (next < Infinity) freshTimer = setTimeout(markFresh, next - now + 20);
 }
 
 // ---------- chat ----------
@@ -1247,6 +1285,8 @@ function enterStage() {
   input.reset();
   input.enable(meId >= 0);
   $('watching').hidden = meId >= 0;
+  // A friend who walked in on a round has a seat already and plays from the next one.
+  $('watching').textContent = t(net.role === 'guest' && net.you >= 0 ? 'watchThisRound' : 'spectating');
   show('stage');
   renderer.resize();
   big('3');
