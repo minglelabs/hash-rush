@@ -287,6 +287,33 @@ button.primary:active {
 }
 
 #invite,
+#joinFail {
+  margin: 0 0 18px;
+  padding: 12px;
+  background: #fff;
+  border: 2px dashed var(--line);
+  border-radius: 14px;
+  text-align: center;
+}
+
+#joinFail p {
+  margin: 0 0 10px;
+  font-size: 14px;
+}
+
+#newRoom {
+  display: block;
+  width: 100%;
+  font-size: 18px;
+  padding: 0.6em;
+  margin-bottom: 10px;
+}
+
+#retryJoin {
+  font-size: 13px;
+  padding: 0.35em 1em;
+}
+
 #netStatus {
   margin: -8px 0 18px;
   padding: 10px 12px;
