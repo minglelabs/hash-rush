@@ -1,7 +1,7 @@
 // The balance table, with the trained policy (RL) in the top seats: every line-up
 // on every map, one Node process per line-up at once.
 //   node rl/report.js rl/runs/long/policy.json [rounds per map]
-// Free-for-all rows give the win rate per seat, RL / hard bot. Team rows give the
+// Free-for-all rows give the win rate per seat, RL / the hard (or ace) bot. Team rows give the
 // RL side's win rate. A seat's share in an even free-for-all is 100 / players.
 
 import { spawn } from 'node:child_process';
@@ -15,8 +15,7 @@ import { loadPolicy } from './policy.js';
 const [path, roundsArg = '30', only] = process.argv.slice(2);
 const ROUNDS = Number(roundsArg);
 const RL = -1;
-const [EASY, NORMAL, HARD] = [0, 1, 2];
-const NAMES = { [RL]: 'RL', [EASY]: '초보', [NORMAL]: '중수', [HARD]: '고수' };
+const [EASY, NORMAL, HARD, ACE] = [0, 1, 2, 3];
 const MAP_NAMES = { meadow: '초원', desert: '사막', factory: '공장', ice: '얼음', beach: '해변', graveyard: '묘지', sky: '하늘' };
 
 const solo = (levels) => levels.map((level) => ({ level, team: -1 }));
@@ -28,6 +27,8 @@ const LINEUPS = [
   ['RL 3 + 고수 3 (6인)', solo([RL, RL, RL, HARD, HARD, HARD])],
   ['RL·고수·중수 2', solo([RL, HARD, NORMAL, NORMAL])],
   ['초보·중수·고수·RL', solo([EASY, NORMAL, HARD, RL])],
+  ['RL 1 + 초고수 3', solo([RL, ACE, ACE, ACE])],
+  ['RL 2 + 초고수 2', solo([RL, RL, ACE, ACE])],
   ['RL 2 vs 고수 2', sides([RL, RL], [HARD, HARD])],
   ['RL 3 vs 고수 3', sides([RL, RL, RL], [HARD, HARD, HARD])],
   ['RL 2 vs 고수 3', sides([RL, RL], [HARD, HARD, HARD])],
@@ -36,6 +37,7 @@ const LINEUPS = [
   ['RL+중수+초보 vs 고수+중수+초보', sides([RL, NORMAL, EASY], [HARD, NORMAL, EASY])],
   ['RL+초보 vs 고수+중수', sides([RL, EASY], [HARD, NORMAL])],
   ['RL+초보 vs 고수 2', sides([RL, EASY], [HARD, HARD])],
+  ['RL 2 vs 초고수 2', sides([RL, RL], [ACE, ACE])],
 ];
 
 // One line-up on one map: RL seats' wins, hard seats' wins (or RL side's wins), timeouts.
@@ -44,7 +46,7 @@ function play(policy, lineup, map, seed) {
   const envs = createEnvs({ envs: E, seed, lineup, maps: [map], botEnv: 1 });
   const actions = new Uint8Array(E * MAX_P * 3);
   const rl = lineup.flatMap((s, i) => (s.level === RL ? [i] : []));
-  const hard = lineup.flatMap((s, i) => (s.level === HARD ? [i] : []));
+  const hard = lineup.flatMap((s, i) => (s.level >= HARD ? [i] : []));
   const out = { rounds: 0, rl: 0, hard: 0, timeouts: 0 };
   while (out.rounds < ROUNDS) {
     for (let e = 0; e < E; e++) {
@@ -93,7 +95,7 @@ if (only !== undefined) {
 
   const pct = (x) => Math.round(100 * x);
   const head = MAP_IDS.map((m) => MAP_NAMES[m] || m).join('\t');
-  console.log(`\n개인전 (자리당 승률 %, RL / 고수)  각 맵 ${ROUNDS}판`);
+  console.log(`\n개인전 (자리당 승률 %, RL / 고수·초고수)  각 맵 ${ROUNDS}판`);
   console.log(`구성\t${head}\t전체\t타임오버`);
   LINEUPS.forEach(([name, lineup], k) => {
     if (lineup.some((s) => s.team >= 0)) return;

@@ -35,7 +35,7 @@ const GATE_F = 3;
 const OTHER = 13;
 export const OBS = SELF + WORLD_F + NAV + RAYS + HAZARDS * HAZARD_F + GATES * GATE_F + (MAX_P - 1) * OTHER;
 const HAZARD_KINDS = ['trap', 'cannon', 'wave'];
-const BOT_LEVELS = ['easy', 'normal', 'hard'];
+const BOT_LEVELS = ['easy', 'normal', 'hard', 'ace'];
 const DIRS = [[0, 0], ...Array.from({ length: 8 }, (_, k) => [Math.cos((k * Math.PI) / 4), Math.sin((k * Math.PI) / 4)])];
 
 export const DEFAULTS = {
