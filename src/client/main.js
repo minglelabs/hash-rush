@@ -2032,6 +2032,8 @@ $('champClose').addEventListener('click', () => {
 $('champLobby').addEventListener('click', endSeason);
 // A click on the dimmed map around the card also puts it away.
 $('result').addEventListener('click', (e) => e.target === $('result') && ($('result').hidden = true));
+// So does one on the bare strip beside or under the map, where a phone's screen runs past it.
+$('stage').addEventListener('click', (e) => e.target === $('stage') && ($('result').hidden = true));
 $('againBtn').addEventListener('click', startGame);
 // On a tall screen the field buttons fold behind "⋯". Choosing one, or touching
 // anywhere else, folds them away again.
