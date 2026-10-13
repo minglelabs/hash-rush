@@ -1330,17 +1330,46 @@ button.primary:active {
   padding: 0.15em 0.7em;
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.88);
-  animation: fade 8s forwards;
+  animation: fade 14s forwards;
 }
 
-#gameChat .chatForm {
-  margin-top: 0.4em;
-  pointer-events: auto;
+/* Typing mid-round: one bar across the bottom of the screen, raised by the script
+   to sit on top of the phone's keyboard. */
+#chatBar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  align-items: center;
+  gap: 8px;
+  padding: 8px max(10px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+  background: rgba(226, 235, 243, 0.97);
+  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.18);
+}
+
+#chatBar input {
+  font-size: 16px;
+  padding: 0.55em 1em;
+  border: 0;
+  border-radius: 999px;
+}
+
+#chatBar button {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  font-size: 20px;
+  line-height: 1;
+  border: 0;
+  background: #fbe54d;
 }
 
 @media (orientation: portrait) {
+  /* Above the pad and the bonk button, which lie over the foot of the map. */
   #gameChat {
-    bottom: 3cqw;
+    bottom: 46cqw;
     width: 70cqw;
     font-size: 13px;
   }
@@ -1360,19 +1389,6 @@ button.primary:active {
   background: var(--cream);
 }
 
-#quick {
-  margin: 0.5em 0 0;
-  padding: 8px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.92);
-  pointer-events: auto;
-}
-
-#quick button {
-  font-size: 14px;
-  padding: 0.45em 0.9em;
-}
-
 @media (pointer: coarse) {
   /* iOS zooms the page when a focused field's text is under 16px. */
   input,
@@ -1380,35 +1396,7 @@ button.primary:active {
     font-size: 16px !important;
   }
 
-  /* Typing mid-round happens at the top of the screen, where the keyboard can
-     neither cover the box nor push the map around. */
-  #gameChat .chatForm {
-    position: fixed;
-    top: max(8px, env(safe-area-inset-top));
-    left: 8px;
-    right: 8px;
-    margin: 0;
-    padding: 6px;
-    border-radius: 14px;
-    background: rgba(255, 255, 255, 0.95);
-    z-index: 5;
-  }
 }
-
-@media (orientation: portrait) {
-  /* The phrases open in the strip under the map, above the buttons. */
-  #quick {
-    position: fixed;
-    left: 10px;
-    right: 10px;
-    bottom: 124px;
-    margin: 0;
-    z-index: 5;
-  }
-
-  #quick button {
-    flex: 1 1 22%;
-  }
 }
 
 #lobbyChatBtn {

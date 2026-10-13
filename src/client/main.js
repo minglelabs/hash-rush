@@ -937,7 +937,7 @@ function showLobbyBubbles() {
 function addChat({ name, look, text }) {
   if (look >= 0) {
     const said = cleanChat(text);
-    bubbles.set(look, { name: String(name), text: said, until: performance.now() + 3000 + 50 * said.length });
+    bubbles.set(look, { name: String(name), text: said, until: performance.now() + 6000 + 80 * said.length });
     showLobbyBubbles();
   }
   // Count what arrives while the box is closed, so the button can show it.
@@ -975,47 +975,75 @@ function sendChat(raw) {
   }
 }
 
+// Typing mid-round: a bar with the text box and a send button, sitting on top of
+// the phone's keyboard the way a messenger's does. The map behind it stays put.
+// It is built here, so a page cached from before it existed still gets one.
+{
+  const bar = document.createElement('form');
+  bar.id = 'chatBar';
+  bar.className = 'chatForm';
+  bar.hidden = true;
+  const field = document.createElement('input');
+  Object.assign(field, { name: 'chat', maxLength: 80, autocomplete: 'off', enterKeyHint: 'send' });
+  const send = document.createElement('button');
+  send.textContent = '↑';
+  bar.append(field, send);
+  $('stage').append(bar);
+}
 function toggleGameChat(open) {
-  const form = $('gameChat').querySelector('.chatForm');
-  form.hidden = !open;
-  if (open) $('quick').hidden = true;
-  if (open) form.querySelector('input').focus();
-  else form.querySelector('input').blur();
+  const bar = $('chatBar');
+  if (bar.hidden === !open) return;
+  bar.hidden = !open;
+  if (open) {
+    liftChatBar();
+    bar.querySelector('input').focus();
+  } else bar.querySelector('input').blur();
 }
 
+// A phone's keyboard covers the bottom of the page without resizing it, and the
+// browser slides the page up to show the box. Put the page back and raise the bar
+// by the keyboard's height instead.
+function liftChatBar() {
+  const vv = window.visualViewport;
+  if (!vv || $('chatBar').hidden) return;
+  if (window.scrollY) window.scrollTo(0, 0);
+  $('chatBar').style.bottom = `${Math.max(0, window.innerHeight - vv.height - vv.offsetTop)}px`;
+}
+if (window.visualViewport) for (const type of ['resize', 'scroll']) window.visualViewport.addEventListener(type, liftChatBar);
+// A touch anywhere on the game puts the keyboard away, and does nothing else.
+window.addEventListener(
+  'pointerdown',
+  (e) => {
+    if ($('chatBar').hidden || $('chatBar').contains(e.target) || e.target === $('chatBtn')) return;
+    toggleGameChat(false);
+    e.stopPropagation();
+  },
+  true,
+);
+
 for (const id of [...CHAT_BOXES, 'gameChat']) {
-  const form = $(id).querySelector('.chatForm');
+  const form = id === 'gameChat' ? $('chatBar') : $(id).querySelector('.chatForm');
   const field = form.querySelector('input');
   field.placeholder = t('chatPlaceholder');
   form.addEventListener('submit', (e) => {
     e.preventDefault();
     sendChat(field.value);
     field.value = '';
-    if (id === 'gameChat') toggleGameChat(false);
+    // On a phone the keyboard stays up for the next line, as in a messenger.
+    if (id === 'gameChat' && !matchMedia('(pointer: coarse)').matches) toggleGameChat(false);
   });
   field.addEventListener('keydown', (e) => {
     if (e.code === 'Escape' && id === 'gameChat') toggleGameChat(false);
   });
 }
-// Ready-made lines that send with one tap, so a phone never has to bring up its
-// keyboard mid-round. The last button opens the text box for anything else.
+// Ready-made lines that send with one tap, in the lobby and on the result card.
 for (const box of document.querySelectorAll('.quick')) {
   for (const line of t('quickChat')) {
     const b = document.createElement('button');
     b.type = 'button';
     b.textContent = line;
-    b.addEventListener('click', () => {
-      sendChat(line);
-      if (box.id === 'quick') box.hidden = true;
-    });
+    b.addEventListener('click', () => sendChat(line));
     box.append(b);
-  }
-  if (box.id === 'quick') {
-    const type = document.createElement('button');
-    type.type = 'button';
-    type.textContent = '⌨️';
-    type.addEventListener('click', () => toggleGameChat(true));
-    box.append(type);
   }
 }
 for (const id of CHAT_BOXES) {
@@ -1027,10 +1055,7 @@ for (const id of CHAT_BOXES) {
     log.scrollTop = log.scrollHeight;
   });
 }
-$('chatBtn').addEventListener('click', () => {
-  toggleGameChat(false);
-  $('quick').hidden = !$('quick').hidden;
-});
+$('chatBtn').addEventListener('click', () => toggleGameChat($('chatBar').hidden));
 // Enter opens the chat box during a round, the way it does in most games.
 window.addEventListener('keydown', (e) => {
   if (e.code !== 'Enter' || !net.role || $('stage').hidden) return;
@@ -1105,7 +1130,7 @@ function enterStage() {
   $('feed').textContent = '';
   // Lobby talk stays in the lobby log; a round starts with a clean overlay.
   $('gameChat').querySelector('.chatLog').textContent = '';
-  $('quick').hidden = true;
+  toggleGameChat(false);
   $('banner').classList.remove('show');
   $('callout').textContent = '';
   $('again').hidden = net.role === 'guest';
