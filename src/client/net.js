@@ -152,14 +152,37 @@ function randomRoom() {
 
 // Opens a room. `on.join(conn)`, `on.data(conn, msg)` and `on.leave(conn)` are
 // called as guests come and go. Resolves with { room, close }.
-export async function hostRoom(on) {
+// `want` asks for a room id again, the one this tab hosted before it was reloaded,
+// so the link friends already have still leads here.
+export async function hostRoom(on, want) {
   await loadPeer();
-  const room = randomRoom();
-  const peer = new window.Peer(PREFIX + room, { config: CONFIG });
-  await new Promise((resolve, reject) => {
-    peer.on('open', resolve);
-    peer.on('error', reject);
-  });
+  const open = (id) =>
+    new Promise((resolve, reject) => {
+      const peer = new window.Peer(PREFIX + id, { config: CONFIG });
+      let up = false;
+      peer.on('open', () => {
+        up = true;
+        resolve(peer);
+      });
+      peer.on('error', (err) => {
+        if (up) return;
+        peer.destroy();
+        reject(err);
+      });
+    });
+  let room = want || randomRoom();
+  let peer = null;
+  for (let tries = 0; !peer; tries++) {
+    try {
+      peer = await open(room);
+    } catch (err) {
+      if (room !== want || !err || err.type !== 'unavailable-id') throw err;
+      // The broker still has the id down to the page that was just reloaded. It
+      // lets go within a few seconds; after that somebody else really has it.
+      if (tries < 7) await new Promise((r) => setTimeout(r, 1000));
+      else room = randomRoom();
+    }
+  }
   peer.on('connection', (conn) => {
     conn.on('open', () => {
       conn.fast = fastLane(conn, (msg) => on.data(conn, msg), false);
