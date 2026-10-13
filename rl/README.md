@@ -22,6 +22,7 @@ node rl/play.js rl/runs/first/policy.json 200
 - 게임에 넣기: `node rl/export.js rl/runs/first/policy.json` → `src/ai/rl-policy.bin`(반정밀도, 약 1.7MB)을 커밋하면 로비의 "컴퓨터 · RL"이 이 가중치로 둡니다. 관측은 `src/ai/observe.js` 하나를 학습과 게임이 같이 씁니다.
 - 팀 정신 보상(`--team-spirit 0.5`, 기본값): 팀전에서 자기 점수 보상의 절반을 팀 평균으로 받아, 팀원이 씨를 가져가게 돕는 것도 보상이 됩니다(OpenAI Five 방식). 0이면 끔.
 - RL끼리: `node rl/report.js 새.json 30 기존.json` 하면 두 정책이 개인전·팀전으로 붙는 10줄이 표에 추가됩니다(RL / RL'). 학습에선 `--rivals rl/runs/long/policy.pt`로 기존 봇을 리그에 고정해, 자기 과거들과 함께 상대·팀원으로 계속 만납니다.
+- RL·RL2하고만 학습: `--rivals A.pt B.pt --league 2 --self-play 0 --no-curriculum --bot-env 0` (리그 크기가 고정 상대 수와 같으면 과거 자신이 안 들어감).
 - 초고수(ace)와 붙이는 단계: `--stage 4` (중수·고수·초고수 봇이 판의 절반에 들어옴). 팀전 비중은 `--teams 0.8`.
 - 구성별·맵별 표: `node rl/report.js rl/runs/first/policy.json 30` (개인전 6구성·팀전 8구성 × 맵 7개, 구성마다 Node 하나씩 동시에 돌림)
 - `play.js`는 학습된 봇 한 마리를 초보·중수·고수 봇 세 마리와 붙여 승률을 냅니다. 4인전이면 25%가 본전입니다.

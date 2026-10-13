@@ -196,6 +196,9 @@ class League:
         clone.load_state_dict(model.state_dict())
         clone.eval()
         entry = {"model": clone, "wins": 1.0, "games": 2.0, "born": born}
+        # A league no bigger than its rivals holds only them: no past selves join.
+        if len(self.members) >= self.size and self.keep >= self.size:
+            return
         if len(self.members) < self.size:
             self.members.append(entry)
         else:
