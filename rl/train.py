@@ -36,7 +36,7 @@ import torch.nn.functional as F
 HERE = os.path.dirname(os.path.abspath(__file__))
 HEADS = (9, 2, 2)  # move, bonk, throw
 # The ladder: (share of rounds with scripted bots, bot levels that may sit in).
-STAGES = [(0.7, [0]), (0.7, [0, 1]), (0.6, [0, 1, 2]), (0.35, [0, 1, 2]), (0.5, [1, 2, 3])]
+STAGES = [(0.7, [0]), (0.7, [0, 1]), (0.6, [0, 1, 2]), (0.35, [0, 1, 2]), (0.5, [0, 1, 2, 3])]
 STAGE_NAMES = ["easy", "easy+normal", "all bots", "mostly self-play", "with the ace bot"]
 
 
