@@ -13,15 +13,27 @@ export const ALARM_RANGE = 190;
 // From where the alarm goes off, the seed weighs heavier still.
 export const LAST_STRETCH = { range: ALARM_RANGE, speed: 0.7 };
 
-export const GATHER_TIME = 2.2;
-// The more hamsters crowd the flower, the quicker a seed comes loose: four is
-// the baseline, and eight nibble in half the time.
-export const gatherTime = (players) => (GATHER_TIME * 4) / Math.max(4, players);
 export const COUNTDOWN = 3;
 
-// Stalemate breaker: after `start` seconds the burrow's edge creeps towards the flower.
-// At `end` the round is called on bonks instead.
-export const OVERTIME = { start: 40, speed: 6.5, end: 105 };
+// Stalemate breaker: after `start` seconds the burrow's edge creeps towards the
+// flower at `speed`, and the round is pushed to a finish three ways.
+// - A seed comes loose quicker and quicker, down to `nibble` of the usual time
+//   by the time of `rush`.
+// - Whoever is knocked out sits dazed at its nest for `daze` seconds, so taking a
+//   defender down opens a real gap.
+// - From `rush` on the edge comes on at `rushSpeed`. It is over the flower well
+//   before `end`, and there a seed is home the moment it is nibbled loose.
+// At `end` the round is called on bonks instead; that should now be rare.
+export const OVERTIME = { start: 40, speed: 6.5, rush: 70, rushSpeed: 20, nibble: 0.45, daze: 1.5, end: 105 };
+
+export const GATHER_TIME = 2.2;
+// The more hamsters crowd the flower, the quicker a seed comes loose: four is
+// the baseline, and eight nibble in half the time. In overtime it gets quicker
+// still as the clock runs.
+export const gatherTime = (players, time = 0) => {
+  const late = Math.max(0, Math.min(1, (time - OVERTIME.start) / (OVERTIME.rush - OVERTIME.start)));
+  return ((GATHER_TIME * 4) / Math.max(4, players)) * (1 - (1 - OVERTIME.nibble) * late);
+};
 
 export const BONK = {
   windup: 0.14, // standing still before the hit lands

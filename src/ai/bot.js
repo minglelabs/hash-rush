@@ -556,7 +556,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       // past. Someone nibbling gets the short ones that draw its swing (see `lure`),
       // unless its seed is about to come loose: then straight in.
       const busy = e.nibbler && Math.hypot(e.vx, e.vy) < 20;
-      const hurry = busy && (!cfg.lure || gatherTime(g.players.length) - g.players[e.id].gather < Math.max(0, d - 60) / SPEED + 1.1);
+      const hurry = busy && (!cfg.lure || gatherTime(g.players.length, now) - g.players[e.id].gather < Math.max(0, d - 60) / SPEED + 1.1);
       if (cfg.dance && busy && !hurry && (mem.dance.id !== e.id || now > mem.dance.expires || !mem.dance.nib)) {
         mem.dance = { id: e.id, nib: now, out: false, turn: cfg.lure + rng() * 6, until: 0, feints: 0, most: 3, expires: now + 4 };
       } else if (mem.dance.nib) {
@@ -623,7 +623,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       let counted = false;
       mem.nibbling = false;
       if (cfg.clock && g.nibbler === id && mem.mode === 'gather') {
-        const left = gatherTime(g.players.length) - me.gather;
+        const left = gatherTime(g.players.length, now) - me.gather;
         let first = null;
         let eta = Infinity;
         for (const e of seen) {
