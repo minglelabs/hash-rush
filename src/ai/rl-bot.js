@@ -1,36 +1,39 @@
-// The RL bot: plays with the network trained in rl/, from the weights in
-// rl-policy.bin. It sees what it saw in training (observe.js) and, like there,
-// picks a move every few ticks and holds it in between.
+// The RL bots: play with networks trained in rl/, each level from its own weights
+// file (RL from rl-policy.bin, RL2 from rl2-policy.bin). A bot sees what it saw in
+// training (observe.js) and, like there, picks a move every few ticks and holds it.
 
 import { mulberry32 } from '../sim/rng.js';
 import { MAX_P, OBS, DIRS, observe } from './observe.js';
 import { decodePolicy, loadPolicy } from './policy.js';
 
-let policy = null;
-let loading = null;
+const FILES = { rl: 'rl-policy.bin', rl2: 'rl2-policy.bin' };
+const policies = {};
+const loading = {};
 
-// Starts fetching the weights; the bot stands still until they are in.
-export function loadRLPolicy() {
-  loading ||= fetch(new URL('./rl-policy.bin', import.meta.url))
-    .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`rl-policy.bin ${r.status}`))))
+// Starts fetching a level's weights; its bot stands still until they are in.
+export function loadRLPolicy(level = 'rl') {
+  const file = FILES[level];
+  loading[level] ||= fetch(new URL(`./${file}`, import.meta.url))
+    .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`${file} ${r.status}`))))
     .then((b) => {
-      policy = loadPolicy(decodePolicy(b));
+      policies[level] = loadPolicy(decodePolicy(b));
     })
     .catch((err) => {
-      loading = null;
-      console.warn('RL bot weights did not load', err);
+      loading[level] = null;
+      console.warn(`${level} bot weights did not load`, err);
     });
-  return loading;
+  return loading[level];
 }
 
-export function createRLBot({ seed = 1 } = {}) {
-  loadRLPolicy();
+export function createRLBot({ seed = 1, level = 'rl' } = {}) {
+  loadRLPolicy(level);
   const random = mulberry32(seed);
   const seen = new Float32Array(MAX_P * OBS);
   let choice = null;
   let tick = 0;
 
   function think(g, id) {
+    const policy = policies[level];
     if (!policy) return { mx: 0, my: 0, bonk: false, throw: false };
     const every = policy.meta.frameSkip || 4;
     const fresh = tick++ % every === 0;
