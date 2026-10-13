@@ -16,10 +16,10 @@
 //   win    uint8    envs * MAX_P   who won the round that just ended
 // A round that ends is replaced at once; `role` then describes the new one.
 
-import { createGame, step } from '../src/sim/game.js';
+import { createGame, step, carrySpeed } from '../src/sim/game.js';
 import { MAPS, MAP_IDS, isFree } from '../src/sim/map.js';
-import { HAMSTER_R, gatherTime } from '../src/sim/constants.js';
-import { MAX_P, OBS, DIRS, fields, fieldAt, observe } from '../src/ai/observe.js';
+import { HAMSTER_R, SPEED, DT, gatherTime } from '../src/sim/constants.js';
+import { MAX_P, OBS, DIRS, fields, fieldAt, observe, roleOf, nearestCarrier } from '../src/ai/observe.js';
 
 export { MAX_P, OBS };
 import { createBot } from '../src/ai/bot.js';
@@ -53,6 +53,15 @@ export const DEFAULTS = {
   // its team's average instead of its own, so clearing the way for a teammate's
   // seed pays too. The win bonus is shared anyway; 0 is everyone for themselves.
   teamSpirit: 0,
+  // Defence. `catch`: extra pay for bonking a rival who has a seed. `delay`: pay
+  // per decision to each rival near a seed carrier (within DELAY_R) for every bit
+  // of the run home it did not make, from 0 when it ran freely to `delay` when it
+  // got nowhere. `role`: pay for doing one's job in a team round (roleOf): a
+  // defender is paid for closing in on the rival carrier, or with none, on the
+  // rival nearest the flower.
+  catch: 0,
+  delay: 0,
+  role: 0,
   // Share of the policy's seats, in rounds without scripted bots, that start at the
   // flower, half of them already holding a seed, so nibbling and the run home are
   // seen early instead of waiting on luck.
@@ -81,6 +90,24 @@ const score = (g, p) => {
   for (let k = 0; k < row.length; k++) s += (MVP_POINTS[k] || 0) * row[k];
   return s;
 };
+
+const DELAY_R = 200;
+const homeLeft = (g, p) => fieldAt(fields(g.map), fields(g.map).home, p);
+
+// How close a defender is to its mark: the rival carrier, or with none, the rival
+// nearest the flower. Higher is closer.
+function guardPhi(g, p) {
+  if (roleOf(g, p) !== 'defend') return 0;
+  let mark = nearestCarrier(g, p);
+  if (!mark) {
+    const f = g.map.flower;
+    for (const q of g.players) {
+      if (q.team === p.team) continue;
+      if (!mark || Math.hypot(q.x - f.x, q.y - f.y) < Math.hypot(mark.x - f.x, mark.y - f.y)) mark = q;
+    }
+  }
+  return mark ? -Math.min(1, Math.hypot(mark.x - p.x, mark.y - p.y) / 1000) : 0;
+}
 
 export function createEnvs(settings = {}) {
   const cfg = { ...DEFAULTS, ...settings };
@@ -151,7 +178,7 @@ export function createEnvs(settings = {}) {
         }
       }
     }
-    envs[e] = { g, bots, prev: g.players.map(() => 0), deaths: g.players.map(() => 0), phi: g.players.map((p) => potential(g, p)) };
+    envs[e] = { g, bots, home: g.players.map((p) => homeLeft(g, p)), job: g.players.map((p) => roleOf(g, p)), guard: g.players.map((p) => guardPhi(g, p)), stops: g.players.map(() => 0), prev: g.players.map(() => 0), deaths: g.players.map(() => 0), phi: g.players.map((p) => potential(g, p)) };
   }
 
   function observeEnv(e) {
@@ -210,7 +237,32 @@ export function createEnvs(settings = {}) {
           win[e * MAX_P + i] = won ? 1 : 0;
           final[e * MAX_P + i] = s;
         }
+        r += (p.stops - env.stops[i]) * cfg.catch;
+        env.stops[i] = p.stops;
+        if (!over && cfg.role) {
+          const job = roleOf(g, p);
+          const phi = guardPhi(g, p);
+          // A new role starts a new measure; only a kept role is paid.
+          if (job === env.job[i]) r += cfg.role * (phi - env.guard[i]);
+          env.job[i] = job;
+          env.guard[i] = phi;
+        }
         reward[e * MAX_P + i] = r;
+      }
+      // Rivals near a seed carrier are paid for the ground it did not cover.
+      for (let j = 0; j < n && cfg.delay && !over; j++) {
+        const c = g.players[j];
+        const left = homeLeft(g, c);
+        if (c.carrying && env.home[j] < 1) {
+          const could = (SPEED * carrySpeed(g, c) * DT * cfg.frameSkip) / 1000;
+          const slow = Math.max(0, Math.min(1, 1 - (env.home[j] - left) / could));
+          for (let i = 0; i < n; i++) {
+            const p = g.players[i];
+            if (i === j || (p.team >= 0 && p.team === c.team) || Math.hypot(p.x - c.x, p.y - c.y) > DELAY_R) continue;
+            reward[e * MAX_P + i] += cfg.delay * slow;
+          }
+        }
+        env.home[j] = left;
       }
       if (cfg.teamSpirit) {
         const own = reward.slice(e * MAX_P, e * MAX_P + n);

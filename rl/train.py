@@ -167,6 +167,20 @@ class Policy(nn.Module):
         return logp, entropy, value
 
 
+def load_weights(model, path, dev):
+    """Loads saved weights, also from before the observation grew: the new inputs
+    start with no weight and a neutral normalisation, so the policy plays as it did."""
+    saved = torch.load(path, map_location=dev)
+    own = model.state_dict()
+    for k, v in saved.items():
+        if v.shape == own[k].shape:
+            continue
+        grown = torch.zeros_like(own[k]) if k != "var" else torch.ones_like(own[k])
+        grown[..., : v.shape[-1]] = v
+        saved[k] = grown
+    model.load_state_dict(saved)
+
+
 def export_json(model, path, meta):
     """Plain numbers, so the browser can run the policy without any library."""
     out = {"meta": meta, "heads": HEADS}
@@ -253,6 +267,9 @@ def main():
     ap.add_argument("--win", type=float, default=30)
     ap.add_argument("--lose", type=float, default=0)
     ap.add_argument("--head-start", type=float, default=0.3, help="share of seats in bot-free rounds that start at the flower")
+    ap.add_argument("--catch", type=float, default=4, help="extra pay for bonking a rival who has a seed")
+    ap.add_argument("--delay", type=float, default=0.05, help="pay per decision near a rival carrier for the ground it did not cover")
+    ap.add_argument("--role", type=float, default=1, help="pay for a team defender closing in on its mark")
     ap.add_argument("--team-spirit", type=float, default=0.5, help="share of a teammate's pay each hamster gets in team rounds")
     ap.add_argument("--shape", type=float, default=1, help="weight of the progress pay; 0 turns it off")
     ap.add_argument("--maps", default="all", help="comma separated map ids, or all")
@@ -278,7 +295,7 @@ def main():
             pass
     stage = min(stage, len(STAGES) - 1)
     spar = lambda: (args.bot_env, [0, 1, 2]) if args.no_curriculum else STAGES[stage]
-    settings = {"botEnv": spar()[0], "botLevels": spar()[1], "win": args.win, "lose": args.lose, "shape": args.shape, "teams": args.teams, "frameSkip": args.frame_skip, "headStart": args.head_start, "teamSpirit": args.team_spirit}
+    settings = {"botEnv": spar()[0], "botLevels": spar()[1], "win": args.win, "lose": args.lose, "shape": args.shape, "teams": args.teams, "frameSkip": args.frame_skip, "headStart": args.head_start, "teamSpirit": args.team_spirit, "catch": args.catch, "delay": args.delay, "role": args.role}
     if args.maps != "all":
         settings["maps"] = args.maps.split(",")
     env = Workers(args.workers, args.envs, args.seed, settings)
@@ -287,14 +304,14 @@ def main():
     make = lambda: Policy(D, args.width, args.blocks).to(dev)
     model = make()
     if args.resume:
-        model.load_state_dict(torch.load(args.resume, map_location=dev))
+        load_weights(model, args.resume, dev)
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4, eps=1e-5)
     league = League(make, args.league, args.pfsp_power)
     # Earlier trained bots (say the one in the game as RL) stay in the league for good,
     # so the learner keeps meeting them as rivals and as teammates.
     for path in args.rivals:
         rival = make()
-        rival.load_state_dict(torch.load(path, map_location=dev))
+        load_weights(rival, path, dev)
         league.add(rival, -1)
         print(f"rival {path}")
     league.keep = len(args.rivals) + 1

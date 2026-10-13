@@ -17,7 +17,10 @@ const HAZARD_F = 12;
 const GATES = 2;
 const GATE_F = 3;
 const OTHER = 13;
-export const OBS = SELF + WORLD_F + NAV + RAYS + HAZARDS * HAZARD_F + GATES * GATE_F + (MAX_P - 1) * OTHER;
+// The first policies saw only this much; team play was added after it.
+const BASE_OBS = SELF + WORLD_F + NAV + RAYS + HAZARDS * HAZARD_F + GATES * GATE_F + (MAX_P - 1) * OTHER;
+const TEAM_F = 8;
+export const OBS = BASE_OBS + TEAM_F;
 const HAZARD_KINDS = ['trap', 'cannon', 'wave'];
 export const DIRS = [[0, 0], ...Array.from({ length: 8 }, (_, k) => [Math.cos((k * Math.PI) / 4), Math.sin((k * Math.PI) / 4)])];
 
@@ -144,6 +147,35 @@ export const fieldAt = (F, dist, p) => {
   return i < 0 || dist[i] === Infinity ? 1 : Math.min(1, (dist[i] * CELL) / 1000);
 };
 
+// A hamster's job in a team round: whoever on the team has the seed runs it home;
+// with no seed on the team, the one nearest the flower (by walking) goes for it.
+// Everyone else defends. Worked out from the game alone, so the bot in the game
+// plays the role it trained for, beside people or bots.
+export function roleOf(g, p) {
+  if (p.team < 0) return 'solo';
+  const mates = g.players.filter((q) => q.team === p.team);
+  const runner = mates.find((q) => q.carrying);
+  if (runner) return runner === p ? 'attack' : 'defend';
+  const F = fields(g.map);
+  let best = null;
+  let near = Infinity;
+  for (const q of mates) {
+    const d = fieldAt(F, F.flower, q);
+    if (d < near) [best, near] = [q, d];
+  }
+  return best === p ? 'attack' : 'defend';
+}
+
+// The rival seed carrier nearest to `me`, if any.
+export function nearestCarrier(g, me) {
+  let best = null;
+  for (const q of g.players) {
+    if (q === me || !q.carrying || allied(q, me)) continue;
+    if (!best || Math.hypot(q.x - me.x, q.y - me.y) < Math.hypot(best.x - me.x, best.y - me.y)) best = q;
+  }
+  return best;
+}
+
 // Fills one row of OBS numbers per seat, MAX_P rows from `at`; empty seats are zeros.
 export function observe(g, out, at = 0) {
   const teams = new Set(g.players.map((p) => p.team).filter((t) => t >= 0)).size;
@@ -268,6 +300,21 @@ export function observe(g, out, at = 0) {
       out[o++] = p.cooldown / BONK.cooldown;
       out[o++] = inHome(g, p) ? 1 : 0;
       out[o++] = (p.x - g.homeX) / WORLD.w;
+    }
+
+    // Team play: my role, who has a seed, and where the rival carrier is going.
+    o = base + BASE_OBS;
+    const role = roleOf(g, me);
+    out[o] = role === 'attack' ? 1 : 0;
+    out[o + 1] = role === 'defend' ? 1 : 0;
+    out[o + 2] = players.some((p) => p !== me && p.carrying && allied(p, me)) ? 1 : 0;
+    const c = nearestCarrier(g, me);
+    if (c) {
+      out[o + 3] = 1;
+      out[o + 4] = (c.x - me.x) / WORLD.w;
+      out[o + 5] = (c.y - me.y) / WORLD.h;
+      out[o + 6] = fieldAt(F, F.home, c);
+      out[o + 7] = Math.min(1, Math.hypot(c.x - me.x, c.y - me.y) / 1000);
     }
   }
 }
