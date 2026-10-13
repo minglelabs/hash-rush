@@ -189,6 +189,7 @@ class League:
         self.size = size
         self.power = power
         self.members = []  # {model, wins, games, born}
+        self.keep = 1  # the first entries are never replaced: rivals, then the oldest self
 
     def add(self, model, born):
         clone = self.make()
@@ -198,8 +199,8 @@ class League:
         if len(self.members) < self.size:
             self.members.append(entry)
         else:
-            # Keep the oldest as an anchor and the rest spread over history.
-            self.members[random.randrange(1, self.size)] = entry
+            # Keep the anchors and spread the rest over history.
+            self.members[random.randrange(self.keep, self.size)] = entry
 
     def pick(self):
         if not self.members:
@@ -239,6 +240,7 @@ def main():
     ap.add_argument("--reward-scale", type=float, default=0.1)
     ap.add_argument("--self-play", type=float, default=0.5, help="share of rounds where every seat is the learner")
     ap.add_argument("--league", type=int, default=16)
+    ap.add_argument("--rivals", nargs="*", default=[], help="policy.pt files of earlier bots that always stay in the league")
     ap.add_argument("--snapshot-every", type=int, default=10)
     ap.add_argument("--pfsp-power", type=float, default=1.0)
     ap.add_argument("--bot-env", type=float, default=0.15, help="share of rounds with scripted bots, when the curriculum is off")
@@ -285,6 +287,14 @@ def main():
         model.load_state_dict(torch.load(args.resume, map_location=dev))
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4, eps=1e-5)
     league = League(make, args.league, args.pfsp_power)
+    # Earlier trained bots (say the one in the game as RL) stay in the league for good,
+    # so the learner keeps meeting them as rivals and as teammates.
+    for path in args.rivals:
+        rival = make()
+        rival.load_state_dict(torch.load(path, map_location=dev))
+        league.add(rival, -1)
+        print(f"rival {path}")
+    league.keep = len(args.rivals) + 1
 
     obs, _, _, _, role, _ = env.first()
     # Who plays each seat: -1 nobody we control, 0 the learner, k a league member (k-1).
