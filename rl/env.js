@@ -53,6 +53,10 @@ export const DEFAULTS = {
   // its team's average instead of its own, so clearing the way for a teammate's
   // seed pays too. The win bonus is shared anyway; 0 is everyone for themselves.
   teamSpirit: 0,
+  // A bot level (3 the ace) that also thinks in every policy seat without playing
+  // it, so the learner can be taught what it would have done (`taught`, botAct).
+  // -1: none.
+  teacher: -1,
   // Defence and team jobs (jobs() in src/ai/observe.js).
   // `catch`: extra pay for bonking a rival who has a seed, up to three times as
   //   much the nearer that rival was to home.
@@ -129,6 +133,8 @@ export function createEnvs(settings = {}) {
   // Seats set here play `actions` even when a bot sits there; the bot still says
   // what it would have done, which is how rl/demo.js corrects a learner (DAgger).
   const steer = new Uint8Array(E * MAX_P);
+  // Policy seats where the teacher said what it would have done (botAct).
+  const taught = new Uint8Array(E * MAX_P);
   // Whether the round that just ended ran out of time.
   const timedOut = new Uint8Array(E);
   const envs = [];
@@ -177,7 +183,9 @@ export function createEnvs(settings = {}) {
         }
       }
     }
-    envs[e] = { g, bots, home: g.players.map((p) => homeLeft(g, p)), job: g.players.map((p) => jobKey(g, p)), guard: g.players.map((p) => guardPhi(g, p)), caught: g.players.map(() => 0), prev: g.players.map(() => 0), deaths: g.players.map(() => 0), phi: g.players.map((p) => potential(g, p)) };
+    const teachers = lineup.map(({ level }) => (level < 0 && cfg.teacher >= 0 ? createBot({ difficulty: BOT_LEVELS[cfg.teacher], seed: Math.floor(rnd() * 1e9) }) : null));
+    for (let i = 0; i < MAX_P; i++) taught[e * MAX_P + i] = teachers[i] ? 1 : 0;
+    envs[e] = { g, bots, teachers, home: g.players.map((p) => homeLeft(g, p)), job: g.players.map((p) => jobKey(g, p)), guard: g.players.map((p) => guardPhi(g, p)), caught: g.players.map(() => 0), prev: g.players.map(() => 0), deaths: g.players.map(() => 0), phi: g.players.map((p) => potential(g, p)) };
   }
 
   function observeEnv(e) {
@@ -191,15 +199,15 @@ export function createEnvs(settings = {}) {
     win.fill(0);
     for (let e = 0; e < E; e++) {
       const env = envs[e];
-      const { g, bots } = env;
+      const { g, bots, teachers } = env;
       const n = g.players.length;
       for (let k = 0; k < cfg.frameSkip && g.phase !== 'over'; k++) {
         const inputs = [];
         for (let i = 0; i < n; i++) {
-          if (bots[i]) {
-            const inp = bots[i].think(g, i);
-            inputs.push(inp);
-            const a = (e * MAX_P + i) * 3;
+          const a = (e * MAX_P + i) * 3;
+          const bot = bots[i] || teachers[i];
+          if (bot) {
+            const inp = bot.think(g, i);
             if (k === 0) {
               const still = Math.hypot(inp.mx || 0, inp.my || 0) < 0.3;
               botAct[a] = still ? 0 : 1 + ((Math.round(Math.atan2(inp.my, inp.mx) / (Math.PI / 4)) + 8) % 8);
@@ -208,10 +216,11 @@ export function createEnvs(settings = {}) {
             }
             if (inp.bonk) botAct[a + 1] = 1;
             if (inp.throw) botAct[a + 2] = 1;
-            if (!steer[e * MAX_P + i]) continue;
-            inputs.pop();
+            if (bots[i] && !steer[e * MAX_P + i]) {
+              inputs.push(inp);
+              continue;
+            }
           }
-          const a = (e * MAX_P + i) * 3;
           const dir = DIRS[actions[a] % 9];
           // A press is one tick long, so every decision can start a new swing.
           inputs.push({ mx: dir[0], my: dir[1], bonk: actions[a + 1] === 1 && k === 0, throw: actions[a + 2] === 1 });
@@ -296,7 +305,7 @@ export function createEnvs(settings = {}) {
     reset(e);
     observeEnv(e);
   }
-  return { cfg, obs, reward, final, done, role, win, timedOut, botAct, steer, act };
+  return { cfg, obs, reward, final, done, role, win, timedOut, botAct, steer, taught, act };
 }
 
 // ---------- the pipe ----------
@@ -308,7 +317,7 @@ function serve() {
   let envs = null;
   let frame = 0;
   const send = () => {
-    const parts = [envs.obs, envs.reward, envs.final, envs.done, envs.role, envs.win].map((a) => Buffer.from(a.buffer, a.byteOffset, a.byteLength));
+    const parts = [envs.obs, envs.reward, envs.final, envs.done, envs.role, envs.win, envs.botAct, envs.taught].map((a) => Buffer.from(a.buffer, a.byteOffset, a.byteLength));
     process.stdout.write(Buffer.concat(parts));
   };
   process.stdin.on('data', (chunk) => {

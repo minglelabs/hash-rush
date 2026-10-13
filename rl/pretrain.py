@@ -10,6 +10,11 @@ here instead of from random play:
 
   python3 rl/pretrain.py --name pre
   python3 rl/train.py --name long --minutes 180 --resume rl/runs/pre/policy.pt
+
+To teach a trained policy the ace's team play, start from it and copy the ace in
+team rounds only:
+
+  python3 rl/pretrain.py --name ace --init rl/runs/long/policy.pt --levels 3 --teams 1
 """
 
 import argparse
@@ -21,13 +26,14 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from train import HEADS, HERE, Policy, export_json
+from train import HEADS, HERE, Policy, export_json, load_weights
 
 def record(args, out_dir, samples, round_, policy=""):
     """Bot games from several Node processes at once."""
     each = samples // args.workers
     parts = [os.path.join(out_dir, f"demo{w}") for w in range(args.workers)]
-    extra = [policy, str(args.share)] if policy else []
+    extra = [policy, str(args.share)] if policy else ["", "0"]
+    extra += [args.levels, str(args.teams)]
     procs = [
         subprocess.Popen(["node", os.path.join(HERE, "demo.js"), p, str(each), str(args.seed * 1000 + round_ * 100 + w), str(args.gamma), str(args.frame_skip)] + extra)
         for w, p in enumerate(parts)
@@ -86,6 +92,9 @@ def main():
     ap.add_argument("--dagger", type=int, default=3, help="rounds where the copy plays and the bots correct it")
     ap.add_argument("--dagger-samples", type=int, default=1_000_000, help="decisions recorded per DAgger round")
     ap.add_argument("--share", type=float, default=0.5, help="share of seats the copy plays in a DAgger round")
+    ap.add_argument("--levels", default="1,2", help="bots to copy: 0 easy .. 3 ace, comma separated")
+    ap.add_argument("--teams", type=float, default=0.5, help="share of recorded rounds played in teams")
+    ap.add_argument("--init", default="", help="policy.pt to start from instead of a blank network")
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 4) - 2))
     ap.add_argument("--epochs", type=int, default=3, help="passes over the data after each recording")
     ap.add_argument("--batch", type=int, default=4096)
@@ -118,7 +127,10 @@ def main():
         print(f"{what}: {len(new[1])} decisions in {(time.time() - t0) / 60:.1f}m, {len(data[1])} in all", flush=True)
         if model is None:
             model = Policy(data[0].shape[1], args.width, args.blocks)
-            model.observe(torch.from_numpy(data[0]))
+            if args.init:
+                load_weights(model, args.init, "cpu")
+            else:
+                model.observe(torch.from_numpy(data[0]))
             opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
         fit(args, model, opt, data)
 

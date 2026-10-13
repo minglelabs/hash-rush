@@ -125,3 +125,14 @@ PQN(Gallici 외, ICLR 2025)처럼 더 단순한 Q러닝 계열도 검토했지�
 - **길 안내와 문**: 길 안내 방향은 문이 닫힌 것을 모르고 계산됩니다. 닫힌 문은 벽 거리와 문 위치로만 알 수 있습니다.
 - **게임 연결**: 학습된 봇을 게임의 봇 난이도로 고르는 기능은 아직 없습니다. `policy.js`가 그 용도로 준비돼 있습니다.
 - **기억**: 신경망에 기억(RNN)이 없어서 지금 보이는 것만으로 판단합니다.
+
+### Kickstarting from the ace
+
+`--kick 0.5` has the ace bot (`--teacher 3`) think in every learner seat without
+playing it, and adds copying what it would have done to the PPO loss, fading to 0
+by the end of the run: the ace's team play (cutting carriers off at the door,
+splitting a pincer, escorting) is the start, the rewards take over from there.
+The log's "copies the teacher" is how likely the learner is to pick the ace's move.
+Costs about half the speed, since the ace thinks in every seat.
+
+    python3 rl/train.py --name rl6 --minutes 180 --resume rl/runs/long/policy.pt --teams 1.0 --kick 0.5 --rivals rl/runs/long/policy.pt rl/runs/team2/policy.pt
