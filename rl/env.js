@@ -197,7 +197,7 @@ const fieldAt = (F, dist, p) => {
 function potential(g, p) {
   const F = fields(g.map);
   if (p.carrying) return 7 + 5 * (1 - fieldAt(F, F.home, p));
-  return 1 - fieldAt(F, F.flower, p) + 6 * Math.min(1, p.gather / gatherTime(g.players.length));
+  return 1 - fieldAt(F, F.flower, p) + 6 * Math.min(1, p.gather / gatherTime(g.players.length, g.time));
 }
 
 const score = (g, p) => {
@@ -277,7 +277,7 @@ export function createEnvs(settings = {}) {
     const night = isNight(g.map, g.time) ? 1 : 0;
     const dusk = g.map.cycle ? Math.min(1, untilNight(g.map, g.time) / 24) : 0;
     const players = g.players;
-    const need = gatherTime(players.length);
+    const need = gatherTime(players.length, g.time);
     for (let i = 0; i < MAX_P; i++) {
       const base = (e * MAX_P + i) * OBS;
       obs.fill(0, base, base + OBS);

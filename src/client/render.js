@@ -641,6 +641,28 @@ export function createRenderer(canvas, firstMap) {
       }
     }
 
+    // Dazed at the nest: stars going round its head until it can move again.
+    for (const p of game.players) {
+      if (!(p.dazed > 0)) continue;
+      ctx.fillStyle = '#ffd23f';
+      ctx.strokeStyle = 'rgba(120, 80, 0, 0.7)';
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 3; i++) {
+        const a = t * 6 + (i * TAU) / 3;
+        const sx = p.x + Math.cos(a) * 15;
+        const sy = p.y - 24 + Math.sin(a) * 5;
+        ctx.beginPath();
+        for (let k = 0; k < 10; k++) {
+          const rad = k % 2 ? 2.2 : 5;
+          const b = -Math.PI / 2 + (k * TAU) / 10;
+          ctx.lineTo(sx + Math.cos(b) * rad, sy + Math.sin(b) * rad);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      }
+    }
+
     // Wet hamsters drip.
     for (const p of game.players) {
       if (!(p.wet > 0)) continue;
@@ -1033,7 +1055,7 @@ export function createRenderer(canvas, firstMap) {
           ctx.stroke();
           ctx.strokeStyle = '#ffd23f';
           ctx.beginPath();
-          ctx.arc(0, 0, 23, -Math.PI / 2, -Math.PI / 2 + (p.gather / gatherTime(game.players.length)) * TAU);
+          ctx.arc(0, 0, 23, -Math.PI / 2, -Math.PI / 2 + (p.gather / gatherTime(game.players.length, game.time)) * TAU);
           ctx.stroke();
         }
         // In the ring but not first in line: waiting for a turn at the flower.

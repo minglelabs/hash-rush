@@ -392,6 +392,86 @@ test('an uneven three against two bot game finishes', () => {
   assert.equal(g.phase, 'over');
 });
 
+test('late in overtime the burrow rushes to the flower, and a seed nibbled inside it wins on the spot', () => {
+  const g = started(2);
+  const [a, b] = g.players;
+  const f = MAP.flower;
+  const seen = [];
+  // The rush is announced once, and from then on the edge comes on much faster.
+  const g2 = started(1);
+  g2.time = OVERTIME.rush - 0.1;
+  for (let i = 0; i < 30; i++) {
+    step(g2, []);
+    seen.push(...g2.events.filter((ev) => ev.type === 'rush'));
+  }
+  assert.equal(seen.length, 1);
+  const at = (t) => {
+    const h = started(1);
+    h.time = t;
+    step(h, []);
+    return h.homeX;
+  };
+  assert.ok(Math.abs(at(OVERTIME.rush + 5) - at(OVERTIME.rush) - 5 * OVERTIME.rushSpeed) < 1);
+  assert.ok(OVERTIME.rushSpeed > 2 * OVERTIME.speed);
+  // It is over the flower well before time is called.
+  const arrives = OVERTIME.rush + (f.x - at(OVERTIME.rush)) / OVERTIME.rushSpeed;
+  assert.ok(arrives < OVERTIME.end - 8, `the edge reaches the flower at ${arrives.toFixed(1)} s`);
+  assert.equal(at(OVERTIME.end - 1), f.x, 'and stops there');
+  // Standing on the burrow's side of the ring then: nobody can bonk it, and the
+  // seed is home the moment it comes loose.
+  g.time = OVERTIME.end - 6;
+  place(a, f.x - 55, f.y);
+  place(b, f.x - 55 - 32, f.y);
+  step(g, []);
+  assert.ok(inHome(g, a));
+  const need = gatherTime(2, g.time);
+  run(g, need - 0.2, [IDLE, { mx: 1, my: 0, bonk: true, ax: 1, ay: 0 }]);
+  assert.equal(g.phase, 'playing');
+  assert.equal(a.deaths, 0, 'no bonk lands inside the burrow');
+  run(g, 0.4);
+  assert.equal(g.phase, 'over');
+  assert.equal(g.winner, a.id);
+  assert.equal(g.timeout, false);
+});
+
+test('in overtime a seed comes loose quicker and quicker', () => {
+  assert.equal(gatherTime(4, OVERTIME.start), GATHER_TIME);
+  assert.ok(gatherTime(4, (OVERTIME.start + OVERTIME.rush) / 2) < GATHER_TIME * 0.8);
+  assert.ok(Math.abs(gatherTime(4, OVERTIME.rush) - GATHER_TIME * OVERTIME.nibble) < 1e-9);
+  assert.ok(Math.abs(gatherTime(4, OVERTIME.end) - GATHER_TIME * OVERTIME.nibble) < 1e-9, 'and no quicker after that');
+  assert.ok(Math.abs(gatherTime(8, OVERTIME.rush) - (GATHER_TIME * OVERTIME.nibble) / 2) < 1e-9, 'on top of the crowd');
+  assert.ok(GATHER_TIME * OVERTIME.nibble >= 0.9, 'never so quick that nobody can get there to stop it');
+});
+
+test('in overtime a knocked-out hamster sits dazed at its nest; before overtime it is off at once', () => {
+  const bonked = (time) => {
+    const g = started(2);
+    const [a, b] = g.players;
+    g.time = time;
+    place(a, 740, 100);
+    place(b, 740 + 2 * HAMSTER_R + 2, 100);
+    step(g, [{ mx: 0, my: 0, bonk: true, ax: 1, ay: 0 }, IDLE]);
+    run(g, BONK.windup + 0.05, [IDLE, IDLE]);
+    assert.equal(b.deaths, 1);
+    return { g, b };
+  };
+  const early = bonked(10);
+  assert.equal(early.b.dazed, 0);
+  const x0 = early.b.x;
+  run(early.g, 0.3, [IDLE, { mx: 1, my: 0, bonk: false }]);
+  assert.ok(early.b.x > x0 + 20, 'before overtime it walks straight off');
+
+  const late = bonked(OVERTIME.start + 5);
+  assert.ok(late.b.dazed > OVERTIME.daze - 0.1);
+  const x1 = late.b.x;
+  run(late.g, OVERTIME.daze - 0.15, [IDLE, { mx: 1, my: 0, bonk: true, ax: 1, ay: 0 }]);
+  assert.equal(late.b.x, x1, 'dazed: it does not move');
+  assert.equal(late.b.swing, null, 'and does not swing');
+  run(late.g, 0.5, [IDLE, { mx: 1, my: 0, bonk: false }]);
+  assert.ok(late.b.x > x1 + 20, 'then it is off again');
+  assert.equal(late.b.dazed, 0);
+});
+
 test('more hamsters nibble a seed loose faster', () => {
   assert.equal(gatherTime(2), GATHER_TIME);
   assert.equal(gatherTime(4), GATHER_TIME);

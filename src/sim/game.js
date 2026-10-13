@@ -84,6 +84,7 @@ export function createGame({ slots, map = MAP, seed = 1 }) {
     stops: 0,
     charge: 0,
     wet: 0,
+    dazed: 0,
   }));
   return {
     map,
@@ -175,10 +176,13 @@ function sendHome(p) {
   p.cooldown = 0;
   p.charge = 0;
   p.wet = 0;
+  p.dazed = 0;
 }
 
 function respawn(g, p) {
   sendHome(p);
+  // In overtime a knock-out costs more than the walk back.
+  p.dazed = g.time > OVERTIME.start ? OVERTIME.daze : 0;
   p.chain = 0;
   p.chainUntil = 0;
   p.deaths++;
@@ -268,13 +272,20 @@ export function step(g, inputs) {
     // It ends up over the near half of the nibbling ring, where nobody can be bonked,
     // so even a crowded round that has stalled into a brawl finishes.
     const limit = map.flower.x;
-    g.homeX = Math.min(limit, map.home.x2 + (g.time - OVERTIME.start) * OVERTIME.speed);
+    // A creep at first, then a rush that gets it there well before time is up.
+    if (g.time > OVERTIME.rush && g.time - DT <= OVERTIME.rush) g.events.push({ type: 'rush' });
+    const crept = (Math.min(g.time, OVERTIME.rush) - OVERTIME.start) * OVERTIME.speed;
+    const rushed = Math.max(0, g.time - OVERTIME.rush) * OVERTIME.rushSpeed;
+    g.homeX = Math.min(limit, map.home.x2 + crept + rushed);
   }
   const landing = [];
   const throwing = [];
 
   for (const p of players) {
-    const inp = inputs[p.id] || EMPTY_INPUT;
+    // Dazed at the nest: nothing it presses does anything until it wears off.
+    const dazed = p.dazed > 0;
+    if (dazed) p.dazed = Math.max(0, p.dazed - DT);
+    const inp = dazed ? EMPTY_INPUT : inputs[p.id] || EMPTY_INPUT;
     p.cooldown = Math.max(0, p.cooldown - DT);
 
     let mx = +inp.mx || 0;
@@ -499,7 +510,7 @@ export function step(g, inputs) {
       nibbler.gather = 0;
     } else {
       nibbler.gather += DT;
-      if (nibbler.gather >= gatherTime(players.length) - 1e-9) {
+      if (nibbler.gather >= gatherTime(players.length, g.time) - 1e-9) {
         nibbler.gather = 0;
         nibbler.queued = -1;
         nibbler.carrying = true;
