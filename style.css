@@ -732,10 +732,9 @@ button.primary:active {
 #hintTouch {
   display: none;
   position: fixed;
-  left: max(14px, env(safe-area-inset-left));
-  bottom: max(26px, env(safe-area-inset-bottom));
-  max-width: calc(100vw - 170px);
-  transform: none;
+  left: 50%;
+  bottom: max(8px, env(safe-area-inset-bottom));
+  max-width: calc(100vw - 330px);
   white-space: normal;
   border-radius: 14px;
   font-size: 13px;
@@ -758,45 +757,56 @@ button.primary:active {
   display: none;
 }
 
-#stick {
+/* A faint pad of arrow keys, always in the same corner. The thumb's angle from its
+   middle picks the key, so a touch a little outside it still counts. */
+#pad {
+  display: none;
   position: fixed;
-  width: 92px;
-  height: 92px;
-  margin: -46px 0 0 -46px;
+  left: max(10px, env(safe-area-inset-left));
+  bottom: max(4px, env(safe-area-inset-bottom));
+  width: 128px;
+  height: 128px;
+  grid-template: repeat(3, 1fr) / repeat(3, 1fr);
+  gap: 3px;
+  touch-action: none;
+}
+
+#pad::before {
+  content: '';
+  position: absolute;
+  inset: -14px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.22);
-  border: 2px solid rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+#pad b {
+  position: relative;
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  color: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.2);
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  border-radius: 12px;
   pointer-events: none;
 }
 
-/* The heading the stick has taken, pointed out on the rim where no thumb hides it. */
-#stick::after {
-  content: '';
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  margin: -12px 0 0 -6px;
-  border: 12px solid transparent;
-  border-right-width: 0;
-  border-left-color: #fff;
-  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.55));
-  transform: rotate(var(--heading, 0rad)) translateX(56px);
-  opacity: 0;
+#pad .u { grid-area: 1 / 2; }
+#pad .l { grid-area: 2 / 1; }
+#pad .r { grid-area: 2 / 3; }
+#pad .d { grid-area: 3 / 2; }
+
+#pad[data-y='-1'] .u,
+#pad[data-x='-1'] .l,
+#pad[data-x='1'] .r,
+#pad[data-y='1'] .d {
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.8);
 }
 
-#stick.going::after {
-  opacity: 0.95;
-}
-
-#knob {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.85);
-  transform: translate(-50%, -50%);
+.bonk-left #pad {
+  left: auto;
+  right: max(10px, env(safe-area-inset-right));
 }
 
 #bonk {
@@ -1074,6 +1084,15 @@ button.primary:active {
     display: block !important;
   }
 
+  /* Gone once the pad has been touched. */
+  .played #hintTouch {
+    opacity: 0;
+  }
+
+  #pad {
+    display: grid;
+  }
+
   .touch-only {
     display: inline;
   }
@@ -1100,7 +1119,7 @@ button.primary:active {
 
   #field {
     /* Leave a strip under the map for the controls so nothing covers the burrow. */
-    width: min(100vw, calc((100dvh - 128px) * 560 / 914));
+    width: min(100vw, calc((100dvh - 136px) * 560 / 914));
     aspect-ratio: 560 / 914;
   }
 
@@ -1146,10 +1165,15 @@ button.primary:active {
 
 /* On a tall screen the buttons and hints live in the strip under the map. */
 @media (orientation: portrait) {
-  #tools {
+  /* The pad has one corner of the strip and the bonk button the other: the menu
+     sits between them. */
+  #tools,
+  .bonk-left #tools {
     position: fixed;
-    left: max(12px, env(safe-area-inset-left));
-    bottom: max(70px, calc(env(safe-area-inset-bottom) + 58px));
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    bottom: max(14px, env(safe-area-inset-bottom));
     font-size: 19px;
   }
 
@@ -1208,10 +1232,10 @@ button.primary:active {
   #hint,
   #hintTouch {
     position: fixed;
-    left: max(12px, env(safe-area-inset-left));
-    bottom: max(14px, env(safe-area-inset-bottom));
-    max-width: calc(100vw - 132px);
-    transform: none;
+    left: 50%;
+    bottom: calc(max(4px, env(safe-area-inset-bottom)) + 146px);
+    width: max-content;
+    max-width: 92vw;
     white-space: normal;
     border-radius: 14px;
     font-size: 15px;
@@ -1229,11 +1253,12 @@ button.primary:active {
     left: max(14px, env(safe-area-inset-left));
   }
 
-  .bonk-left #tools,
-  .bonk-left #hint,
-  .bonk-left #hintTouch {
-    left: auto;
-    right: max(12px, env(safe-area-inset-right));
+}
+
+/* On a wide phone the menu runs along the bottom of the map, so the pad sits above it. */
+@media (pointer: coarse) and (orientation: landscape) {
+  #pad {
+    bottom: max(64px, env(safe-area-inset-bottom));
   }
 }
 

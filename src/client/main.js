@@ -26,7 +26,6 @@ const STORE = 'seed-rush-slots';
 const SIDE_STORE = 'hash-rush-bonk-left';
 const MODE_STORE = 'seed-rush-teams';
 const MAP_STORE = 'seed-rush-map';
-const STICK_STORE = 'hash-rush-stick';
 const ASSIST_STORE = 'hash-rush-assist';
 // What the host can set a slot to. 'open' is an empty seat anyone with the link
 // can take, and 'remote' is one a friend has taken.
@@ -119,9 +118,7 @@ try {
 const renderer = createRenderer($('canvas'), MAP);
 const query = new URLSearchParams(location.search);
 // The phone controls can be tried out from the address bar, and the phone keeps
-// what it was last given: ?stick=30 makes the stick trail the thumb at that many
-// pixels instead of staying put (?stick=0 puts it back), ?assist=0 turns the lane
-// help off. Left out, the built-in values apply.
+// what it was last given: ?assist=0 turns the lane help off.
 function tuned(name, key) {
   try {
     if (query.has(name)) localStorage.setItem(key, query.get(name));
@@ -130,17 +127,14 @@ function tuned(name, key) {
     return query.get(name);
   }
 }
-const stickRange = Number(tuned('stick', STICK_STORE));
 const input = createInput({
   stage: $('stage'),
   canvas: $('canvas'),
-  stick: $('stick'),
-  knob: $('knob'),
+  pad: $('pad'),
   bonkBtn: $('bonk'),
   throwBtn: $('throw'),
   toWorld: renderer.toWorld,
   toWorldDir: renderer.toWorldDir,
-  stickRange: stickRange >= 12 && stickRange <= 80 ? stickRange : undefined,
   laneHelp: tuned('assist', ASSIST_STORE) !== '0',
 });
 
@@ -1073,7 +1067,7 @@ function startGame() {
   helpers = [];
   controllers = active.map(({ slot }, id) => {
     slot.playerId = id;
-    // A move off a touch stick is straightened out here, where the hamster really
+    // A move off a touch pad is straightened out here, where the hamster really
     // is, whether the thumb is the host's or a guest's.
     if (slot.kind === 'human') {
       const help = createLaneHelp();

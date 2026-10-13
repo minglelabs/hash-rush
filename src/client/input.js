@@ -18,12 +18,6 @@ export const KEYS = {
   throw: ['KeyF', 'KeyK'],
 };
 const HANDLED = new Set(Object.values(KEYS).flat());
-// The stick stays where the thumb first came down, and only the angle of the thumb
-// from there counts: point the thumb somewhere and the hamster goes that way. (A
-// number of pixels here instead makes the stick trail the thumb at that distance.)
-const STICK_RANGE = Infinity;
-// How far the knob is drawn from the centre at most.
-const KNOB_REACH = 30;
 // Past this the hamster runs flat out, the way a held arrow key does.
 const STICK_DEAD = 8;
 // Lanes run along the axes, so a push counts as straight unless it is this close
@@ -31,18 +25,14 @@ const STICK_DEAD = 8;
 const DIAGONAL = (15 * Math.PI) / 180;
 // Extra lean needed to leave the current heading, so a wobbling thumb does not flicker.
 const STICKY = (6 * Math.PI) / 180;
-// Closest the stick centre may sit to a screen edge.
-const STICK_EDGE = 40;
-// A thumb held on a heading creeps about without meaning to. The stick takes up this
-// many pixels of creep a second, so only a move made on purpose turns or stops the hamster.
-const STICK_CREEP = 20;
 // A fingertip is wider than a mouse pointer: a tap this near a rival (world pixels) means that rival.
 const TAP_REACH = 48;
 // A touch on the map that lifts this soon (ms) without sliding is a tap, not a push.
 const TAP = 300;
 
-// The joystick is an eight-way pad: no slow walk, and a slightly crooked push still
-// runs straight down a lane. `was` is the previous result.
+// The touch pad is eight-way, like arrow keys: no slow walk, and a thumb a little
+// off a key still runs straight down a lane. (dx, dy) is where the thumb lies from
+// the pad's middle, and `was` is the previous result.
 export function stickDir(dx, dy, was = null) {
   if (Math.hypot(dx, dy) < STICK_DEAD) return { x: 0, y: 0 };
   const a = Math.atan2(dy, dx);
@@ -54,71 +44,6 @@ export function stickDir(dx, dy, was = null) {
   let snap = Math.round(a / (Math.PI / 4)) * (Math.PI / 4);
   if (Math.abs(a - snap) > DIAGONAL) snap = Math.round(a / (Math.PI / 2)) * (Math.PI / 2);
   return { x: Math.round(Math.cos(snap)) || 0, y: Math.round(Math.sin(snap)) || 0 };
-}
-
-// The stick itself, kept apart from the page so it can be tested: where its centre
-// is, and which way the thumb on it is pushing. `w` and `h` are the screen's size,
-// and times are in seconds.
-export function stickStart(x, y, w, h, t, range = STICK_RANGE) {
-  // A thumb near the screen edge has no room to push further out, so the stick
-  // centre keeps clear of the edges and the knob starts under the thumb.
-  const ox = Math.min(Math.max(x, STICK_EDGE), w - STICK_EDGE);
-  const oy = Math.min(Math.max(y, STICK_EDGE), h - STICK_EDGE);
-  return { ox, oy, sx: x, sy: y, px: x, py: y, at: t, range, live: false, x: 0, y: 0 };
-}
-
-// The thumb has moved to (x, y). Updates the stick's centre and its heading.
-export function stickMove(s, x, y, t) {
-  // Resting the thumb where it landed, even off-centre, is not a push.
-  if (!s.live) {
-    const mx = x - s.sx;
-    const my = y - s.sy;
-    const m = Math.hypot(mx, my);
-    if (m < 6) return;
-    s.live = true;
-    // The room kept at a screen edge is for a push on out towards that edge. Any
-    // other push starts from under the thumb, or it would first run the wrong way.
-    const ex = s.sx - s.ox;
-    const ey = s.sy - s.oy;
-    if (mx * ex + my * ey <= 0.5 * m * Math.hypot(ex, ey)) {
-      s.ox = s.sx;
-      s.oy = s.sy;
-    }
-  }
-  const fixed = s.range === Infinity;
-  if (!fixed && (s.x || s.y)) {
-    // While the thumb sat where it was, the stick slid round to sit right behind it.
-    const k = s.range / Math.hypot(s.x, s.y);
-    const gx = s.px - s.x * k - s.ox;
-    const gy = s.py - s.y * k - s.oy;
-    const take = Math.min(1, (STICK_CREEP * (t - s.at)) / (Math.hypot(gx, gy) || 1));
-    s.ox += gx * take;
-    s.oy += gy * take;
-  }
-  s.px = x;
-  s.py = y;
-  s.at = t;
-  let dx = x - s.ox;
-  let dy = y - s.oy;
-  const d = Math.hypot(dx, dy);
-  if (d > s.range) {
-    // The stick trails a thumb that has run past its rim, so turning back takes
-    // effect at once instead of after the trip back to the centre.
-    s.ox += (dx / d) * (d - s.range);
-    s.oy += (dy / d) * (d - s.range);
-    dx = (dx / d) * s.range;
-    dy = (dy / d) * s.range;
-  }
-  const dir = stickDir(dx, dy, s);
-  if (!fixed && (dir.x || dir.y) && (dir.x !== s.x || dir.y !== s.y)) {
-    // A new heading starts dead on: the stick swings round behind the thumb, so
-    // the next turn is as near on one side as on the other.
-    const k = Math.hypot(dx, dy) / Math.hypot(dir.x, dir.y);
-    s.ox = x - dir.x * k;
-    s.oy = y - dir.y * k;
-  }
-  s.x = dir.x;
-  s.y = dir.y;
 }
 
 // Holding the touch button waits for the swing that connects instead of whiffing.
@@ -139,12 +64,13 @@ export function holdSwing(g, me, fresh) {
   return fresh && !near ? { ax: 0, ay: 0, dist: 0 } : null;
 }
 
-// `stickRange` and `laneHelp` are there for trying the phone controls out: a stick
-// that trails the thumb at that distance, and whether stick moves ask for the lane help.
-export function createInput({ stage, canvas, stick, knob, bonkBtn, throwBtn, toWorld, toWorldDir, stickRange = STICK_RANGE, laneHelp = true }) {
+// `laneHelp` is there for trying the phone controls out: whether moves off the pad
+// ask for the lane help.
+export function createInput({ stage, canvas, pad, bonkBtn, throwBtn, toWorld, toWorldDir, laneHelp = true }) {
   const down = new Set();
   let enabled = false;
   let touch = null;
+  const taps = new Map();
   let button = false;
   let throwHeld = false;
   let buttonWas = false;
@@ -163,7 +89,8 @@ export function createInput({ stage, canvas, stick, knob, bonkBtn, throwBtn, toW
     throwHeld = false;
     click = null;
     order = null;
-    stick.hidden = true;
+    taps.clear();
+    showPad();
   }
 
   window.addEventListener('keydown', (e) => {
@@ -182,40 +109,43 @@ export function createInput({ stage, canvas, stick, knob, bonkBtn, throwBtn, toW
     click = toWorld(e.clientX, e.clientY);
   });
 
-  // Where the stick is drawn: its ring, the knob under the thumb, and a pointer on
-  // the rim for the heading it has taken, which a thumb cannot hide.
-  function showStick() {
-    stick.style.left = `${touch.ox}px`;
-    stick.style.top = `${touch.oy}px`;
-    const kx = touch.px - touch.ox;
-    const ky = touch.py - touch.oy;
-    const k = Math.min(1, KNOB_REACH / (Math.hypot(kx, ky) || 1));
-    knob.style.transform = `translate(calc(-50% + ${kx * k}px), calc(-50% + ${ky * k}px))`;
-    stick.classList.toggle('going', !!(touch.x || touch.y));
-    if (touch.x || touch.y) stick.style.setProperty('--heading', `${Math.atan2(touch.y, touch.x)}rad`);
+  // Touch: a faint pad of arrow keys under the thumb. Whichever way the thumb lies
+  // from the pad's middle is the key held down, so a touch moves the hamster at
+  // once and a short slide to the next key turns it. Its keys light up as they are held.
+  function showPad() {
+    pad.dataset.x = touch ? touch.x : 0;
+    pad.dataset.y = touch ? touch.y : 0;
   }
-
-  // Touch: the first finger on the screen becomes a floating joystick.
-  stage.addEventListener('pointerdown', (e) => {
-    if (!enabled || e.pointerType !== 'touch' || touch || e.target.closest('button')) return;
-    touch = stickStart(e.clientX, e.clientY, window.innerWidth, window.innerHeight, e.timeStamp / 1000, stickRange);
-    touch.id = e.pointerId;
-    // A finger that only taps the map gives an order, like a mouse click.
-    touch.tap = e.target === canvas ? e.timeStamp : 0;
-    stick.hidden = false;
-    showStick();
+  function press(e) {
+    const r = pad.getBoundingClientRect();
+    const dir = stickDir(e.clientX - r.left - r.width / 2, e.clientY - r.top - r.height / 2, touch);
+    touch.x = dir.x;
+    touch.y = dir.y;
+    showPad();
+  }
+  pad.addEventListener('pointerdown', (e) => {
+    if (!enabled || touch) return;
+    touch = { id: e.pointerId, x: 0, y: 0 };
+    press(e);
+    // The hint about the controls has done its job.
+    stage.classList.add('played');
     e.preventDefault();
   });
+  // A finger that taps the map gives an order, like a mouse click.
+  stage.addEventListener('pointerdown', (e) => {
+    if (!enabled || e.pointerType !== 'touch' || e.target !== canvas) return;
+    taps.set(e.pointerId, { x: e.clientX, y: e.clientY, at: e.timeStamp });
+  });
   window.addEventListener('pointermove', (e) => {
-    if (!touch || e.pointerId !== touch.id) return;
-    stickMove(touch, e.clientX, e.clientY, e.timeStamp / 1000);
-    showStick();
+    if (touch && e.pointerId === touch.id) press(e);
   });
   const release = (e) => {
+    const tap = taps.get(e.pointerId);
+    taps.delete(e.pointerId);
+    if (tap && e.type === 'pointerup' && e.timeStamp - tap.at < TAP && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) < 10) click = { ...toWorld(tap.x, tap.y), reach: TAP_REACH };
     if (!touch || e.pointerId !== touch.id) return;
-    if (e.type === 'pointerup' && touch.tap && !touch.live && e.timeStamp - touch.tap < TAP) click = { ...toWorld(touch.sx, touch.sy), reach: TAP_REACH };
     touch = null;
-    stick.hidden = true;
+    showPad();
   };
   window.addEventListener('pointerup', release);
   window.addEventListener('pointercancel', release);
@@ -268,10 +198,10 @@ export function createInput({ stage, canvas, stick, knob, bonkBtn, throwBtn, toW
     if (touch) {
       out.mx = touch.x;
       out.my = touch.y;
-      // A move off the stick is one the lane help may straighten out.
+      // A move off the pad is one the lane help may straighten out.
       out.stick = laneHelp && !!(touch.x || touch.y);
     }
-    // Keys and the joystick point in screen directions; the view may be turned.
+    // Keys and the pad point in screen directions; the view may be turned.
     const dir = toWorldDir(out.mx, out.my);
     out.mx = dir.x;
     out.my = dir.y;
