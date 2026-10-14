@@ -182,3 +182,16 @@ test('every map: holding any push from any lane cell never dithers or wedges', (
     }
   }
 });
+
+test('a swipe drawn on a slant keeps its slant unless it only rubs the hedge beside the lane', () => {
+  const s = Math.sin(Math.PI / 8);
+  const c = Math.cos(Math.PI / 8);
+  // In the long lane, leaning a little into the hedge: straightened to full speed along it.
+  const lane = start({ x: cellX(2), y: LANE });
+  assert.deepEqual(lane.help(lane.g, lane.me, { mx: c, my: s, stick: true }), { mx: 1, my: 0, stick: true });
+  // On open ground the slant goes as drawn.
+  const open = start({ x: 100, y: 300 });
+  const out = open.help(open.g, open.me, { mx: c, my: -s, stick: true });
+  assert.equal(out.mx, c);
+  assert.equal(out.my, -s);
+});
