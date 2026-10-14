@@ -5,7 +5,7 @@
 // their inputs and draw the snapshots the host sends back, with their own hamster
 // played a little ahead so that it answers at once (predict.js).
 
-import { createGame, step, allied, inHome, timeoutReason } from '../sim/game.js';
+import { createGame, step, allied, inHome, timeoutReason, timeoutWinners } from '../sim/game.js';
 import { DT, OVERTIME, COUNTDOWN, BONK } from '../sim/constants.js';
 import { MAP, MAPS, MAP_IDS } from '../sim/map.js';
 import { createBot } from '../ai/bot.js';
@@ -565,6 +565,7 @@ function toggleRoomList() {
 
 // ---------- ranking ----------
 
+let rankAsk = 0;
 function toggleRanking() {
   const open = $('ranking').hidden;
   $('ranking').hidden = !open;
@@ -575,9 +576,11 @@ function toggleRanking() {
   renderHistory();
   $('rankTable').textContent = '';
   $('rankStatus').textContent = t('rankLoading');
+  // Opened, closed and opened again quickly: only the newest answer is shown.
+  const ask = ++rankAsk;
   loadRanking()
     .then(({ rows, mine: me }) => {
-      if ($('ranking').hidden) return;
+      if ($('ranking').hidden || ask !== rankAsk) return;
       if (me) $('rankMe').textContent = t('rankMe', me.elo, me.games, me.wins);
       $('rankStatus').textContent = rows.length ? '' : t('rankEmpty');
       renderRanking(rows);
@@ -625,6 +628,7 @@ $('profile').addEventListener('click', (e) => e.target === $('profile') && ($('p
 
 // The best fifty, and this player's own row under them if it is further down.
 function renderRanking(rows) {
+  $('rankTable').textContent = '';
   const shown = rows.slice(0, 50);
   const me = rows.find((r) => r.me);
   if (me && !shown.includes(me)) shown.push(me);
@@ -681,7 +685,7 @@ function renderHistory() {
         what.append(who);
       });
       const tag = document.createElement('small');
-      tag.textContent = `${when} · ${t(h.rated ? 'rankRated' : 'rankUnrated')}`;
+      tag.textContent = `${when} · ${h.stopped ? `${t('rankStopped')} · ` : ''}${t(h.rated ? 'rankRated' : 'rankUnrated')}`;
       li.append(result, mode, what, tag);
       return li;
     }),
@@ -1148,6 +1152,12 @@ function hostData(msg) {
     }
     for (const ev of msg.ev || []) onEvent(ev);
   } else if (msg.t === 'lobbyscreen') {
+    // The host cut the round short: it counts as the host judged it.
+    if (Array.isArray(msg.ws) && game && game.phase === 'playing' && !game.rated) {
+      game.winners = msg.ws.filter((id) => Number.isInteger(id) && game.players[id]);
+      game.stopped = true;
+      rateRound();
+    }
     toLobby();
     renderLobby();
   } else if (msg.t === 'chat') {
@@ -1735,7 +1745,7 @@ function rateRound() {
   const rated = !!net.match && people.includes(me) && people.length + levels.size >= 2;
   // The ranking goes by the name this player last played under.
   if (rated) shareName(me.name);
-  remember({ at: Date.now(), map: game.map.id, team: me.team >= 0, myTeam: me.team, won: won(me), rated, with: game.players.filter((p) => p !== me).map((p) => ({ name: p.name, level: String(p.kind || '').startsWith('bot:') ? p.kind.slice(4) : '', team: p.team })) });
+  remember({ at: Date.now(), map: game.map.id, team: me.team >= 0, myTeam: me.team, won: won(me), rated, stopped: !!game.stopped, with: game.players.filter((p) => p !== me).map((p) => ({ name: p.name, level: String(p.kind || '').startsWith('bot:') ? p.kind.slice(4) : '', team: p.team })) });
   const players = [...people.map((p) => ({ pid: p.pid, pub: p.pub, won: won(p) })), ...bots.map((p) => ({ pid: p.kind, won: won(p) }))];
   if (rated) signResult({ id: net.match.id, at: net.match.at, map: game.map.id, team: me.team >= 0, players });
 }
@@ -2253,6 +2263,17 @@ function playAhead(at) {
   swinging = now;
 }
 
+// A round cut short still counts for the ratings and the record: it is judged as
+// if time had run out right then. The host decides who that is and tells the
+// guests, so everybody signs the same result.
+function settleCutShort() {
+  if (!game || game.phase !== 'playing' || game.rated) return null;
+  game.winners = timeoutWinners(game.players);
+  game.stopped = true;
+  rateRound();
+  return game.winners;
+}
+
 // Calling the championship off and going back to round one. Nothing is wiped: the
 // games played so far go into the list of past championships, marked as stopped
 // with no champion, and a round in progress is abandoned. A reload carries on
@@ -2261,7 +2282,8 @@ function playAhead(at) {
 function resetSeries() {
   if (net.role === 'guest' || !confirm(t('resetAsk'))) return;
   if (game) {
-    broadcast(() => ({ t: 'lobbyscreen' }));
+    const ws = settleCutShort();
+    broadcast(() => ({ t: 'lobbyscreen', ws }));
     toLobby();
   }
   if (rounds > 0) {
@@ -2343,7 +2365,8 @@ for (const id of ['back', 'quit']) {
       endSeason();
       return;
     }
-    broadcast(() => ({ t: 'lobbyscreen' }));
+    const ws = settleCutShort();
+    broadcast(() => ({ t: 'lobbyscreen', ws }));
     toLobby();
     renderLobby();
   });

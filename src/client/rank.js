@@ -2,7 +2,7 @@
 // history in local storage, and the signed results and names on the public broker.
 
 import { newIdentity, openIdentity, resultText, signedResults, rate, verify, pidOf, ELO } from './rating.js';
-import { openBroker } from './net.js';
+import { openBrokers } from './net.js';
 
 const KEY_STORE = 'hashrush.identity';
 const HISTORY_STORE = 'hashrush.history';
@@ -63,9 +63,9 @@ export const lastRating = () => read(RATING_STORE, { elo: ELO.start, games: 0, w
 // ---------- the broker ----------
 
 async function publish(topic, payload) {
-  const client = await openBroker();
-  await new Promise((resolve) => client.publish(topic, payload, { retain: true, qos: 1 }, resolve));
-  client.end();
+  const clients = await openBrokers();
+  await Promise.all(clients.map((c) => new Promise((resolve) => c.publish(topic, payload, { retain: true, qos: 1 }, resolve))));
+  for (const c of clients) c.end();
 }
 
 // Puts this player's current name up, signed, so the ranking shows it. A new name
@@ -102,13 +102,21 @@ export async function signResult(match) {
   }
 }
 
+const stamp = (data) => {
+  try {
+    return Number(JSON.parse(data.b).at) || 0;
+  } catch {
+    return 0;
+  }
+};
+
 // Everything on the broker, checked and worked out: the table, best first, with
 // names, and this player's own row. Rejects if no broker can be reached.
 export async function loadRanking() {
-  const client = await openBroker();
-  const sigs = [];
+  const clients = await openBrokers();
+  const sigs = new Map();
   const names = new Map();
-  client.on('message', (topic, payload) => {
+  const heard = (topic, payload) => {
     const parts = topic.slice(TOPIC.length + 1).split('/');
     let data;
     try {
@@ -117,16 +125,24 @@ export async function loadRanking() {
       return;
     }
     if (parts[0] === 'm' && parts.length === 3 && typeof data.r === 'string' && typeof data.s === 'string') {
-      sigs.push({ mid: parts[1], pid: parts[2], text: data.r, sig: data.s });
+      // The same signature off two brokers is one signature.
+      sigs.set(topic, { mid: parts[1], pid: parts[2], text: data.r, sig: data.s });
     } else if (parts[0] === 'p' && PID.test(parts[1]) && typeof data.b === 'string') {
-      names.set(parts[1], data);
+      // Two brokers may hold different versions of a name: the newest counts.
+      const was = names.get(parts[1]);
+      if (!was || stamp(data) > stamp(was)) names.set(parts[1], data);
     }
-  });
+  };
   // Retained messages arrive right after subscribing; give them time to come in.
-  await new Promise((resolve) => client.subscribe([`${TOPIC}/m/+/+`, `${TOPIC}/p/+`], () => setTimeout(resolve, 2500)));
-  client.end(true);
+  await Promise.all(
+    clients.map((c) => {
+      c.on('message', heard);
+      return new Promise((resolve) => c.subscribe([`${TOPIC}/m/+/+`, `${TOPIC}/p/+`], () => setTimeout(resolve, 2500)));
+    }),
+  );
+  for (const c of clients) c.end(true);
 
-  const table = rate(await signedResults(sigs));
+  const table = rate(await signedResults([...sigs.values()]));
   // A name counts if the key it belongs to signed it.
   const named = new Map();
   for (const [pid, { b, s }] of names) {

@@ -208,7 +208,7 @@ export function timeoutRanking(players) {
 
 const rankSides = (a, b) => b.kills - a.kills || a.deaths - b.deaths || b.seeds - a.seeds;
 
-function timeoutWinners(players) {
+export function timeoutWinners(players) {
   const sorted = timeoutRanking(players);
   return sorted.filter((s) => rankSides(s, sorted[0]) === 0).flatMap((s) => s.ids);
 }
