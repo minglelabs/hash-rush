@@ -107,6 +107,14 @@ function pitOnWay(g, x, y, tx, ty) {
 
 const onIce = (g, p) => iceNow(g.map, g.time).some((r) => p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h);
 
+// Whether a move straight along one axis was drawn leaning into a wall beside it.
+function rubs(g, me, sx, sy, inp) {
+  if (sx && sy) return false;
+  const px = sx ? 0 : Math.sign(inp.mx);
+  const py = sy ? 0 : Math.sign(inp.my);
+  return (px || py) && walled(gridOf(g.map), me.x, me.y, px, py);
+}
+
 const freshSteer = () => ({ lx: 0, ly: 0, at: -1, px: 0, py: 0, turn: null });
 
 // The move to make for a stick pushed (dx, dy), each -1, 0 or 1 in world axes.
@@ -198,10 +206,10 @@ export function createLaneHelp(from = null) {
     const sx = Math.sign(Math.round(inp.mx));
     const sy = Math.sign(Math.round(inp.my));
     const move = steer(g, me, sx, sy, st);
-    // A slanted swipe on open ground goes the way it was drawn; in the lanes,
-    // or once the help has had to step in, it goes the way the help says.
-    const open = me.x < g.map.lanes.x1 || me.x >= g.map.lanes.x2;
-    if (open && move.x === sx && move.y === sy) return inp;
+    // A slanted swipe goes the way it was drawn wherever the help had nothing to
+    // straighten out, unless the slant only leans into the hedge beside the lane
+    // and would rub along it at less than full speed.
+    if (move.x === sx && move.y === sy && !rubs(g, me, sx, sy, inp)) return inp;
     inp.mx = move.x;
     inp.my = move.y;
     return inp;
