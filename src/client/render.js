@@ -1123,6 +1123,20 @@ export function createRenderer(canvas, firstMap) {
         ctx.strokeText(p.name, 0, ly);
         ctx.fillStyle = look.color;
         ctx.fillText(p.name, 0, ly);
+        // While the blue ring is at its brightest, a word over the name says whose it is.
+        const fresh = game.phase === 'countdown' ? 1 : Math.max(0, Math.min(1, ME_RING - game.time));
+        if (me && fresh > 0) {
+          const size = 16 * (portrait ? 1.55 : 1);
+          ctx.save();
+          ctx.globalAlpha = fresh;
+          ctx.font = `900 ${size}px ${FONT}`;
+          ctx.lineWidth = 4;
+          ly -= size * 1.15;
+          ctx.strokeText(tr('meTag'), 0, ly);
+          ctx.fillStyle = 'rgb(30, 120, 255)';
+          ctx.fillText(tr('meTag'), 0, ly);
+          ctx.restore();
+        }
         // What is going on at the flower, in words: a seed takes standing still
         // for, and only one hamster nibbles at a time. Everyone's nibbling is
         // named; the reminders are for the player's own hamster.

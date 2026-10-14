@@ -744,6 +744,44 @@ button.primary:active {
   paint-order: stroke fill;
 }
 
+/* A paused round: one big word over a dimmed map, and the way back. */
+#pause {
+  position: absolute;
+  inset: 0;
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6em;
+  background: rgba(20, 30, 20, 0.55);
+}
+
+#pause[hidden] {
+  display: none !important;
+}
+
+#pauseWord {
+  font-size: 15cqw;
+  font-weight: 900;
+  color: #fff;
+  -webkit-text-stroke: 0.05em var(--ink);
+  paint-order: stroke fill;
+  letter-spacing: 0.04em;
+}
+
+#pauseBy {
+  margin: 0;
+  color: #fff;
+  font-size: clamp(14px, 3cqw, 22px);
+  font-weight: 700;
+}
+
+#resume {
+  font-size: clamp(18px, 4cqw, 28px);
+  padding: 0.5em 1.4em;
+}
+
 #callout {
   position: absolute;
   top: 24%;
@@ -1267,6 +1305,19 @@ button.primary:active {
   #tools button {
     min-height: 44px;
     padding: 0.35em 1em;
+  }
+
+  /* Above the row, so showing it never slides "⋯" over to where it was tapped. */
+  #againBtn {
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 10px);
+    transform: translateX(-50%);
+    white-space: nowrap;
+  }
+
+  #tools.open #againBtn {
+    visibility: hidden;
   }
 
   /* The strip under the map is too narrow for every button beside the bonk
