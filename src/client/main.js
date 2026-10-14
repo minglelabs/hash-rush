@@ -969,6 +969,9 @@ function guestData(conn, msg) {
   }
   if (msg.t === 'name') {
     slot.name = guestName(slot, msg.name);
+    // The name they come back under after a reload is the new one: hold the seat for that.
+    slot.said = String(msg.name || '');
+    saveSlots();
     renderLobby();
     sendLobby();
   } else if (msg.t === 'team') {
