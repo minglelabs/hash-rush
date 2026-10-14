@@ -525,6 +525,8 @@ function updateStart() {
   // A team game needs somebody to play against, however the sides are split.
   const lonely = teamMode && playing.length >= 2 && new Set(playing.map((s) => s.team)).size < 2;
   $('start').disabled = playing.length < 2 || lonely;
+  // Only the host can wipe the room's record, and only once there is one.
+  $('resetBtn').hidden = net.role === 'guest' || (rounds === 0 && wins.every((n) => !n));
   $('start').textContent = t(playing.length < 2 ? 'needOpponent' : lonely ? 'needTeams' : 'start');
 }
 
@@ -1538,6 +1540,7 @@ function enterStage() {
   clearTimeout(resultTimer);
   showPause(false);
   $('pauseBtn').hidden = net.role === 'guest';
+  $('resetGame').hidden = net.role === 'guest';
   $('result').hidden = true;
   hideChampions();
   $('feed').textContent = '';
@@ -2224,6 +2227,24 @@ function playAhead(at) {
   swinging = now;
 }
 
+// Starting over for real: the room's wins, running totals and game count are wiped,
+// as if it had just been opened, and a round in progress is abandoned. A reload
+// keeps all of that, which is the point of it, so this is the way to a clean slate.
+// The room, its link and who sits where stay.
+function resetSeries() {
+  if (net.role === 'guest' || !confirm(t('resetAsk'))) return;
+  if (game) {
+    broadcast(() => ({ t: 'lobbyscreen' }));
+    toLobby();
+  }
+  wins.fill(0);
+  career.forEach((c) => c.fill(0));
+  rounds = 0;
+  saveRoom();
+  renderLobby();
+  sendLobby();
+}
+
 function toLobby() {
   clearTimeout(resultTimer);
   hideChampions();
@@ -2251,6 +2272,8 @@ $('start').addEventListener('click', () => {
   else startGame();
 });
 $('again').addEventListener('click', startGame);
+$('resetBtn').addEventListener('click', resetSeries);
+$('resetGame').addEventListener('click', resetSeries);
 $('modeSolo').addEventListener('click', () => setTeamMode(false));
 $('modeTeam').addEventListener('click', () => setTeamMode(true));
 $('roomListBtn').addEventListener('click', toggleRoomList);
