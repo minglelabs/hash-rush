@@ -5,17 +5,11 @@
 // everyone works the ratings out for themselves from the same signed results.
 //
 // Computers are rated too, one entry per level: every hard bot is "the hard bot".
-// A round with only one person in it is that person's word alone, so those count
-// for less: a few a day at most.
+// Every round counts, however often the same people meet.
 //
 // Nothing here touches the page or the network: it runs in Node for the tests.
 
 export const ELO = { start: 1000, k: 32 };
-// The same people playing each other over and over count this many times a day.
-// Past that, a pair of accounts cannot farm points off each other.
-export const DAILY = 5;
-// Rounds a day that count for one person playing only against computers.
-export const SOLO_DAILY = 10;
 // The computers' entries in a result and in the table.
 export const BOT_LEVELS = ['easy', 'normal', 'hard', 'ace', 'rl'];
 export const isBot = (id) => typeof id === 'string' && id.startsWith('bot:') && BOT_LEVELS.includes(id.slice(4));
@@ -146,19 +140,8 @@ export function rate(results) {
     if (!table.has(pid)) table.set(pid, { pid, elo: ELO.start, games: 0, wins: 0, since: at, bot: isBot(pid) });
     return table.get(pid);
   };
-  const seen = new Map();
   const sorted = [...results].sort((a, b) => a.at - b.at || (a.id < b.id ? -1 : 1));
   for (const r of sorted) {
-    const day = Math.floor(r.at / 86400000);
-    const key = `${day}:${r.players.map((p) => p.pid).sort().join(',')}`;
-    seen.set(key, (seen.get(key) || 0) + 1);
-    if (seen.get(key) > DAILY) continue;
-    const people = r.players.filter((p) => !isBot(p.pid));
-    if (people.length === 1) {
-      const solo = `${day}:solo:${people[0].pid}`;
-      seen.set(solo, (seen.get(solo) || 0) + 1);
-      if (seen.get(solo) > SOLO_DAILY) continue;
-    }
     const winners = r.players.filter((p) => p.won).map((p) => row(p.pid, r.at));
     const losers = r.players.filter((p) => !p.won).map((p) => row(p.pid, r.at));
     for (const p of [...winners, ...losers]) p.games++;

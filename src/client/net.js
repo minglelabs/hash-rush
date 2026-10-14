@@ -261,6 +261,29 @@ async function connectBroker(options) {
 // A plain connection to the broker, for the ratings.
 export const openBroker = () => connectBroker({});
 
+// Connections to every broker that answers, for the ratings: results are put on
+// all of them and read back from all of them, so one broker being down for a
+// while loses nothing. Rejects only if none answers.
+export async function openBrokers() {
+  await loadScript(MQTT_SRC, 'mqtt');
+  const tries = BROKERS.map(
+    (url) =>
+      new Promise((resolve, reject) => {
+        const client = window.mqtt.connect(url, { connectTimeout: 6000 });
+        client.once('connect', () => resolve(client));
+        const fail = () => {
+          client.end(true);
+          reject(new Error('no broker'));
+        };
+        client.once('error', fail);
+        client.once('offline', fail);
+      }),
+  );
+  const open = (await Promise.allSettled(tries)).filter((r) => r.status === 'fulfilled').map((r) => r.value);
+  if (!open.length) throw new Error('no broker');
+  return open;
+}
+
 // Lists a room. `update(info)` replaces what the list shows (null hides it) and
 // `close()` takes it off. Rejects if no broker can be reached.
 export async function announceRoom(room) {

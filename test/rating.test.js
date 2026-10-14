@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ELO, DAILY, SOLO_DAILY, newIdentity, openIdentity, pidOf, verify, resultText, readResult, signedResults, rate } from '../src/client/rating.js';
+import { ELO, newIdentity, openIdentity, pidOf, verify, resultText, readResult, signedResults, rate } from '../src/client/rating.js';
 
 const people = async (n) => Promise.all(Array.from({ length: n }, async () => (await newIdentity()).identity));
 
@@ -64,15 +64,16 @@ test('Elo: the winner takes points off the loser, more for an upset, and a level
   assert.equal(four[0].elo, ELO.start + ELO.k / 2);
 });
 
-test('the same people beating each other all day stop counting after a few rounds', async () => {
+test('every round counts, however often the same people play each other', async () => {
   const [a, b] = await people(2);
   const sigs = [];
-  for (let i = 0; i < DAILY + 5; i++) sigs.push(...(await round(`farm${String(i).padStart(5, '0')}`, 1000 + i, [a, b], [a])));
+  for (let i = 0; i < 20; i++) sigs.push(...(await round(`many${String(i).padStart(5, '0')}`, 1000 + i, [a, b], [i % 3 ? a : b])));
   const table = rate(await signedResults(sigs));
-  assert.equal(table.find((p) => p.pid === a.pid).games, DAILY);
+  assert.equal(table.find((p) => p.pid === a.pid).games, 20);
+  assert.equal(table.find((p) => p.pid === b.pid).games, 20);
 });
 
-test('computers are rated as one entry per level, and one person alone against them counts a few times a day', async () => {
+test('computers are rated as one entry per level, and every round alone against them counts', async () => {
   const [a] = await people(1);
   const solo = async (id, at, wonByMe, other = 'bot:easy') => {
     const text = resultText({ id, at, map: 'meadow', team: false, players: [{ pid: a.pid, pub: a.pub, won: wonByMe }, { pid: 'bot:hard', won: !wonByMe }, { pid: 'bot:hard', won: false }, { pid: other, won: false }] });
@@ -86,8 +87,6 @@ test('computers are rated as one entry per level, and one person alone against t
   // A result naming only computers, or a computer with a key, is not one.
   assert.equal(readResult(resultText({ id: 'nobody001', at: 1, map: 'meadow', team: false, players: [{ pid: 'bot:hard', won: true }, { pid: 'bot:easy', won: false }] })), null);
   const many = [];
-  // Different line-ups, so the cap on the same people meeting again is not what stops it.
-  const others = ['bot:easy', 'bot:normal', 'bot:ace', 'bot:rl'];
-  for (let i = 0; i < SOLO_DAILY + 6; i++) many.push(...(await solo(`solo${String(i + 10).padStart(5, '0')}`, 100 + i, i % 2 === 0, others[i % 4])));
-  assert.equal(rate(await signedResults(many)).find((p) => p.pid === a.pid).games, SOLO_DAILY);
+  for (let i = 0; i < 16; i++) many.push(...(await solo(`solo${String(i + 10).padStart(5, '0')}`, 100 + i, i % 2 === 0)));
+  assert.equal(rate(await signedResults(many)).find((p) => p.pid === a.pid).games, 16);
 });
