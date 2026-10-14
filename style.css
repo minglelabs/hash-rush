@@ -66,6 +66,21 @@ button.primary:active {
   transform: none;
 }
 
+#again small {
+  display: block;
+  font-size: 0.62em;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+/* Once the score card is up there is nothing to steer or bonk, and the bonk
+   button would sit over the card's own buttons on a phone. */
+body:has(#result:not([hidden])) #pad,
+body:has(#result:not([hidden])) #bonk,
+body:has(#result:not([hidden])) #throw {
+  display: none !important;
+}
+
 .card {
   background: var(--cream);
   border: 3px solid var(--line);

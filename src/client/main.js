@@ -1578,7 +1578,13 @@ function enterStage() {
   // A guest sees the button too, greyed out, so it is plain who starts the next round.
   const guest = net.role === 'guest';
   $('again').disabled = guest;
-  $('again').textContent = t(guest ? 'againHostOnly' : 'again');
+  $('again').textContent = t('again');
+  // Who may press it goes small underneath, so the button stays the size it was.
+  if (guest) {
+    const note = document.createElement('small');
+    note.textContent = t('againHostOnly');
+    $('again').append('?', note);
+  }
   $('againBtn').hidden = true;
   $('resultWait').hidden = true;
   scoreKey = '';
