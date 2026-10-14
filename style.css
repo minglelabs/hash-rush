@@ -526,6 +526,24 @@ button.primary:active {
   color: #b5452d;
 }
 
+#rankHistory .mode {
+  padding: 0 0.5em;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #6b5232;
+  background: #f3e3c3;
+}
+
+#rankHistory .mode[style] {
+  color: #fff;
+  background: var(--c);
+}
+
+#rankHistory .side {
+  font-weight: 700;
+}
+
 #rankHistory small {
   flex-basis: 100%;
   color: #a07a45;
