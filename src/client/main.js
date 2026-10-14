@@ -162,7 +162,6 @@ const input = createInput({
   pad: $('pad'),
   bonkBtn: $('bonk'),
   throwBtn: $('throw'),
-  toWorld: renderer.toWorld,
   toWorldDir: renderer.toWorldDir,
   laneHelp: tuned('assist', ASSIST_STORE) !== '0',
 });
@@ -2042,7 +2041,7 @@ function frame(now) {
     }
   }
   if (away) return;
-  renderer.draw(game, { dt, meId, marker: input.marker(), bubbles });
+  renderer.draw(game, { dt, meId, bubbles });
   updateHud();
 }
 
