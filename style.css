@@ -2162,3 +2162,67 @@ button.primary:active {
 #board .scoreTable .split {
   border-left-color: rgba(120, 90, 40, 0.35);
 }
+
+/* A player's card, opened from a face in the lobby. */
+#slots canvas.face {
+  cursor: pointer;
+}
+
+#profile {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(20, 30, 10, 0.55);
+  z-index: 20;
+}
+
+#profile[hidden] {
+  display: none;
+}
+
+#profile .card {
+  position: relative;
+  min-width: min(300px, 100%);
+  padding: 18px 26px;
+  text-align: center;
+}
+
+#profileClose {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  padding: 0.15em 0.6em;
+  font-size: 15px;
+}
+
+#profileFace {
+  width: 78px;
+  height: 69px;
+}
+
+#profileName {
+  margin: 4px 0 2px;
+}
+
+#profileKind {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: #a07a45;
+}
+
+#profileKind:empty {
+  display: none;
+}
+
+#profileRating {
+  margin: 4px 0;
+  font-size: 18px;
+  font-weight: 800;
+}
+
+#profileRecord {
+  margin: 0;
+  color: #6b5232;
+}
