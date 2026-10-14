@@ -258,6 +258,9 @@ async function connectBroker(options) {
   throw new Error('no broker');
 }
 
+// A plain connection to the broker, for the ratings.
+export const openBroker = () => connectBroker({});
+
 // Lists a room. `update(info)` replaces what the list shows (null hides it) and
 // `close()` takes it off. Rejects if no broker can be reached.
 export async function announceRoom(room) {

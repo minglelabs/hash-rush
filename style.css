@@ -431,10 +431,104 @@ button.primary:active {
   color: #2f7a3d;
 }
 
-#roomListBtn {
+#roomListBtn,
+#rankBtn {
   display: block;
   width: 100%;
   margin-bottom: 14px;
+}
+
+#ranking {
+  margin-bottom: 18px;
+  padding: 12px;
+  background: #fff;
+  border: 2px solid var(--line);
+  border-radius: 16px;
+}
+
+#ranking h2 {
+  margin-top: 0;
+}
+
+#ranking h3 {
+  margin: 14px 0 6px;
+  font-size: 15px;
+}
+
+#rankMe {
+  margin: 0 0 8px;
+  font-weight: 800;
+}
+
+#rankStatus,
+#rankNote {
+  margin: 0;
+  font-size: 13px;
+  color: #a07a45;
+}
+
+#rankStatus:empty {
+  display: none;
+}
+
+#rankTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+#rankTable th {
+  color: #a07a45;
+  font-weight: 600;
+}
+
+#rankTable th,
+#rankTable td {
+  padding: 4px 6px;
+  text-align: right;
+}
+
+#rankTable th:nth-child(2),
+#rankTable td:nth-child(2) {
+  text-align: left;
+  font-weight: 700;
+}
+
+#rankTable tr.me td {
+  background: #ffe9a8;
+}
+
+#rankHistory {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  font-size: 14px;
+}
+
+#rankHistory li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  align-items: baseline;
+  padding: 6px 10px;
+  background: var(--cream);
+  border-radius: 10px;
+}
+
+#rankHistory b.won {
+  color: #2f7a3d;
+}
+
+#rankHistory b.lost {
+  color: #b5452d;
+}
+
+#rankHistory small {
+  flex-basis: 100%;
+  color: #a07a45;
 }
 
 #rooms {

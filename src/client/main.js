@@ -19,6 +19,7 @@ import { createHaptics } from './haptics.js';
 import { LOOKS, TEAMS, colorOf, lookOf } from './looks.js';
 import { lang, t, LANGUAGES, stringsFor } from './i18n.js';
 import { hostRoom, joinRoom, announceRoom, watchRooms } from './net.js';
+import { identity, shareName, signResult, remember, history, lastRating, loadRanking } from './rank.js';
 import { createPredictor } from './predict.js';
 
 const $ = (id) => document.getElementById(id);
@@ -300,6 +301,7 @@ function renderLobby() {
     name.setAttribute('aria-label', t('slotName', i + 1));
     name.addEventListener('input', () => {
       slot.name = name.value;
+      if (mine) shareName(name.value);
       if (guest) {
         net.host.send({ t: 'name', name: name.value });
       } else {
@@ -540,6 +542,74 @@ function toggleRoomList() {
     .catch(() => ($('roomsStatus').textContent = t('roomsFail')));
 }
 
+// ---------- ranking ----------
+
+function toggleRanking() {
+  const open = $('ranking').hidden;
+  $('ranking').hidden = !open;
+  $('rankBtn').textContent = t(open ? 'rankClose' : 'rankBtn');
+  if (!open) return;
+  const mine = lastRating();
+  $('rankMe').textContent = t('rankMe', mine.elo, mine.games, mine.wins);
+  renderHistory();
+  $('rankTable').textContent = '';
+  $('rankStatus').textContent = t('rankLoading');
+  loadRanking()
+    .then(({ rows, mine: me }) => {
+      if ($('ranking').hidden) return;
+      if (me) $('rankMe').textContent = t('rankMe', me.elo, me.games, me.wins);
+      $('rankStatus').textContent = rows.length ? '' : t('rankEmpty');
+      renderRanking(rows);
+    })
+    .catch(() => ($('rankStatus').textContent = t('rankFail')));
+}
+
+// The best fifty, and this player's own row under them if it is further down.
+function renderRanking(rows) {
+  const shown = rows.slice(0, 50);
+  const me = rows.find((r) => r.me);
+  if (me && !shown.includes(me)) shown.push(me);
+  if (!shown.length) return;
+  const table = $('rankTable');
+  const head = table.insertRow();
+  for (const label of t('rankCols')) {
+    const th = document.createElement('th');
+    th.textContent = label;
+    head.append(th);
+  }
+  for (const r of shown) {
+    const row = table.insertRow();
+    row.classList.toggle('me', r.me);
+    for (const v of [r.rank, r.name, r.elo, r.games, r.wins]) row.insertCell().textContent = v;
+  }
+}
+
+// This browser's own record, newest first, rated or not.
+function renderHistory() {
+  const list = history().slice(0, 15);
+  if (!list.length) {
+    const li = document.createElement('li');
+    li.textContent = t('rankNoHistory');
+    $('rankHistory').replaceChildren(li);
+    return;
+  }
+  $('rankHistory').replaceChildren(
+    ...list.map((h) => {
+      const li = document.createElement('li');
+      const result = document.createElement('b');
+      result.className = h.won ? 'won' : 'lost';
+      result.textContent = t(h.won ? 'rankWin' : 'rankLoss');
+      const when = new Date(h.at).toLocaleString(lang, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      const what = document.createElement('span');
+      what.textContent = `${t('mapNames')[h.map] || h.map} · ${(h.with || []).join(', ')}`;
+      const tag = document.createElement('small');
+      tag.textContent = `${when} · ${t(h.rated ? 'rankRated' : 'rankUnrated')}`;
+      li.append(result, what, tag);
+      return li;
+    }),
+  );
+}
+
 function renderRooms(rooms) {
   // The room this player is in comes first, marked as theirs and without buttons:
   // seeing it is how a host knows the room really is on the list.
@@ -696,6 +766,9 @@ function welcome(conn, msg) {
     if (teamMode) slot.team = smallerTeam();
     slot.kind = 'remote';
     slot.conn = conn;
+    // Who they are for the ratings: checked when results are read, kept as said here.
+    slot.pid = typeof msg.pid === 'string' && /^[A-Za-z0-9_-]{16}$/.test(msg.pid) ? msg.pid : '';
+    slot.pub = typeof msg.pub === 'string' && /^[A-Za-z0-9_-]{80,100}$/.test(msg.pub) ? msg.pub : '';
     slot.input = IDLE;
     slot.playerId = -1;
     slot.name = guestName(slot, msg.name);
@@ -720,7 +793,17 @@ function guestName(slot, raw) {
   return freeName(slot, !name || ME_NAMES.has(name) ? defaultName(slots.indexOf(slot)) : name);
 }
 
-const roster = () => game.players.map((p) => ({ name: p.name, look: p.look, team: p.team, kind: p.kind, nest: p.nest }));
+const roster = () => game.players.map((p) => ({ name: p.name, look: p.look, team: p.team, kind: p.kind, nest: p.nest, pid: p.pid || '', pub: p.pub || '' }));
+
+// The signing key of whoever sits in a slot: this browser's own for the host's
+// seat, the one a guest said hello with for theirs, none for a bot.
+let myKey = null;
+identity().then((me) => (myKey = me));
+function keyOf(slot) {
+  if (slot.kind === 'human' && myKey) return { pid: myKey.pid, pub: myKey.pub };
+  if (slot.kind === 'remote' && slot.pid && slot.pub) return { pid: slot.pid, pub: slot.pub };
+  return { pid: '', pub: '' };
+}
 
 function guestData(conn, msg) {
   if (!msg || conn.kicked) return;
@@ -865,7 +948,8 @@ async function enterRoom(until = 0) {
 function sayHello() {
   net.needPw = false;
   net.status = '';
-  net.host.send({ t: 'hello', name: slots[0].name, watch: watchOnly, pw: net.pw });
+  // The key goes along so the round can be rated; without one it is just not rated.
+  identity().then((me) => net.host && net.host.send({ t: 'hello', name: slots[0].name, watch: watchOnly, pw: net.pw, pid: me?.pid, pub: me?.pub }));
 }
 
 function hostGone() {
@@ -930,6 +1014,7 @@ function hostData(msg) {
     renderLobby();
   } else if (msg.t === 'start') {
     net.round = msg.g;
+    net.match = typeof msg.mid === 'string' ? { id: msg.mid, at: Number(msg.at) || 0 } : null;
     net.snap = null;
     net.tick = -1;
     net.mine = null;
@@ -952,6 +1037,7 @@ function hostData(msg) {
       players: msg.players.map((p, id) => ({
         id, name: p.name, look: p.look, team: p.team ?? -1, kind: p.kind, nest: p.nest, x: p.nest.x, y: p.nest.y, vx: 0, vy: 0, fx: 1, fy: 0,
         carrying: false, gather: 0, queued: -1, swing: null, cooldown: 0, kills: 0, deaths: 0, seeds: 0, supers: 0, charge: 0, throws: 0, stops: 0,
+        pid: typeof p.pid === 'string' ? p.pid : '', pub: typeof p.pub === 'string' ? p.pub : '',
       })),
     };
     renderer.setMap(game.map);
@@ -1354,8 +1440,11 @@ function startGame() {
   meId = active.findIndex((a) => a.slot.kind === 'human');
   net.pending = [];
   net.round++;
+  // Everyone in the round signs the same result at the end: it needs the same id and time.
+  net.match = { id: Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4), at: Date.now() };
+  game.players.forEach((p, id) => Object.assign(p, keyOf(active[id].slot)));
   const players = roster();
-  broadcast((slot) => ({ t: 'start', g: net.round, map: mapId, players, you: slot.playerId, wins, tot: career, rd: rounds, hist: seasons }));
+  broadcast((slot) => ({ t: 'start', g: net.round, map: mapId, players, you: slot.playerId, wins, tot: career, rd: rounds, hist: seasons, mid: net.match.id, at: net.match.at }));
   enterStage();
   announce();
 }
@@ -1512,11 +1601,26 @@ function onEvent(ev) {
     // A team wins together: everyone on it gets the win.
     for (const p of players) if (won(p)) wins[p.look]++;
     addCareer();
+    rateRound();
     if (meId < 0 || won(players[meId])) audio.play.win();
     else audio.play.lose();
     input.enable(false);
     resultTimer = setTimeout(showResult, 1500);
   }
+}
+
+// A finished round goes into this browser's record, and, with two or more people in
+// it, gets signed for the ratings. Spectators keep no record.
+function rateRound() {
+  if (!game || game.rated || meId < 0) return;
+  game.rated = true;
+  const me = game.players[meId];
+  const people = game.players.filter((p) => p.pid && p.pub);
+  const rated = !!net.match && people.length >= 2 && people.includes(me);
+  // The ranking goes by the name this player last played under.
+  if (rated) shareName(me.name);
+  remember({ at: Date.now(), map: game.map.id, team: me.team >= 0, won: won(me), rated, with: game.players.filter((p) => p !== me).map((p) => p.name) });
+  if (rated) signResult({ id: net.match.id, at: net.match.at, map: game.map.id, team: me.team >= 0, players: people.map((p) => ({ pid: p.pid, pub: p.pub, won: won(p) })) });
 }
 
 // A finished round goes into the running totals once.
@@ -2058,6 +2162,7 @@ $('again').addEventListener('click', startGame);
 $('modeSolo').addEventListener('click', () => setTeamMode(false));
 $('modeTeam').addEventListener('click', () => setTeamMode(true));
 $('roomListBtn').addEventListener('click', toggleRoomList);
+$('rankBtn').addEventListener('click', toggleRanking);
 $('listed').addEventListener('change', announce);
 $('pwField').addEventListener('input', () => {
   roomPw = cleanPw($('pwField').value);
