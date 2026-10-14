@@ -141,7 +141,17 @@ export async function loadRanking() {
     named.set(pid, body.name.slice(0, 8));
   }
   const me = await identity();
-  const rows = table.map((p, i) => ({ ...p, rank: i + 1, name: named.get(p.pid) || '?', me: !!me && p.pid === me.pid }));
+  // People go by their newest name. Two keys with the same name are told apart by
+  // number, in the order they first turned up: Nam, Nam2, Nam3. Computers go by level.
+  const taken = new Map();
+  const label = new Map();
+  for (const p of [...table].filter((q) => !q.bot).sort((a, b) => a.since - b.since)) {
+    const name = named.get(p.pid) || '?';
+    const n = (taken.get(name) || 0) + 1;
+    taken.set(name, n);
+    label.set(p.pid, n > 1 ? `${name}${n}` : name);
+  }
+  const rows = table.map((p, i) => ({ ...p, rank: i + 1, level: p.bot ? p.pid.slice(4) : '', name: p.bot ? '' : label.get(p.pid), me: !!me && p.pid === me.pid }));
   const mine = rows.find((r) => r.me) || null;
   if (mine) write(RATING_STORE, { elo: mine.elo, games: mine.games, wins: mine.wins });
   return { rows, mine };

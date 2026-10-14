@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ELO, DAILY, newIdentity, openIdentity, pidOf, verify, resultText, readResult, signedResults, rate } from '../src/client/rating.js';
+import { ELO, DAILY, SOLO_DAILY, newIdentity, openIdentity, pidOf, verify, resultText, readResult, signedResults, rate } from '../src/client/rating.js';
 
 const people = async (n) => Promise.all(Array.from({ length: n }, async () => (await newIdentity()).identity));
 
@@ -70,4 +70,24 @@ test('the same people beating each other all day stop counting after a few round
   for (let i = 0; i < DAILY + 5; i++) sigs.push(...(await round(`farm${String(i).padStart(5, '0')}`, 1000 + i, [a, b], [a])));
   const table = rate(await signedResults(sigs));
   assert.equal(table.find((p) => p.pid === a.pid).games, DAILY);
+});
+
+test('computers are rated as one entry per level, and one person alone against them counts a few times a day', async () => {
+  const [a] = await people(1);
+  const solo = async (id, at, wonByMe, other = 'bot:easy') => {
+    const text = resultText({ id, at, map: 'meadow', team: false, players: [{ pid: a.pid, pub: a.pub, won: wonByMe }, { pid: 'bot:hard', won: !wonByMe }, { pid: 'bot:hard', won: false }, { pid: other, won: false }] });
+    return [{ mid: id, pid: a.pid, text, sig: await a.sign(text) }];
+  };
+  const one = rate(await signedResults(await solo('solo00001', 1, true)));
+  // Two hard bots in the round are one entry: three rows, not four.
+  assert.deepEqual(one.map((p) => p.pid).sort(), [a.pid, 'bot:easy', 'bot:hard'].sort());
+  assert.ok(one.find((p) => p.pid === a.pid).elo > ELO.start);
+  assert.ok(one.find((p) => p.pid === 'bot:hard').bot);
+  // A result naming only computers, or a computer with a key, is not one.
+  assert.equal(readResult(resultText({ id: 'nobody001', at: 1, map: 'meadow', team: false, players: [{ pid: 'bot:hard', won: true }, { pid: 'bot:easy', won: false }] })), null);
+  const many = [];
+  // Different line-ups, so the cap on the same people meeting again is not what stops it.
+  const others = ['bot:easy', 'bot:normal', 'bot:ace', 'bot:rl'];
+  for (let i = 0; i < SOLO_DAILY + 6; i++) many.push(...(await solo(`solo${String(i + 10).padStart(5, '0')}`, 100 + i, i % 2 === 0, others[i % 4])));
+  assert.equal(rate(await signedResults(many)).find((p) => p.pid === a.pid).games, SOLO_DAILY);
 });

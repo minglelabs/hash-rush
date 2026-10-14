@@ -1,9 +1,12 @@
 // Elo ratings without a server or a login. Each browser makes itself a signing key
 // and that key is the player: its id is a hash of the public half. When a round
-// with two or more people ends, every one of them signs the same result and puts
-// the signature on the public broker. A result counts once everybody in it has
-// signed it, so nobody can claim a win on their own, and everyone works the
-// ratings out for themselves from the same signed results.
+// ends, every person in it signs the same result and puts the signature on the
+// public broker. A result counts once every person in it has signed it, and
+// everyone works the ratings out for themselves from the same signed results.
+//
+// Computers are rated too, one entry per level: every hard bot is "the hard bot".
+// A round with only one person in it is that person's word alone, so those count
+// for less: a few a day at most.
 //
 // Nothing here touches the page or the network: it runs in Node for the tests.
 
@@ -11,6 +14,11 @@ export const ELO = { start: 1000, k: 32 };
 // The same people playing each other over and over count this many times a day.
 // Past that, a pair of accounts cannot farm points off each other.
 export const DAILY = 5;
+// Rounds a day that count for one person playing only against computers.
+export const SOLO_DAILY = 10;
+// The computers' entries in a result and in the table.
+export const BOT_LEVELS = ['easy', 'normal', 'hard', 'ace', 'rl'];
+export const isBot = (id) => typeof id === 'string' && id.startsWith('bot:') && BOT_LEVELS.includes(id.slice(4));
 
 const subtle = () => globalThis.crypto.subtle;
 const ALGO = { name: 'ECDSA', namedCurve: 'P-256' };
@@ -65,9 +73,16 @@ const PID = /^[A-Za-z0-9_-]{16}$/;
 const PUB = /^[A-Za-z0-9_-]{80,100}$/;
 const MID = /^[a-z0-9]{8,20}$/;
 
-// The text everybody in a round signs. `players` are the people in it: { pid, pub, won }.
+// The text everybody in a round signs. `players` are who took part: { pid, pub, won }
+// for a person, { pid: 'bot:hard', won } for a computer. Computers of one level
+// are one entry, which won if any of them did.
 export function resultText({ id, at, map, team, players }) {
-  const p = [...players].sort((a, b) => (a.pid < b.pid ? -1 : 1)).map((q) => [q.pid, q.pub, q.won ? 1 : 0]);
+  const merged = new Map();
+  for (const q of players) {
+    const was = merged.get(q.pid);
+    merged.set(q.pid, { pid: q.pid, pub: isBot(q.pid) ? '' : q.pub, won: !!q.won || !!was?.won });
+  }
+  const p = [...merged.values()].sort((a, b) => (a.pid < b.pid ? -1 : 1)).map((q) => [q.pid, q.pub, q.won ? 1 : 0]);
   return JSON.stringify({ v: 1, id, at: Math.round(at), map: String(map), team: team ? 1 : 0, p });
 }
 
@@ -81,7 +96,8 @@ export function readResult(text) {
   }
   if (!r || r.v !== 1 || !MID.test(r.id) || !Number.isFinite(r.at) || !Array.isArray(r.p)) return null;
   if (r.p.length < 2 || r.p.length > 8) return null;
-  if (!r.p.every((q) => Array.isArray(q) && PID.test(q[0]) && PUB.test(q[1]) && (q[2] === 0 || q[2] === 1))) return null;
+  const ok = (q) => Array.isArray(q) && (q[2] === 0 || q[2] === 1) && ((PID.test(q[0]) && PUB.test(q[1])) || (isBot(q[0]) && q[1] === ''));
+  if (!r.p.every(ok) || !r.p.some((q) => !isBot(q[0]))) return null;
   if (new Set(r.p.map((q) => q[0])).size !== r.p.length) return null;
   // It has to be exactly the text that was signed.
   if (resultText({ id: r.id, at: r.at, map: r.map, team: r.team, players: r.p.map(([pid, pub, won]) => ({ pid, pub, won })) }) !== text) return null;
@@ -103,6 +119,7 @@ export async function signedResults(sigs, now = Date.now()) {
     if (!r || r.id !== mid || r.at > now + 60 * 60 * 1000) continue;
     let ok = true;
     for (const p of r.players) {
+      if (isBot(p.pid)) continue;
       if ((await pidOf(p.pub)) !== p.pid) {
         ok = false;
         break;
@@ -124,8 +141,9 @@ export async function signedResults(sigs, now = Date.now()) {
 // level) changes nothing but the count of games.
 export function rate(results) {
   const table = new Map();
-  const row = (pid) => {
-    if (!table.has(pid)) table.set(pid, { pid, elo: ELO.start, games: 0, wins: 0 });
+  const row = (pid, at) => {
+    // `since` is when it first turned up: the order the ranking numbers repeated names in.
+    if (!table.has(pid)) table.set(pid, { pid, elo: ELO.start, games: 0, wins: 0, since: at, bot: isBot(pid) });
     return table.get(pid);
   };
   const seen = new Map();
@@ -135,8 +153,14 @@ export function rate(results) {
     const key = `${day}:${r.players.map((p) => p.pid).sort().join(',')}`;
     seen.set(key, (seen.get(key) || 0) + 1);
     if (seen.get(key) > DAILY) continue;
-    const winners = r.players.filter((p) => p.won).map((p) => row(p.pid));
-    const losers = r.players.filter((p) => !p.won).map((p) => row(p.pid));
+    const people = r.players.filter((p) => !isBot(p.pid));
+    if (people.length === 1) {
+      const solo = `${day}:solo:${people[0].pid}`;
+      seen.set(solo, (seen.get(solo) || 0) + 1);
+      if (seen.get(solo) > SOLO_DAILY) continue;
+    }
+    const winners = r.players.filter((p) => p.won).map((p) => row(p.pid, r.at));
+    const losers = r.players.filter((p) => !p.won).map((p) => row(p.pid, r.at));
     for (const p of [...winners, ...losers]) p.games++;
     for (const p of winners) p.wins++;
     if (!winners.length || !losers.length) continue;
