@@ -35,6 +35,8 @@ import torch.nn.functional as F
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 HEADS = (9, 2, 2)  # move, bonk, throw
+# Where observe.js puts the attack / mark / guard flags: one is set in a team round, none alone.
+JOB_FLAGS = slice(199, 202)
 # The ladder: (share of rounds with scripted bots, bot levels that may sit in).
 STAGES = [(0.7, [0]), (0.7, [0, 1]), (0.6, [0, 1, 2]), (0.35, [0, 1, 2]), (0.5, [0, 1, 2, 3])]
 STAGE_NAMES = ["easy", "easy+normal", "all bots", "mostly self-play", "with the ace bot"]
@@ -275,6 +277,9 @@ def main():
     ap.add_argument("--delay", type=float, default=0.05, help="pay per decision near a rival carrier for the ground it did not cover")
     ap.add_argument("--role", type=float, default=1, help="pay for a team defender closing in on its mark")
     ap.add_argument("--kick", type=float, default=0, help="weight on copying the teacher bot, fading to 0 by the end of the run")
+    ap.add_argument("--distill-solo", default="", help="policy.pt the learner copies in free-for-all rounds")
+    ap.add_argument("--distill-team", default="", help="policy.pt the learner copies in team rounds")
+    ap.add_argument("--distill", type=float, default=0, help="weight on matching those policies; held for the first half of the run, then fading to 0")
     ap.add_argument("--teacher", type=int, default=3, help="the bot level copied with --kick: 0 easy .. 3 ace")
     ap.add_argument("--team-spirit", type=float, default=0.5, help="share of a teammate's pay each hamster gets in team rounds")
     ap.add_argument("--shape", type=float, default=1, help="weight of the progress pay; 0 turns it off")
@@ -311,6 +316,14 @@ def main():
     model = make()
     if args.resume:
         load_weights(model, args.resume, dev)
+    # Distillation: trained policies to copy, one for each kind of round.
+    teachers = {}
+    for mode, path in (("solo", args.distill_solo), ("team", args.distill_team)):
+        if path:
+            teachers[mode] = make()
+            load_weights(teachers[mode], path, dev)
+            teachers[mode].eval()
+            print(f"distill {mode} from {path}")
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4, eps=1e-5)
     league = League(make, args.league, args.pfsp_power)
     # Earlier trained bots (say the one in the game as RL) stay in the league for good,
@@ -443,6 +456,17 @@ def main():
         d_ret = torch.from_numpy(ret[m]).to(dev)
         d_teach = torch.from_numpy(b_teach[m]).to(dev)
         d_taught = torch.from_numpy(b_taught[m]).to(dev).float()
+        # What the teachers would play, worked out before the learner's normaliser moves.
+        d_tlog = d_tmask = None
+        if teachers and args.distill:
+            team = d_obs[:, JOB_FLAGS].sum(-1) > 0
+            d_tlog = torch.zeros(d_obs.shape[0], sum(HEADS), device=dev)
+            d_tmask = torch.zeros(d_obs.shape[0], device=dev)
+            with torch.no_grad():
+                for mode, rows in (("solo", ~team), ("team", team)):
+                    if mode in teachers and rows.any():
+                        d_tlog[rows] = teachers[mode](d_obs[rows])[0]
+                        d_tmask[rows] = 1
         model.observe(d_obs)
 
         frac = min(1.0, (time.time() - start) / 60 / args.minutes)
@@ -453,6 +477,10 @@ def main():
         # Kickstarting (Schmitt et al. 2018): also copy the teacher, less and less
         # as the run goes on, so its play is the start and the reward takes over.
         kick = args.kick * (1 - frac)
+        # Distillation (Rusu et al. 2016) is held longer: a learner starting from
+        # nothing needs the teachers' play before the reward can tell it anything.
+        distill = args.distill * min(1.0, 2 * (1 - frac))
+        gap = 0.0
         stop = False
         for _ in range(args.epochs):
             order = torch.randperm(size, device=dev)
@@ -471,6 +499,15 @@ def main():
                     teach_logp, _, _ = model.evaluate(d_obs[idx], d_teach[idx])
                     loss = loss - kick * (teach_logp * w).sum() / w.sum()
                     copied = float(((teach_logp.detach() * w).sum() / w.sum()).exp())
+                if distill and d_tmask is not None and d_tmask[idx].sum() > 0:
+                    w = d_tmask[idx]
+                    mine = torch.split(model(d_obs[idx])[0], HEADS, dim=-1)
+                    theirs = torch.split(d_tlog[idx], HEADS, dim=-1)
+                    # KL(teacher || learner), summed over the three heads.
+                    div = sum((F.softmax(t, -1) * (F.log_softmax(t, -1) - F.log_softmax(l, -1))).sum(-1) for t, l in zip(theirs, mine))
+                    div = (div * w).sum() / w.sum()
+                    loss = loss + distill * div
+                    gap = float(div.detach())
                 opt.zero_grad()
                 loss.backward()
                 nn.utils.clip_grad_norm_(model.parameters(), 0.5)
@@ -504,7 +541,7 @@ def main():
         with open(log_path, "a") as f:
             f.write(",".join(str(v) for v in row) + "\n")
         if it % 5 == 0 or it == 1:
-            print(f"it {it:4d}  stage {stage}  {minutes:5.1f}m  {total/1e6:6.2f}M decisions  {int(sps):6d}/s  score {mean('score'):5.2f}  win vs bots {mean('bot_win'):.2f} (fair {mean('bot_fair'):.2f})  vs league {mean('league_win'):.2f}  ent {ent_mean:.2f}" + (f"  copies the teacher {copied:.2f}" if kick else ""), flush=True)
+            print(f"it {it:4d}  stage {stage}  {minutes:5.1f}m  {total/1e6:6.2f}M decisions  {int(sps):6d}/s  score {mean('score'):5.2f}  win vs bots {mean('bot_win'):.2f} (fair {mean('bot_fair'):.2f})  vs league {mean('league_win'):.2f}  ent {ent_mean:.2f}" + (f"  copies the teacher {copied:.2f}" if kick else "") + (f"  off the teachers {gap:.2f}" if distill else ""), flush=True)
             stats = {k: [] for k in stats}
 
     torch.save(model.state_dict(), os.path.join(out_dir, "policy.pt"))

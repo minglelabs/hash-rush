@@ -136,3 +136,15 @@ The log's "copies the teacher" is how likely the learner is to pick the ace's mo
 Costs about half the speed, since the ace thinks in every seat.
 
     python3 rl/train.py --name rl6 --minutes 180 --resume rl/runs/long/policy.pt --teams 1.0 --kick 0.5 --rivals rl/runs/long/policy.pt rl/runs/team2/policy.pt
+
+### Distillation into one policy for both kinds of round
+
+`--distill-solo` / `--distill-team` name trained policies (policy.pt) the learner
+copies in free-for-all and team rounds; `--distill` weighs matching them (KL
+over the three heads), held for the first half of the run and fading to 0 by
+the end. With `--kick` (the ace) and self-play on top, a learner can start from
+nothing and end up one network for both kinds of round:
+
+    python3 rl/train.py --name rl7 --minutes 480 --teams 0.5 --distill 0.3 --distill-solo rl/runs/long/policy.pt --distill-team rl/runs/rl6/policy.pt --kick 0.2 --rivals rl/runs/long/policy.pt rl/runs/rl6/policy.pt
+
+The log's "off the teachers" is that KL: falling means it plays like them.
