@@ -288,7 +288,17 @@ function renderLobby() {
     li.classList.toggle('vacant', vacant);
 
     const avatar = document.createElement(vacant ? 'span' : 'canvas');
-    if (!vacant) drawAvatar(avatar, teams && TEAMS[slot.team] ? { ...LOOKS[i], color: TEAMS[slot.team].color } : LOOKS[i]);
+    if (!vacant) {
+      const look = teams && TEAMS[slot.team] ? { ...LOOKS[i], color: TEAMS[slot.team].color } : LOOKS[i];
+      drawAvatar(avatar, look);
+      // The face opens the player's card: name, rating and record.
+      avatar.classList.add('face');
+      avatar.title = t('profileTap');
+      avatar.addEventListener('click', () => {
+        const level = String(slot.kind).startsWith('bot:') ? slot.kind.slice(4) : '';
+        showProfile({ name: slot.name, look, level, pid: level ? `bot:${level}` : guest ? slot.pid || '' : keyOf(slot).pid });
+      });
+    }
 
     const mine = guest ? i === net.you : slot.kind !== 'remote';
     const name = document.createElement('input');
@@ -573,6 +583,44 @@ function toggleRanking() {
     .catch(() => ($('rankStatus').textContent = t('rankFail')));
 }
 
+// The ranking as last read, kept a minute so tapping through faces does not
+// reconnect each time.
+let rankingCache = null;
+function ranking() {
+  if (!rankingCache || Date.now() - rankingCache.at > 60000) {
+    rankingCache = { at: Date.now(), rows: loadRanking().then((r) => r.rows) };
+    rankingCache.rows.catch(() => (rankingCache = null));
+  }
+  return rankingCache.rows;
+}
+
+const winRate = (r) => (r.games ? Math.round((r.wins / r.games) * 100) : 0);
+
+// A player's card, from a face in the lobby.
+function showProfile({ name, look, level, pid }) {
+  drawAvatar($('profileFace'), look);
+  $('profileName').textContent = level ? `🤖 ${t('botLevels')[level] || level}` : name;
+  $('profileKind').textContent = level ? `${name} · ${t('profileBot')}` : '';
+  $('profileRating').textContent = t('profileLoading');
+  $('profileRecord').textContent = '';
+  $('profile').hidden = false;
+  const fill = (row) => {
+    if (!row) {
+      $('profileRating').textContent = t('profileNone');
+      return;
+    }
+    $('profileRating').textContent = t('profileRating', row.elo, row.rank);
+    $('profileRecord').textContent = t('profileRecord', row.games, row.wins, winRate(row));
+  };
+  const mine = myKey && pid === myKey.pid;
+  if (!pid) return fill(null);
+  ranking()
+    .then((rows) => fill(rows.find((r) => r.pid === pid) || (mine && lastRating().games ? { ...lastRating(), rank: 0 } : null)))
+    .catch(() => fill(mine && lastRating().games ? { ...lastRating(), rank: 0 } : null));
+}
+$('profileClose').addEventListener('click', () => ($('profile').hidden = true));
+$('profile').addEventListener('click', (e) => e.target === $('profile') && ($('profile').hidden = true));
+
 // The best fifty, and this player's own row under them if it is further down.
 function renderRanking(rows) {
   const shown = rows.slice(0, 50);
@@ -590,7 +638,7 @@ function renderRanking(rows) {
     const row = table.insertRow();
     row.classList.toggle('me', r.me);
     const name = r.level ? `🤖 ${t('botLevels')[r.level] || r.level}` : r.name;
-    for (const v of [r.rank, name, r.elo, r.games, r.wins]) row.insertCell().textContent = v;
+    for (const v of [r.rank, name, r.elo, r.games, r.wins, `${winRate(r)}%`]) row.insertCell().textContent = v;
   }
 }
 
@@ -892,7 +940,7 @@ function forEachGuest(fn) {
 
 function sendLobby() {
   if (net.role !== 'host') return;
-  const view = slots.map((s) => ({ kind: s.kind, name: s.name, team: s.team }));
+  const view = slots.map((s) => ({ kind: s.kind, name: s.name, team: s.team, pid: keyOf(s).pid }));
   broadcast((slot, i) => ({ t: 'lobby', slots: view, teams: teamMode, map: mapId, pw: roomPw, you: i, wins, tot: career, rd: rounds, hist: seasons }));
   announce();
 }
