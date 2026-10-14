@@ -102,10 +102,13 @@ function localizePage() {
   for (const el of document.querySelectorAll('[data-i18n]')) el.innerHTML = t(el.dataset.i18n) ?? '';
   for (const id of ['mute', 'muteLobby']) $(id).title = t('sound');
   $('swap').title = t('swapSides');
+  if ($('peek')) $('peek').textContent = t('peekLobby');
+  if ($('backToGame')) $('backToGame').textContent = t('backToGame');
   $('buzz').title = t('buzz');
   $('full').title = t('fullscreen');
   // For a guest these buttons do not go to a lobby of their own: they leave the room.
-  if (joinId) for (const id of ['quit', 'back']) $(id).textContent = t('leaveRoom');
+  // A guest's buttons leave the room. The host's end the round for everyone.
+  for (const id of ['quit', 'back']) $(id).textContent = t(joinId ? 'leaveRoom' : 'endRound');
   $('how').replaceChildren(
     ...t('how').map((html) => {
       const li = document.createElement('li');
@@ -492,6 +495,13 @@ function saveSlots() {
 }
 
 function updateStart() {
+  // Looking in from a round under way: the way back, not a new round.
+  $('backToGame').hidden = !game;
+  if (game) {
+    $('start').hidden = true;
+    return;
+  }
+  $('start').hidden = false;
   if (net.role === 'guest') {
     // Until the host is actually reached the button says so. After a failure the
     // buttons at the top take over.
@@ -596,7 +606,7 @@ function announce() {
             humans,
             bots: slots.filter(isPlaying).length - humans,
             open: slots.filter((s) => s.kind === 'open').length,
-            state: game && !$('stage').hidden ? 'playing' : 'lobby',
+            state: game ? 'playing' : 'lobby',
             locked: !!roomPw,
           }
         : null,
@@ -711,7 +721,7 @@ function welcome(conn, msg) {
     newcomer(hello);
   }
   // Arriving mid-round, they watch it; a new player gets a hamster next round.
-  if (game && !$('stage').hidden) conn.send({ t: 'start', g: net.round, map: game.map.id, players: roster(), you: -1, wins, tot: career, rd: rounds, hist: seasons });
+  if (game) conn.send({ t: 'start', g: net.round, map: game.map.id, players: roster(), you: -1, wins, tot: career, rd: rounds, hist: seasons });
   if (game && paused) conn.send({ t: 'pause', on: true, by: '' });
 }
 
@@ -1274,6 +1284,31 @@ window.addEventListener('keydown', (e) => {
   }
   toggleGameChat(true);
 });
+
+// ---------- looking in on the lobby ----------
+// Anyone can step out to the lobby and back while the round carries on without
+// them drawn: to check the seats, the chat or the room link.
+$('quit').insertAdjacentHTML('beforebegin', '<button id="peek"></button>');
+$('start').insertAdjacentHTML('beforebegin', '<button id="backToGame" class="primary" hidden></button>');
+
+function peekLobby() {
+  if (!game) return;
+  input.enable(false);
+  show('lobby');
+  renderLobby();
+}
+
+function backToGame() {
+  if (!game) return;
+  show('stage');
+  input.enable(meId >= 0 && game.phase !== 'over' && !paused);
+  renderer.resize();
+  scoreKey = '';
+}
+$('peek').textContent = t('peekLobby');
+$('backToGame').textContent = t('backToGame');
+$('peek').addEventListener('click', peekLobby);
+$('backToGame').addEventListener('click', backToGame);
 
 // ---------- pause ----------
 // The host can stop the round for everyone and start it again; guests just see it.
@@ -1956,7 +1991,9 @@ function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
-  if (!game || $('stage').hidden) return;
+  // A round goes on while someone looks in on the lobby; it is only not drawn.
+  if (!game) return;
+  const away = $('stage').hidden;
 
   if (net.role === 'guest') {
     // Guests do not simulate the round: send the input, draw the latest snapshot.
@@ -2004,6 +2041,7 @@ function frame(now) {
       else forEachGuest((conn) => (conn.fast && conn.fast(msg)) || conn.send(msg));
     }
   }
+  if (away) return;
   renderer.draw(game, { dt, meId, marker: input.marker(), bubbles });
   updateHud();
 }
@@ -2279,7 +2317,7 @@ window.addEventListener('pagehide', () => {
 });
 // Reloading in the middle of a round with friends in it loses the round: ask.
 window.addEventListener('beforeunload', (e) => {
-  if (net.role !== 'host' || !game || $('stage').hidden || game.phase === 'over' || !slots.some((s) => s.conn)) return;
+  if (net.role !== 'host' || !game || game.phase === 'over' || !slots.some((s) => s.conn)) return;
   e.preventDefault();
   e.returnValue = '';
 });

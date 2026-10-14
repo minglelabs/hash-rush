@@ -540,7 +540,8 @@ button.primary:active {
   display: none;
 }
 
-#start {
+#start,
+#backToGame {
   width: 100%;
   font-size: 20px;
   padding: 0.7em;
