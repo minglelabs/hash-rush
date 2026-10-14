@@ -195,7 +195,13 @@ export function createLaneHelp(from = null) {
       st = freshSteer();
       return inp;
     }
-    const move = steer(g, me, Math.sign(Math.round(inp.mx)), Math.sign(Math.round(inp.my)), st);
+    const sx = Math.sign(Math.round(inp.mx));
+    const sy = Math.sign(Math.round(inp.my));
+    const move = steer(g, me, sx, sy, st);
+    // A slanted swipe on open ground goes the way it was drawn; in the lanes,
+    // or once the help has had to step in, it goes the way the help says.
+    const open = me.x < g.map.lanes.x1 || me.x >= g.map.lanes.x2;
+    if (open && move.x === sx && move.y === sy) return inp;
     inp.mx = move.x;
     inp.my = move.y;
     return inp;
