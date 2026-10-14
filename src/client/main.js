@@ -660,13 +660,29 @@ function renderHistory() {
       result.className = h.won ? 'won' : 'lost';
       result.textContent = t(h.won ? 'rankWin' : 'rankLoss');
       const when = new Date(h.at).toLocaleString(lang, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      // Free-for-all or teams, and in a team game which side this player was on.
+      const mode = document.createElement('span');
+      mode.className = 'mode';
+      const side = h.team && TEAMS[h.myTeam] ? h.myTeam : -1;
+      mode.textContent = h.team ? `${t('modeTeam')}${side >= 0 ? ` ${t('teamNames')[side]}` : ''}` : t('modeSolo');
+      if (side >= 0) mode.style.setProperty('--c', TEAMS[side].color);
       const what = document.createElement('span');
-      // A computer shows its level too: 콩이(초보). Older records kept only names.
-      const who = (h.with || []).map((o) => (typeof o === 'string' ? o : o.level ? `${o.name}(${t('botLevels')[o.level] || o.level})` : o.name));
-      what.textContent = `${t('mapNames')[h.map] || h.map} · ${who.join(', ')}`;
+      what.append(`${t('mapNames')[h.map] || h.map} · `);
+      // Everyone else, in their team's colour in a team game; a computer with its
+      // level, as 콩이(초보). Older records kept less: names only, no sides.
+      (h.with || []).forEach((o, k) => {
+        if (k) what.append(', ');
+        const who = document.createElement('span');
+        who.textContent = typeof o === 'string' ? o : o.level ? `${o.name}(${t('botLevels')[o.level] || o.level})` : o.name;
+        if (h.team && typeof o === 'object' && TEAMS[o.team]) {
+          who.className = 'side';
+          who.style.color = TEAMS[o.team].color;
+        }
+        what.append(who);
+      });
       const tag = document.createElement('small');
       tag.textContent = `${when} · ${t(h.rated ? 'rankRated' : 'rankUnrated')}`;
-      li.append(result, what, tag);
+      li.append(result, mode, what, tag);
       return li;
     }),
   );
@@ -1710,7 +1726,7 @@ function rateRound() {
   const rated = !!net.match && people.includes(me) && people.length + levels.size >= 2;
   // The ranking goes by the name this player last played under.
   if (rated) shareName(me.name);
-  remember({ at: Date.now(), map: game.map.id, team: me.team >= 0, won: won(me), rated, with: game.players.filter((p) => p !== me).map((p) => ({ name: p.name, level: String(p.kind || '').startsWith('bot:') ? p.kind.slice(4) : '' })) });
+  remember({ at: Date.now(), map: game.map.id, team: me.team >= 0, myTeam: me.team, won: won(me), rated, with: game.players.filter((p) => p !== me).map((p) => ({ name: p.name, level: String(p.kind || '').startsWith('bot:') ? p.kind.slice(4) : '', team: p.team })) });
   const players = [...people.map((p) => ({ pid: p.pid, pub: p.pub, won: won(p) })), ...bots.map((p) => ({ pid: p.kind, won: won(p) }))];
   if (rated) signResult({ id: net.match.id, at: net.match.at, map: game.map.id, team: me.team >= 0, players });
 }
