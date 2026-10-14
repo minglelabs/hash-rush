@@ -45,7 +45,7 @@ const STRINGS = {
     pausedBy: (n) => `${n}님이 멈췄어요`,
     resume: '▶ 계속하기',
     chatSend: '보내기',
-    quickChat: ['ㅋㅋㅋ', '안녕!', '잘했어 👍', '아깝다!', '막아!!', '미안 🙏', '한 판 더?', 'ㄱㄱ'],
+    quickChat: ['ㅋㅋㅋ', 'ㅎㅇ', '굳굳 👍', 'ㄲㅂ', 'ㅅㅂ', 'ㅈㅅ', '한 판 더?', 'ㄱㄱ'],
     spectatorName: '관전자',
     again: '한 판 더',
     bonk: '꿀밤',
