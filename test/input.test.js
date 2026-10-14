@@ -45,14 +45,17 @@ test('sliding the thumb across the pad changes key without lifting it', () => {
   assert.deepEqual([...new Set(round)], ['1,0', '1,-1', '0,-1']);
 });
 
-test('a swipe points straight along a lane once it is long and slow enough', () => {
+test('a swipe points one of 16 ways once it is long and slow enough', () => {
   // Too short, or too quick: a tap, not a swipe.
-  assert.equal(swipeDir(10, 0, 120), null);
-  assert.equal(swipeDir(40, 0, 30), null);
-  assert.deepEqual(swipeDir(40, 5, 60), { x: 1, y: 0 });
-  assert.deepEqual(swipeDir(-3, -30, 80), { x: 0, y: -1 });
-  // A slant goes whichever way it leans more.
-  assert.deepEqual(swipeDir(-20, 25, 60), { x: 0, y: 1 });
+  assert.equal(swipeDir(20, 0, 120), null);
+  assert.equal(swipeDir(60, 0, 30), null);
+  assert.deepEqual(swipeDir(60, 5, 60), { x: 1, y: 0 });
+  assert.deepEqual(swipeDir(-3, -40, 80), { x: 0, y: -1 });
+  // A slant keeps its slant, to the nearest sixteenth of a turn.
+  const d = swipeDir(40, 40, 60);
+  assert.ok(Math.abs(d.x - Math.SQRT1_2) < 1e-3 && Math.abs(d.y - Math.SQRT1_2) < 1e-3);
+  const e = swipeDir(40, 15, 60);
+  assert.ok(Math.abs(Math.atan2(e.y, e.x) - Math.PI / 8) < 1e-3);
 });
 
 function duel(gap) {

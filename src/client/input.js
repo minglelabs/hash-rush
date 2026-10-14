@@ -25,10 +25,11 @@ const DIAGONAL = (15 * Math.PI) / 180;
 // Extra lean needed to leave the current heading, so a wobbling thumb does not flicker.
 const STICKY = (6 * Math.PI) / 180;
 // A swipe on the map is a finger that travels this far (screen pixels)
-const SWIPE_MIN = 16;
-// over at least this long (ms); anything quicker is a tap, and a tap stops.
+const SWIPE_MIN = 32;
+// over at least this long (ms). Any touch that never makes one is a tap, and a tap stops.
 const SWIPE_TIME = 50;
-const TAP_SLOP = 10;
+// A swipe points one of this many ways round the clock.
+const SWIPE_WAYS = 16;
 
 // The touch pad is eight-way, like arrow keys: no slow walk, and a thumb a little
 // off a key still runs straight down a lane. (dx, dy) is where the thumb lies from
@@ -46,11 +47,14 @@ export function stickDir(dx, dy, was = null) {
   return { x: Math.round(Math.cos(snap)) || 0, y: Math.round(Math.sin(snap)) || 0 };
 }
 
-// The way a swipe of (dx, dy) screen pixels over `ms` milliseconds points, straight
-// along a lane, or null while it is still too short or too quick to count.
+// The way a swipe of (dx, dy) screen pixels over `ms` milliseconds points, as a
+// unit vector one of 16 ways, or null while it is still too short or too quick to count.
 export function swipeDir(dx, dy, ms) {
   if (ms < SWIPE_TIME || Math.hypot(dx, dy) < SWIPE_MIN) return null;
-  return Math.abs(dx) >= Math.abs(dy) ? { x: Math.sign(dx), y: 0 } : { x: 0, y: Math.sign(dy) };
+  const step = (2 * Math.PI) / SWIPE_WAYS;
+  const a = Math.round(Math.atan2(dy, dx) / step) * step;
+  const r = (v) => Math.round(v * 1000) / 1000 || 0;
+  return { x: r(Math.cos(a)), y: r(Math.sin(a)) };
 }
 
 // Holding the touch button waits for the swing that connects instead of whiffing.
@@ -138,22 +142,21 @@ export function createInput({ stage, canvas, pad, bonkBtn, throwBtn, toWorldDir,
   // One finger can keep steering: each further stretch of its slide is a new swipe.
   stage.addEventListener('pointerdown', (e) => {
     if (!enabled || e.pointerType !== 'touch' || (e.target !== canvas && e.target !== stage) || swipe) return;
-    swipe = { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp, x0: e.clientX, y0: e.clientY, t0: e.timeStamp, moved: false };
+    swipe = { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp, swiped: false };
     stage.classList.add('played');
   });
   window.addEventListener('pointermove', (e) => {
     if (touch && e.pointerId === touch.id) press(e);
     if (!swipe || e.pointerId !== swipe.id) return;
     const dir = swipeDir(e.clientX - swipe.x, e.clientY - swipe.y, e.timeStamp - swipe.t);
-    if (Math.hypot(e.clientX - swipe.x0, e.clientY - swipe.y0) > TAP_SLOP) swipe.moved = true;
     if (!dir) return;
     glide = dir;
-    Object.assign(swipe, { x: e.clientX, y: e.clientY, t: e.timeStamp });
+    Object.assign(swipe, { x: e.clientX, y: e.clientY, t: e.timeStamp, swiped: true });
   });
   const release = (e) => {
     if (swipe && e.pointerId === swipe.id) {
-      // A tap, not a swipe: stop where you are.
-      if (!swipe.moved && e.type === 'pointerup') glide = null;
+      // Any touch that made no swipe is a tap: stop where you are.
+      if (!swipe.swiped && e.type === 'pointerup') glide = null;
       swipe = null;
     }
     if (!touch || e.pointerId !== touch.id) return;
