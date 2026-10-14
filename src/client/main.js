@@ -2054,7 +2054,8 @@ function renderSeasons() {
     ...seasons.map((season, i) => {
       const li = document.createElement('li');
       const head = document.createElement('b');
-      head.textContent = t('seasonNo', i + 1, season.games);
+      head.textContent = t(season.stopped ? 'seasonStopped' : 'seasonNo', i + 1, season.games);
+      li.classList.toggle('stopped', !!season.stopped);
       li.append(head);
       for (const r of season.rows) {
         const who = document.createElement('span');
@@ -2243,15 +2244,28 @@ function playAhead(at) {
   swinging = now;
 }
 
-// Starting over for real: the room's wins, running totals and game count are wiped,
-// as if it had just been opened, and a round in progress is abandoned. A reload
-// keeps all of that, which is the point of it, so this is the way to a clean slate.
+// Calling the championship off and going back to round one. Nothing is wiped: the
+// games played so far go into the list of past championships, marked as stopped
+// with no champion, and a round in progress is abandoned. A reload carries on
+// where it was, which is the point of it; this is the way to begin again.
 // The room, its link and who sits where stay.
 function resetSeries() {
   if (net.role === 'guest' || !confirm(t('resetAsk'))) return;
   if (game) {
     broadcast(() => ({ t: 'lobbyscreen' }));
     toLobby();
+  }
+  if (rounds > 0) {
+    seasons.push({
+      games: rounds,
+      stopped: true,
+      rows: slots
+        .map((s, look) => ({ name: s.name.trim() || defaultName(look), look, wins: wins[look], champ: false, in: isPlaying(s) || wins[look] > 0 }))
+        .filter((r) => r.in)
+        .sort((a, b) => b.wins - a.wins)
+        .map(({ in: _, ...r }) => r),
+    });
+    seasons = seasons.slice(-10);
   }
   wins.fill(0);
   career.forEach((c) => c.fill(0));
