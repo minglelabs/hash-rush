@@ -16,7 +16,7 @@ import { createLaneHelp } from './assist.js';
 import { MVP_POINTS, mvpScore, pickMvp } from './mvp.js';
 import { createAudio } from './audio.js';
 import { createHaptics } from './haptics.js';
-import { LOOKS, TEAMS, colorOf } from './looks.js';
+import { LOOKS, TEAMS, colorOf, lookOf } from './looks.js';
 import { lang, t, LANGUAGES, stringsFor } from './i18n.js';
 import { hostRoom, joinRoom, announceRoom, watchRooms } from './net.js';
 import { createPredictor } from './predict.js';
@@ -48,6 +48,29 @@ const IDLE = { mx: 0, my: 0, ax: 0, ay: 0, seq: 0, n: 0 };
 const ME_NAMES = new Set(LANGUAGES.map((code) => stringsFor(code).names[0]));
 
 const validTeam = (v) => Number.isInteger(v) && v >= 0 && v < TEAMS.length;
+
+// Two hamsters with one name cannot be told apart, so a name someone else in the
+// room already has gets a number on the end.
+const occupied = (s) => s.kind !== 'open' && s.kind !== 'closed';
+function freeName(slot, name) {
+  const taken = new Set(slots.filter((s) => s !== slot && occupied(s)).map((s) => s.name.trim()));
+  if (!taken.has(name)) return name;
+  for (let n = 2; ; n++) {
+    const tag = String(n);
+    const next = name.slice(0, 8 - tag.length) + tag;
+    if (!taken.has(next)) return next;
+  }
+}
+
+// The colour a seat goes by: its team's in a team game, its own otherwise.
+function seatColor(look) {
+  const p = game && game.players.find((q) => q.look === look);
+  if (p) return colorOf(p);
+  const guest = net.role === 'guest';
+  const slot = (guest ? net.lobby || [] : slots)[look];
+  if ((guest ? net.teams : teamMode) && slot && TEAMS[slot.team]) return TEAMS[slot.team].color;
+  return LOOKS[look] ? LOOKS[look].color : '#6b7280';
+}
 
 function loadSlots() {
   try {
@@ -262,7 +285,7 @@ function renderLobby() {
     li.classList.toggle('vacant', vacant);
 
     const avatar = document.createElement(vacant ? 'span' : 'canvas');
-    if (!vacant) drawAvatar(avatar, LOOKS[i]);
+    if (!vacant) drawAvatar(avatar, teams && TEAMS[slot.team] ? { ...LOOKS[i], color: TEAMS[slot.team].color } : LOOKS[i]);
 
     const mine = guest ? i === net.you : slot.kind !== 'remote';
     const name = document.createElement('input');
@@ -284,6 +307,14 @@ function renderLobby() {
         sendLobby();
       }
     });
+    if (!guest)
+      name.addEventListener('change', () => {
+        const free = freeName(slot, name.value.trim());
+        if (free === name.value) return;
+        slot.name = name.value = free;
+        saveSlots();
+        sendLobby();
+      });
 
     const kind = document.createElement('select');
     kind.setAttribute('aria-label', t('slotKind', i + 1));
@@ -686,7 +717,7 @@ function welcome(conn, msg) {
 
 function guestName(slot, raw) {
   const name = String(raw || '').trim().slice(0, 8);
-  return !name || ME_NAMES.has(name) ? defaultName(slots.indexOf(slot)) : name;
+  return freeName(slot, !name || ME_NAMES.has(name) ? defaultName(slots.indexOf(slot)) : name);
 }
 
 const roster = () => game.players.map((p) => ({ name: p.name, look: p.look, team: p.team, kind: p.kind, nest: p.nest }));
@@ -1072,7 +1103,7 @@ function addChat({ name, look, text }) {
     const line = document.createElement('div');
     const who = document.createElement('b');
     who.textContent = String(name);
-    who.style.color = LOOKS[look] ? LOOKS[look].color : '#6b7280';
+    who.style.color = seatColor(look);
     line.append(who, ` ${cleanChat(text)}`);
     log.append(line);
     // In the lobby the log is a scrolling history; in a round lines fade away.
@@ -1750,7 +1781,7 @@ function showChampions(champs) {
     ...champs.map((p) => {
       const who = document.createElement('div');
       const face = document.createElement('canvas');
-      drawAvatar(face, LOOKS[p.look]);
+      drawAvatar(face, lookOf(p));
       who.append(face, nameTag(p));
       return who;
     }),
