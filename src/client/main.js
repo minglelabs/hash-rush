@@ -129,6 +129,31 @@ try {
 const wins = slots.map(() => 0);
 // Bonks, times bonked and seeds added up over every round in this room.
 const career = slots.map(() => [0, 0, 0, 0, 0, 0, 0]);
+// Whose wins and totals each seat holds: a person's key (or their name, for a
+// guest without one), '' for a computer. A record goes with the person, not the
+// seat: whoever sits down brings their own, from `records` where the records of
+// people not seated right now are kept. A championship that ends clears them all.
+const owners = slots.map(() => '');
+let records = {};
+// A title decided but not yet filed in the past championships (the card is still up).
+let pendingSeason = null;
+
+function clearRecords() {
+  wins.fill(0);
+  career.forEach((c) => c.fill(0));
+  records = {};
+}
+
+// Seat `i` is now `who`'s: put away the record that was there, bring out theirs.
+function seatRecord(i, who) {
+  if (owners[i] === who) return;
+  if (owners[i] && (wins[i] || career[i].some(Boolean))) records[owners[i]] = { wins: wins[i], career: [...career[i]] };
+  const theirs = who && records[who];
+  wins[i] = theirs ? theirs.wins : 0;
+  career[i] = theirs ? [...theirs.career] : career[i].map(() => 0);
+  if (theirs) delete records[who];
+  owners[i] = who;
+}
 // Rounds finished in this room.
 let rounds = 0;
 // The first to this many wins takes the championship, and the room starts over.
@@ -472,6 +497,8 @@ function kick(slot) {
 function setKind(slot, kind) {
   kick(slot);
   slot.kind = kind;
+  // A computer in the seat starts its own record; the person's is kept for them.
+  if (kind.startsWith('bot:')) seatRecord(slots.indexOf(slot), '');
   if (kind === 'open') openRoom();
   if (kind === 'bot:rl') loadRLPolicy();
   saveSlots();
@@ -786,7 +813,7 @@ function saveRoom() {
   try {
     sessionStorage.setItem(
       ROOM_STORE,
-      JSON.stringify({ room: net.room, wins, career, rounds, seasons, pw: roomPw, seats: slots.map((s) => (s.kind === 'remote' ? s.said || s.name : '')) }),
+      JSON.stringify({ room: net.room, wins, career, rounds, seasons, pw: roomPw, seats: slots.map((s) => (s.kind === 'remote' ? s.said || s.name : '')), owners, records, pending: pendingSeason }),
     );
   } catch {
     // not remembered: a reload opens a new room
@@ -803,6 +830,15 @@ function restoreRoom() {
   roomPw = cleanPw(saved.pw);
   // Each friend's seat is held for them by name.
   (saved.seats || []).forEach((name, i) => slots[i] && (slots[i].held = name || ''));
+  (saved.owners || []).forEach((who, i) => i < owners.length && (owners[i] = typeof who === 'string' ? who : ''));
+  if (saved.records && typeof saved.records === 'object') records = saved.records;
+  // Reloaded with a title decided but the card not done yet: file it now and
+  // start the next championship from nothing.
+  if (saved.pending && Array.isArray(saved.pending.rows)) {
+    seasons = [...seasons, saved.pending].slice(-10);
+    clearRecords();
+    rounds = 0;
+  }
 }
 
 async function openRoom() {
@@ -851,8 +887,10 @@ function welcome(conn, msg) {
   }
   // Back after a reload, a friend gets the seat they had; a newcomer one nobody is due back in.
   const said = String(msg.name || '');
+  const pid = typeof msg.pid === 'string' && /^[A-Za-z0-9_-]{16}$/.test(msg.pid) ? msg.pid : '';
+  const who = pid || `n:${said}`;
   const free = msg.watch ? [] : slots.filter((s) => s.kind === 'open');
-  const slot = free.find((s) => s.held && s.held === said) || free.find((s) => !s.held) || free[0];
+  const slot = free.find((s) => owners[slots.indexOf(s)] === who) || free.find((s) => s.held && s.held === said) || free.find((s) => !s.held) || free[0];
   // Somebody the room has not seen before is pointed out to everyone.
   const isNew = !!slot && slot.held !== said;
   if (slot) {
@@ -868,6 +906,8 @@ function welcome(conn, msg) {
     slot.input = IDLE;
     slot.playerId = -1;
     slot.name = guestName(slot, msg.name);
+    // Their own wins come with them; the seat's last occupant's go back on the shelf.
+    seatRecord(slots.indexOf(slot), who);
   } else {
     // No free slot, or they asked to watch: they become a spectator.
     net.watchers.push(conn);
@@ -894,7 +934,11 @@ const roster = () => game.players.map((p) => ({ name: p.name, look: p.look, team
 // The signing key of whoever sits in a slot: this browser's own for the host's
 // seat, the one a guest said hello with for theirs, none for a bot.
 let myKey = null;
-identity().then((me) => (myKey = me));
+identity().then((me) => {
+  myKey = me;
+  // The host's own seat holds the host's own record.
+  if (me && net.role !== 'guest' && !owners[0]) owners[0] = me.pid;
+});
 function keyOf(slot) {
   if (slot.kind === 'human' && myKey) return { pid: myKey.pid, pub: myKey.pub };
   if (slot.kind === 'remote' && slot.pid && slot.pub) return { pid: slot.pid, pub: slot.pub };
@@ -2037,6 +2081,11 @@ function drawTrophy(canvas, time, won = TITLE_WINS) {
 function showChampions(champs) {
   if (game.crowned) return;
   game.crowned = true;
+  // Filed for sure even if the host reloads or leaves while the card is up.
+  if (net.role !== 'guest') {
+    pendingSeason = seasonOf(champs);
+    saveRoom();
+  }
   $('result').hidden = true;
   $('board').hidden = true;
   $('againBtn').hidden = true;
@@ -2084,20 +2133,26 @@ function hideChampions() {
 
 // The title is decided: keep the record, wipe the scores and take the room back
 // to the lobby for a fresh start.
+// What goes into the past championships for a title just won.
+function seasonOf(champs) {
+  return {
+    games: rounds,
+    rows: [...game.players]
+      .sort((a, b) => wins[b.look] - wins[a.look])
+      .map((p) => ({ name: p.name, look: p.look, wins: wins[p.look], champ: champs.includes(p) })),
+  };
+}
+
 function endSeason() {
   if (!game || net.role === 'guest') return;
   const champs = champions();
   if (champs.length) {
-    seasons.push({
-      games: rounds,
-      rows: [...game.players]
-        .sort((a, b) => wins[b.look] - wins[a.look])
-        .map((p) => ({ name: p.name, look: p.look, wins: wins[p.look], champ: champs.includes(p) })),
-    });
+    seasons.push(pendingSeason || seasonOf(champs));
     seasons = seasons.slice(-10);
-    wins.fill(0);
-    career.forEach((c) => c.fill(0));
+    pendingSeason = null;
+    clearRecords();
     rounds = 0;
+    saveRoom();
   }
   toLobby();
   broadcast(() => ({ t: 'lobbyscreen' }));
@@ -2328,6 +2383,8 @@ function handOver(seat) {
     map: mapId,
     wins: swap(wins),
     career: swap(career),
+    owners: swap(owners),
+    records,
     rounds,
     seasons,
     seats: swap(seats).map((name, i) => (i === 0 ? '' : name)),
@@ -2367,7 +2424,7 @@ function becomeHost(pack) {
     localStorage.setItem(STORE, JSON.stringify(pack.slots));
     localStorage.setItem(MODE_STORE, pack.teams ? '1' : '0');
     if (MAP_IDS.includes(pack.map)) localStorage.setItem(MAP_STORE, pack.map);
-    sessionStorage.setItem(ROOM_STORE, JSON.stringify({ room: pack.room, wins: pack.wins, career: pack.career, rounds: pack.rounds, seasons: pack.seasons, pw: pack.pw, seats: pack.seats }));
+    sessionStorage.setItem(ROOM_STORE, JSON.stringify({ room: pack.room, wins: pack.wins, career: pack.career, rounds: pack.rounds, seasons: pack.seasons, pw: pack.pw, seats: pack.seats, owners: pack.owners, records: pack.records }));
   } catch {
     return;
   }
@@ -2412,8 +2469,7 @@ function resetSeries() {
     });
     seasons = seasons.slice(-10);
   }
-  wins.fill(0);
-  career.forEach((c) => c.fill(0));
+  clearRecords();
   rounds = 0;
   saveRoom();
   renderLobby();
