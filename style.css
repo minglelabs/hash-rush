@@ -641,6 +641,13 @@ button.primary:active {
   display: none;
 }
 
+#resetBtn {
+  display: block;
+  width: 100%;
+  margin: -10px 0 20px;
+  font-size: 14px;
+}
+
 #start,
 #backToGame {
   width: 100%;
