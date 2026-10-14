@@ -2293,3 +2293,7 @@ body:has(#result:not([hidden])) #throw {
   color: #e5484d;
   font-weight: 800;
 }
+
+#profileHost {
+  margin-top: 12px;
+}
