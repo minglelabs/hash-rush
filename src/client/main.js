@@ -1565,9 +1565,12 @@ function enterStage() {
   toggleGameChat(false);
   $('banner').classList.remove('show');
   $('callout').textContent = '';
-  $('again').hidden = net.role === 'guest';
+  // A guest sees the button too, greyed out, so it is plain who starts the next round.
+  const guest = net.role === 'guest';
+  $('again').disabled = guest;
+  $('again').textContent = t(guest ? 'againHostOnly' : 'again');
   $('againBtn').hidden = true;
-  $('resultWait').hidden = net.role !== 'guest';
+  $('resultWait').hidden = true;
   scoreKey = '';
   showBoard(false);
   alarmKey = '';
@@ -2301,7 +2304,7 @@ $('start').addEventListener('click', () => {
   if (net.role === 'guest') enterRoom();
   else startGame();
 });
-$('again').addEventListener('click', startGame);
+$('again').addEventListener('click', () => net.role !== 'guest' && startGame());
 $('resetBtn').addEventListener('click', resetSeries);
 $('resetGame').addEventListener('click', resetSeries);
 $('modeSolo').addEventListener('click', () => setTeamMode(false));
