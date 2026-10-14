@@ -1128,7 +1128,10 @@ function toggleGameChat(open) {
     bar.style.top = `${Math.round(window.innerHeight * 0.2)}px`;
     barTimer = setTimeout(() => seatChatBar(true), 700);
   } else seatChatBar(true);
-  bar.querySelector('input').focus();
+  const field = bar.querySelector('input');
+  field.focus();
+  // A phone may refuse to bring up a keyboard; then there is no bar either.
+  if (document.activeElement !== field) toggleGameChat(false);
 }
 
 // Sits the bar on the bottom of what can be seen: the top of the keyboard.
@@ -1159,6 +1162,17 @@ window.addEventListener('resize', pinHeight);
 window.addEventListener('orientationchange', () => setTimeout(pinHeight, 300));
 // The keyboard may still be on its way down when the box lets go.
 document.addEventListener('focusout', () => setTimeout(pinHeight, 400));
+// The bar is up exactly while its box has the keyboard: whatever takes the focus
+// away (a touch elsewhere, the keyboard's own close key, the page going to the
+// background) puts it away too, so it never lingers without one.
+$('chatBar').querySelector('input').addEventListener('blur', () => {
+  setTimeout(() => {
+    if (document.activeElement !== $('chatBar').querySelector('input')) toggleGameChat(false);
+  }, 0);
+});
+// The send key must not take the focus, or the keyboard would drop after each line.
+$('chatBar').querySelector('button').addEventListener('pointerdown', (e) => e.preventDefault());
+document.addEventListener('visibilitychange', () => document.hidden && toggleGameChat(false));
 // A touch anywhere on the game puts the keyboard away, and does nothing else.
 window.addEventListener(
   'pointerdown',
