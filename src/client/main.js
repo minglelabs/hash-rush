@@ -1758,6 +1758,10 @@ const roundOf = (p) => [p.kills, p.deaths, p.seeds, goal(p), p.supers, p.throws 
 const ROUND_COLS = [0, 5, 6, 1, 2, 4];
 const TOTAL_COLS = [0, 5, 6, 1, 2, 3, 4];
 
+const PLAYED = 7;
+// Rounds finished and not won. A round still going is not counted either way.
+const losses = (p) => Math.max(0, ((career[p.look] || [])[PLAYED] || 0) - wins[p.look]);
+
 function addCareer() {
   if (game.counted) return;
   game.counted = true;
@@ -1765,6 +1769,8 @@ function addCareer() {
   for (const p of game.players) {
     const c = career[p.look] || (career[p.look] = [0, 0, 0, 0, 0, 0, 0]);
     roundOf(p).forEach((v, k) => (c[k] = (c[k] || 0) + v));
+    // After the seven numbers above: rounds played, for the losses.
+    c[PLAYED] = (c[PLAYED] || 0) + 1;
   }
 }
 
@@ -1813,11 +1819,11 @@ function fillScores(table) {
   race.textContent = t('firstTo', TITLE_WINS);
   th(groups, t('gameNo', rounds + (game.counted ? 0 : 1))).append(race);
   th(groups, t('thisRound'), ROUND_COLS.length).classList.add('round');
-  th(groups, t('totals'), TOTAL_COLS.length + 3).classList.add('total', 'split');
+  th(groups, t('totals'), TOTAL_COLS.length + 4).classList.add('total', 'split');
   const head = table.insertRow();
   th(head, '');
   ROUND_COLS.forEach((c) => th(head, cols[c]).classList.add('round'));
-  [...TOTAL_COLS.map((c) => cols[c]), t('colWins'), t('colScore')].forEach((h, k) => {
+  [...TOTAL_COLS.map((c) => cols[c]), t('colWins'), t('colLosses'), t('colScore')].forEach((h, k) => {
     const cell = th(head, h);
     cell.classList.add('total');
     cell.classList.toggle('split', k === 0);
@@ -1841,7 +1847,7 @@ function fillScores(table) {
     }
     const round = roundOf(p);
     const total = totalOf(p);
-    [...ROUND_COLS.map((c) => round[c]), ...TOTAL_COLS.map((c) => total[c]), wins[p.look], mvpScore(total)].forEach((v, k) => {
+    [...ROUND_COLS.map((c) => round[c]), ...TOTAL_COLS.map((c) => total[c]), wins[p.look], losses(p), mvpScore(total)].forEach((v, k) => {
       const cell = row.insertCell();
       cell.textContent = v;
       cell.classList.add(k >= ROUND_COLS.length ? 'total' : 'round');
@@ -1862,7 +1868,7 @@ function fillScores(table) {
   const rule = table.insertRow();
   rule.className = 'rule';
   const cell = rule.insertCell();
-  cell.colSpan = ROUND_COLS.length + TOTAL_COLS.length + 4;
+  cell.colSpan = ROUND_COLS.length + TOTAL_COLS.length + 5;
   cell.textContent = `${t('mvpRule')} = ${TOTAL_COLS.filter((c) => MVP_POINTS[c]).map((c) => `${cols[c]} ×${MVP_POINTS[c]}`).join(' + ')}`;
   setScoreView(scoreView);
 }
