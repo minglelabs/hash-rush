@@ -26,7 +26,7 @@ node rl/play.js rl/runs/first/policy.json 200
   - `--role 1`: 마크·경계 담당이 맡은 상대에게 다가가면 점수.
   - 관측 끝에 10개(내 역할 셋, 팀원이 씨 들었는지, 상대 운반자 수, 맡은 상대의 위치·집까지 거리)가 붙어 199→209개. 예전 학습본도 이어서 학습 가능(새 입력은 가중치 0에서 시작).
 - 팀 정신 보상(`--team-spirit 0.5`, 기본값): 팀전에서 자기 점수 보상의 절반을 팀 평균으로 받아, 팀원이 씨를 가져가게 돕는 것도 보상이 됩니다(OpenAI Five 방식). 0이면 끔.
-- Elo: `node rl/elo.js 400 RL1=rl/runs/long/policy.json RL2=rl/runs/team/policy.json` → 개인전(4인)·팀전(2대2) Elo 따로. 판마다 봇·학습본을 무작위로 앉히고 결과 전체에 맞춰 계산, 초보 = 1000, 400점 차이 = 10:1.
+- Elo: `node rl/elo.js RL1=rl/runs/long/policy.json RL2=rl/runs/team/policy.json` → 기본 모드당 1600판(약 15분, 오차 ±50점 안팎). 개인전(4인)·팀전(2대2) Elo 따로. 판마다 봇·학습본을 무작위로 앉히고 결과 전체에 맞춰 계산, 초보 = 1000, 400점 차이 = 10:1.
 - RL끼리: `node rl/report.js 새.json 30 기존.json` 하면 두 정책이 개인전·팀전으로 붙는 10줄이 표에 추가됩니다(RL / RL'). 학습에선 `--rivals rl/runs/long/policy.pt`로 기존 봇을 리그에 고정해, 자기 과거들과 함께 상대·팀원으로 계속 만납니다.
 - RL·RL2하고만 학습: `--rivals A.pt B.pt --league 2 --self-play 0 --no-curriculum --bot-env 0` (리그 크기가 고정 상대 수와 같으면 과거 자신이 안 들어감).
 - 초고수(ace)와 붙이는 단계: `--stage 4` (중수·고수·초고수 봇이 판의 절반에 들어옴). 팀전 비중은 `--teams 0.8`.
