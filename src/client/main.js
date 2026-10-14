@@ -589,7 +589,8 @@ function renderRanking(rows) {
   for (const r of shown) {
     const row = table.insertRow();
     row.classList.toggle('me', r.me);
-    for (const v of [r.rank, r.name, r.elo, r.games, r.wins]) row.insertCell().textContent = v;
+    const name = r.level ? `🤖 ${t('botLevels')[r.level] || r.level}` : r.name;
+    for (const v of [r.rank, name, r.elo, r.games, r.wins]) row.insertCell().textContent = v;
   }
 }
 
@@ -610,7 +611,9 @@ function renderHistory() {
       result.textContent = t(h.won ? 'rankWin' : 'rankLoss');
       const when = new Date(h.at).toLocaleString(lang, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
       const what = document.createElement('span');
-      what.textContent = `${t('mapNames')[h.map] || h.map} · ${(h.with || []).join(', ')}`;
+      // A computer shows its level too: 콩이(초보). Older records kept only names.
+      const who = (h.with || []).map((o) => (typeof o === 'string' ? o : o.level ? `${o.name}(${t('botLevels')[o.level] || o.level})` : o.name));
+      what.textContent = `${t('mapNames')[h.map] || h.map} · ${who.join(', ')}`;
       const tag = document.createElement('small');
       tag.textContent = `${when} · ${t(h.rated ? 'rankRated' : 'rankUnrated')}`;
       li.append(result, what, tag);
@@ -1650,11 +1653,15 @@ function rateRound() {
   game.rated = true;
   const me = game.players[meId];
   const people = game.players.filter((p) => p.pid && p.pub);
-  const rated = !!net.match && people.length >= 2 && people.includes(me);
+  // Computers take part as their level; a person needs a key to count.
+  const bots = game.players.filter((p) => String(p.kind || '').startsWith('bot:'));
+  const levels = new Set(bots.map((p) => p.kind));
+  const rated = !!net.match && people.includes(me) && people.length + levels.size >= 2;
   // The ranking goes by the name this player last played under.
   if (rated) shareName(me.name);
-  remember({ at: Date.now(), map: game.map.id, team: me.team >= 0, won: won(me), rated, with: game.players.filter((p) => p !== me).map((p) => p.name) });
-  if (rated) signResult({ id: net.match.id, at: net.match.at, map: game.map.id, team: me.team >= 0, players: people.map((p) => ({ pid: p.pid, pub: p.pub, won: won(p) })) });
+  remember({ at: Date.now(), map: game.map.id, team: me.team >= 0, won: won(me), rated, with: game.players.filter((p) => p !== me).map((p) => ({ name: p.name, level: String(p.kind || '').startsWith('bot:') ? p.kind.slice(4) : '' })) });
+  const players = [...people.map((p) => ({ pid: p.pid, pub: p.pub, won: won(p) })), ...bots.map((p) => ({ pid: p.kind, won: won(p) }))];
+  if (rated) signResult({ id: net.match.id, at: net.match.at, map: game.map.id, team: me.team >= 0, players });
 }
 
 // A finished round goes into the running totals once.
