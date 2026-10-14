@@ -666,12 +666,34 @@ function showProfile({ name, look, level, pid, seat }) {
 $('profileClose').addEventListener('click', () => ($('profile').hidden = true));
 $('profile').addEventListener('click', (e) => e.target === $('profile') && ($('profile').hidden = true));
 
-// The best fifty, and this player's own row under them if it is further down.
-function renderRanking(rows) {
+// Page buttons under a list: ‹ 2 / 5 ›. Nothing when it all fits on one page.
+function pager(box, page, pages, go) {
+  box.textContent = '';
+  if (pages <= 1) return;
+  const button = (label, to) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = label;
+    b.disabled = to < 0 || to >= pages;
+    b.addEventListener('click', () => go(to));
+    return b;
+  };
+  const where = document.createElement('span');
+  where.textContent = `${page + 1} / ${pages}`;
+  box.append(button('‹', page - 1), where, button('›', page + 1));
+}
+
+const RANK_PAGE = 10;
+const HISTORY_PAGE = 5;
+
+// Ten places a page, this player's own row under them if it is on another page.
+function renderRanking(rows, page = 0) {
   $('rankTable').textContent = '';
-  const shown = rows.slice(0, 50);
+  const pages = Math.ceil(rows.length / RANK_PAGE);
+  const shown = rows.slice(page * RANK_PAGE, (page + 1) * RANK_PAGE);
   const me = rows.find((r) => r.me);
   if (me && !shown.includes(me)) shown.push(me);
+  pager($('rankPager'), page, pages, (to) => renderRanking(rows, to));
   if (!shown.length) return;
   const table = $('rankTable');
   const head = table.insertRow();
@@ -688,9 +710,11 @@ function renderRanking(rows) {
   }
 }
 
-// This browser's own record, newest first, rated or not.
-function renderHistory() {
-  const list = history().slice(0, 15);
+// This browser's own record, newest first, rated or not, five rounds a page.
+function renderHistory(page = 0) {
+  const all = history();
+  const list = all.slice(page * HISTORY_PAGE, (page + 1) * HISTORY_PAGE);
+  pager($('historyPager'), page, Math.ceil(all.length / HISTORY_PAGE), renderHistory);
   if (!list.length) {
     const li = document.createElement('li');
     li.textContent = t('rankNoHistory');
