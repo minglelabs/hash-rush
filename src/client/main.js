@@ -262,14 +262,13 @@ function renderLobby() {
     }).slice(1),
   );
   const list = $('slots');
-  // Rebuilding the list would replace the field someone is typing a name in,
-  // which drops focus and breaks Korean/Japanese/Chinese composition. While the
-  // rows are otherwise the same, only the other names are refreshed.
+  // Rebuilding the list would replace whatever someone is using in it: the name
+  // field being typed in (which drops focus and breaks Korean/Japanese/Chinese
+  // composition) or a menu standing open while a friend types their name. While
+  // the rows are otherwise the same, only the names are refreshed.
   const typing = document.activeElement;
   const shape = (slot, i) => `${slot.kind}:${guest ? i === net.you : ''}:${teams ? slot.team : ''}`;
   const keep =
-    typing instanceof HTMLInputElement &&
-    list.contains(typing) &&
     list.children.length === rows.length &&
     rows.every((slot, i) => list.children[i].dataset.shape === shape(slot, i));
   if (keep) {
@@ -299,7 +298,9 @@ function renderLobby() {
       avatar.title = t('profileTap');
       avatar.addEventListener('click', () => {
         const level = String(slot.kind).startsWith('bot:') ? slot.kind.slice(4) : '';
-        showProfile({ name: slot.name, look, level, pid: level ? `bot:${level}` : guest ? slot.pid || '' : keyOf(slot).pid, seat: i });
+        // The row may outlive the seat object it was drawn from: read it afresh.
+        const now = (net.role === 'guest' ? net.lobby || [] : slots)[i] || slot;
+        showProfile({ name: now.name, look, level, pid: level ? `bot:${level}` : guest ? now.pid || '' : keyOf(now).pid, seat: i });
       });
     }
 
@@ -1909,14 +1910,20 @@ function showBoard(on) {
 // Whoever has the most wins once somebody reaches the title, two clear of the
 // next. Wins belong to a seat, not a team, so sides can be reshuffled between
 // rounds; level at the top (team-mates, a shared round) means the title is shared.
+// Each side's wins: a team's (its best seat, as team-mates win together) or one
+// hamster's own in a free-for-all. Two sides level at the top is no title: it is
+// deuce until one of them is two clear of every other side.
+const sideOf = (p) => (p.team >= 0 ? `t${p.team}` : `p${p.id}`);
 function standing() {
-  const top = Math.max(...game.players.map((p) => wins[p.look]));
-  const next = Math.max(0, ...game.players.filter((p) => wins[p.look] < top).map((p) => wins[p.look]));
-  return { top, next };
+  const sides = new Map();
+  for (const p of game.players) sides.set(sideOf(p), Math.max(sides.get(sideOf(p)) ?? 0, wins[p.look]));
+  const [top = 0, next = 0] = [...sides.values()].sort((a, b) => b - a);
+  return { top, next, sides };
 }
 function champions() {
-  const { top, next } = standing();
-  return top >= TITLE_WINS && top - next >= TITLE_LEAD ? game.players.filter((p) => wins[p.look] === top) : [];
+  const { top, next, sides } = standing();
+  if (top < TITLE_WINS || top - next < TITLE_LEAD) return [];
+  return game.players.filter((p) => sides.get(sideOf(p)) === top && wins[p.look] === top);
 }
 // Both leaders within a win of the title and nobody two clear: play on.
 function deuce() {
