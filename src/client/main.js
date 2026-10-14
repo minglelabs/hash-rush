@@ -744,8 +744,6 @@ function guestData(conn, msg) {
     slot.name = guestName(slot, msg.name);
     renderLobby();
     sendLobby();
-  } else if (msg.t === 'pause') {
-    setPause(!!msg.on, slot.name);
   } else if (msg.t === 'team') {
     if (!teamMode || !validTeam(msg.team)) return;
     slot.team = msg.team;
@@ -1278,8 +1276,7 @@ window.addEventListener('keydown', (e) => {
 });
 
 // ---------- pause ----------
-// Anyone playing can stop the round for everyone, and anyone can start it again.
-// The host keeps the time still; guests just show it.
+// The host can stop the round for everyone and start it again; guests just see it.
 let paused = false;
 $('field').insertAdjacentHTML('beforeend', '<div id="pause" hidden><b id="pauseWord"></b><p id="pauseBy"></p><button id="resume" class="primary"></button></div>');
 $('boardBtn').insertAdjacentHTML('beforebegin', '<button id="pauseBtn">⏸</button>');
@@ -1290,6 +1287,8 @@ function showPause(on, by = '') {
   $('pauseWord').textContent = t('paused');
   $('pauseBy').textContent = by ? t('pausedBy', by) : '';
   $('resume').textContent = t('resume');
+  // Only the host stops and starts the round; a guest just waits.
+  $('resume').hidden = net.role === 'guest';
 }
 
 function myName() {
@@ -1298,11 +1297,7 @@ function myName() {
 
 function setPause(on, by = myName()) {
   if (!game || game.phase === 'over' || $('stage').hidden || on === paused) return;
-  if (net.role === 'guest') {
-    if (meId < 0 || !net.host) return;
-    net.host.send({ t: 'pause', on });
-    return;
-  }
+  if (net.role === 'guest') return;
   acc = 0;
   showPause(on, by);
   broadcast(() => ({ t: 'pause', on, by }));
@@ -1368,6 +1363,7 @@ function startGame() {
 function enterStage() {
   clearTimeout(resultTimer);
   showPause(false);
+  $('pauseBtn').hidden = net.role === 'guest';
   $('result').hidden = true;
   hideChampions();
   $('feed').textContent = '';
