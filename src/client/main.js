@@ -681,6 +681,7 @@ function welcome(conn, msg) {
   }
   // Arriving mid-round, they watch it; a new player gets a hamster next round.
   if (game && !$('stage').hidden) conn.send({ t: 'start', g: net.round, map: game.map.id, players: roster(), you: -1, wins, tot: career, rd: rounds, hist: seasons });
+  if (game && paused) conn.send({ t: 'pause', on: true, by: '' });
 }
 
 function guestName(slot, raw) {
@@ -712,6 +713,8 @@ function guestData(conn, msg) {
     slot.name = guestName(slot, msg.name);
     renderLobby();
     sendLobby();
+  } else if (msg.t === 'pause') {
+    setPause(!!msg.on, slot.name);
   } else if (msg.t === 'team') {
     if (!teamMode || !validTeam(msg.team)) return;
     slot.team = msg.team;
@@ -958,6 +961,8 @@ function hostData(msg) {
     addChat(msg);
   } else if (msg.t === 'new') {
     newcomer(msg);
+  } else if (msg.t === 'pause') {
+    showPause(!!msg.on, msg.by || '');
   }
 }
 
@@ -1241,6 +1246,43 @@ window.addEventListener('keydown', (e) => {
   toggleGameChat(true);
 });
 
+// ---------- pause ----------
+// Anyone playing can stop the round for everyone, and anyone can start it again.
+// The host keeps the time still; guests just show it.
+let paused = false;
+$('field').insertAdjacentHTML('beforeend', '<div id="pause" hidden><b id="pauseWord"></b><p id="pauseBy"></p><button id="resume" class="primary"></button></div>');
+$('boardBtn').insertAdjacentHTML('beforebegin', '<button id="pauseBtn">⏸</button>');
+
+function showPause(on, by = '') {
+  paused = on;
+  $('pause').hidden = !on;
+  $('pauseWord').textContent = t('paused');
+  $('pauseBy').textContent = by ? t('pausedBy', by) : '';
+  $('resume').textContent = t('resume');
+}
+
+function myName() {
+  return net.role === 'guest' ? (game && meId >= 0 ? game.players[meId].name : '') : slots[0]?.name || '';
+}
+
+function setPause(on, by = myName()) {
+  if (!game || game.phase === 'over' || $('stage').hidden || on === paused) return;
+  if (net.role === 'guest') {
+    if (meId < 0 || !net.host) return;
+    net.host.send({ t: 'pause', on });
+    return;
+  }
+  acc = 0;
+  showPause(on, by);
+  broadcast(() => ({ t: 'pause', on, by }));
+}
+$('pauseBtn').addEventListener('click', () => setPause(!paused));
+$('resume').addEventListener('click', () => setPause(false));
+window.addEventListener('keydown', (e) => {
+  if (e.code !== 'KeyP' || e.target instanceof HTMLInputElement) return;
+  setPause(!paused);
+});
+
 // ---------- game ----------
 
 function startGame() {
@@ -1294,6 +1336,7 @@ function startGame() {
 
 function enterStage() {
   clearTimeout(resultTimer);
+  showPause(false);
   $('result').hidden = true;
   hideChampions();
   $('feed').textContent = '';
@@ -1814,6 +1857,7 @@ function showResult() {
   syncChat();
   // The card can be put away to look around, so the rematch button is also outside it.
   $('againBtn').hidden = net.role === 'guest';
+  againAt = performance.now();
   if (net.role !== 'guest') $('again').focus();
 }
 
@@ -1889,7 +1933,7 @@ function frame(now) {
 
   if (net.role === 'guest') {
     // Guests do not simulate the round: send the input, draw the latest snapshot.
-    if (meId >= 0) {
+    if (meId >= 0 && !paused) {
       const at = performance.now() / 1000;
       const i = input.read(game, meId);
       if (i.bonk && !bonkWas) bonkSeq++;
@@ -1907,6 +1951,8 @@ function frame(now) {
       }
       playAhead(at);
     }
+  } else if (paused) {
+    acc = 0;
   } else {
     acc += dt;
     let steps = 0;
@@ -2062,7 +2108,10 @@ $('champLobby').addEventListener('click', endSeason);
 $('result').addEventListener('click', (e) => e.target === $('result') && ($('result').hidden = true));
 // So does one on the bare strip beside or under the map, where a phone's screen runs past it.
 $('stage').addEventListener('click', (e) => e.target === $('stage') && ($('result').hidden = true));
-$('againBtn').addEventListener('click', startGame);
+// It comes up under a thumb that may be on its way to another button: a tap that
+// lands in its first moments was not meant for it.
+let againAt = 0;
+$('againBtn').addEventListener('click', () => performance.now() - againAt > 700 && startGame());
 // On a tall screen the field buttons fold behind "⋯". Choosing one, or touching
 // anywhere else, folds them away again.
 $('toolsMore').addEventListener('click', () => $('tools').classList.toggle('open'));
