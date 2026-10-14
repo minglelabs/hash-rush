@@ -611,9 +611,16 @@ button.primary:active {
 .listed {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   margin-top: 6px;
   font-size: 13px;
+}
+
+/* The box sits next to its words, not stretched like the link fields. */
+#invite .listed input {
+  flex: none;
+  width: auto;
 }
 
 #watchRow {
