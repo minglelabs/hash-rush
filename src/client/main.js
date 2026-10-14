@@ -1582,16 +1582,11 @@ function enterStage() {
   toggleGameChat(false);
   $('banner').classList.remove('show');
   $('callout').textContent = '';
-  // A guest sees the button too, greyed out, so it is plain who starts the next round.
+  // Only the host starts the next round. A guest's button asks for it instead, out
+  // loud in the chat, which also makes plain who it is up to.
   const guest = net.role === 'guest';
-  $('again').disabled = guest;
-  $('again').textContent = t('again');
-  // Who may press it goes small underneath, so the button stays the size it was.
-  if (guest) {
-    const note = document.createElement('small');
-    note.textContent = t('againHostOnly');
-    $('again').append('?', note);
-  }
+  $('again').classList.toggle('ask', guest);
+  $('again').textContent = t(guest ? 'askAgain' : 'again');
   $('againBtn').hidden = true;
   $('resultWait').hidden = true;
   scoreKey = '';
@@ -2356,7 +2351,17 @@ $('start').addEventListener('click', () => {
   if (net.role === 'guest') enterRoom();
   else startGame();
 });
-$('again').addEventListener('click', () => net.role !== 'guest' && startGame());
+let askedAt = 0;
+$('again').addEventListener('click', () => {
+  if (net.role !== 'guest') {
+    startGame();
+    return;
+  }
+  // Once every few seconds, so it cannot be used to flood the chat.
+  if (performance.now() - askedAt < 3000) return;
+  askedAt = performance.now();
+  sendChat(t('askAgainLine'));
+});
 $('resetBtn').addEventListener('click', resetSeries);
 $('resetGame').addEventListener('click', resetSeries);
 $('modeSolo').addEventListener('click', () => setTeamMode(false));

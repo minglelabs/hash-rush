@@ -56,21 +56,9 @@ button.primary:active {
   box-shadow: 0 1px 0 #c98400;
 }
 
-/* The rematch button a guest sees: there to say who starts the next round, not to press. */
-#again:disabled {
-  background: #f1e3b8;
-  border-color: #d8c79a;
-  box-shadow: none;
-  color: #8a7b5a;
-  cursor: default;
-  transform: none;
-}
-
-#again small {
-  display: block;
-  font-size: 0.62em;
-  font-weight: 600;
-  line-height: 1.2;
+/* The guest's button asks the host instead: a softer look than the host's own. */
+#again.ask {
+  background: #fff4cf;
 }
 
 /* Once the score card is up there is nothing to steer or bonk, and the bonk
