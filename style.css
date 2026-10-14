@@ -2268,3 +2268,9 @@ button.primary:active {
   margin: 0;
   color: #6b5232;
 }
+
+/* A championship called off before anyone won it. */
+#seasonList li.stopped {
+  opacity: 0.7;
+  border-style: dashed;
+}
