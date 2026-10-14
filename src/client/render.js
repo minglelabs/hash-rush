@@ -829,7 +829,7 @@ export function createRenderer(canvas, firstMap) {
     ctx.globalAlpha = 1;
   }
 
-  // view: { dt, meId, marker }
+  // view: { dt, meId }
   function draw(game, view) {
     if (!ground) resize();
     if (!ground) return;
@@ -945,14 +945,6 @@ export function createRenderer(canvas, firstMap) {
     ctx.stroke();
     ctx.setLineDash([]);
     drawFlower(ctx, f, t);
-
-    if (view.marker) {
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
-      ctx.lineWidth = 2.5;
-      ctx.beginPath();
-      ctx.arc(view.marker.x, view.marker.y, 7 + 2 * Math.sin(t * 8), 0, TAU);
-      ctx.stroke();
-    }
 
     // A seed carrier labours along: its feet kick up dust, thicker on the last stretch.
     for (const p of game.players) {

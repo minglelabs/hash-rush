@@ -2,10 +2,9 @@
 // expects. Mouse clicks work like an RTS right-click: walk there, or chase and bonk
 // the hamster that was clicked. A tap on a phone's map is the same click.
 
-import { BONK, HAMSTER_R } from '../sim/constants.js';
+import { BONK } from '../sim/constants.js';
 import { inHome, allied } from '../sim/game.js';
-import { segmentClear, isFree } from '../sim/map.js';
-import { getNav, blockCost } from '../ai/nav.js';
+import { segmentClear } from '../sim/map.js';
 import { predictSwing } from '../ai/bot.js';
 
 export const KEYS = {
@@ -25,8 +24,11 @@ const STICK_DEAD = 8;
 const DIAGONAL = (15 * Math.PI) / 180;
 // Extra lean needed to leave the current heading, so a wobbling thumb does not flicker.
 const STICKY = (6 * Math.PI) / 180;
-// A fingertip is wider than a mouse pointer: a tap this near a rival (world pixels) means that rival.
-const TAP_REACH = 48;
+// A swipe on the map is a finger that travels this far (screen pixels)
+const SWIPE_MIN = 16;
+// over at least this long (ms); anything quicker is a tap, and a tap stops.
+const SWIPE_TIME = 50;
+const TAP_SLOP = 10;
 
 // The touch pad is eight-way, like arrow keys: no slow walk, and a thumb a little
 // off a key still runs straight down a lane. (dx, dy) is where the thumb lies from
@@ -44,38 +46,11 @@ export function stickDir(dx, dy, was = null) {
   return { x: Math.round(Math.cos(snap)) || 0, y: Math.round(Math.sin(snap)) || 0 };
 }
 
-// Where a hamster told to go to (x, y) can actually stand: the spot itself, or the
-// nearest ground to it when it is inside a hedge, on the flower or off the map.
-export function nearestGround(map, x, y) {
-  const b = map.bounds;
-  const r = HAMSTER_R;
-  const clamp = (v, lo, hi) => Math.max(lo, Math.min(v, hi));
-  x = clamp(x, b.x1 + r, b.x2 - r);
-  y = clamp(y, b.y1 + r, b.y2 - r);
-  if (isFree(map, x, y, r)) return { x, y };
-  let best = null;
-  let near = Infinity;
-  const offer = (x1, y1, x2, y2) => {
-    const px = clamp(x, x1, x2);
-    const py = clamp(y, y1, y2);
-    const d = Math.hypot(px - x, py - y);
-    if (d < near) {
-      near = d;
-      best = { x: px, y: py };
-    }
-  };
-  // The room a hamster has inside each lane cell, and the open ground either side of the hedge.
-  const slack = map.laneWidth / 2 - r;
-  for (const c of map.cells) offer(c.x - slack, c.y - slack, c.x + slack, c.y + slack);
-  offer(b.x1 + r, b.y1 + r, map.lanes.x1 - r, b.y2 - r);
-  offer(map.lanes.x2 + r, b.y1 + r, b.x2 - r, b.y2 - r);
-  const f = map.flower;
-  const d = Math.hypot(best.x - f.x, best.y - f.y);
-  if (d < f.r + r) {
-    const k = (f.r + r) / (d || 1);
-    best = { x: f.x + (d ? best.x - f.x : -1) * k, y: f.y + (best.y - f.y) * k };
-  }
-  return best;
+// The way a swipe of (dx, dy) screen pixels over `ms` milliseconds points, straight
+// along a lane, or null while it is still too short or too quick to count.
+export function swipeDir(dx, dy, ms) {
+  if (ms < SWIPE_TIME || Math.hypot(dx, dy) < SWIPE_MIN) return null;
+  return Math.abs(dx) >= Math.abs(dy) ? { x: Math.sign(dx), y: 0 } : { x: 0, y: Math.sign(dy) };
 }
 
 // Holding the touch button waits for the swing that connects instead of whiffing.
@@ -98,7 +73,7 @@ export function holdSwing(g, me, fresh) {
 
 // `laneHelp` is there for trying the phone controls out: whether moves off the pad
 // ask for the lane help.
-export function createInput({ stage, canvas, pad, bonkBtn, throwBtn, toWorld, toWorldDir, laneHelp = true }) {
+export function createInput({ stage, canvas, pad, bonkBtn, throwBtn, toWorldDir, laneHelp = true }) {
   const down = new Set();
   let enabled = false;
   let touch = null;
@@ -106,9 +81,9 @@ export function createInput({ stage, canvas, pad, bonkBtn, throwBtn, toWorld, to
   let throwHeld = false;
   let buttonWas = false;
   let pulsed = false;
-  let click = null;
-  let order = null;
-  let autoHeld = false;
+  // A swipe on the map sets the way to keep going, until the next swipe or a tap.
+  let swipe = null;
+  let glide = null;
 
   const held = (name) => KEYS[name].some((code) => down.has(code));
 
@@ -118,8 +93,8 @@ export function createInput({ stage, canvas, pad, bonkBtn, throwBtn, toWorld, to
     button = false;
     buttonWas = false;
     throwHeld = false;
-    click = null;
-    order = null;
+    swipe = null;
+    glide = null;
     showPad();
   }
 
@@ -134,10 +109,6 @@ export function createInput({ stage, canvas, pad, bonkBtn, throwBtn, toWorld, to
   window.addEventListener('blur', () => down.clear());
 
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-  canvas.addEventListener('pointerdown', (e) => {
-    if (!enabled || e.pointerType === 'touch') return;
-    click = toWorld(e.clientX, e.clientY);
-  });
 
   // Touch: a faint pad of arrow keys under the thumb. Whichever way the thumb lies
   // from the pad's middle is the key held down, so a touch moves the hamster at
@@ -156,22 +127,35 @@ export function createInput({ stage, canvas, pad, bonkBtn, throwBtn, toWorld, to
   pad.addEventListener('pointerdown', (e) => {
     if (!enabled || touch) return;
     touch = { id: e.pointerId, x: 0, y: 0 };
+    glide = null;
     press(e);
     // The hint about the controls has done its job.
     stage.classList.add('played');
     e.preventDefault();
   });
-  // A finger touching the map gives an order the moment it lands, like a mouse
-  // click, so quick taps one after another steer the hamster step by step. A touch
-  // beside the map counts for the nearest ground to it.
+  // Or a swipe anywhere on the map: the hamster heads that way and keeps going, the
+  // way it would with the key held, until another swipe turns it or a tap stops it.
+  // One finger can keep steering: each further stretch of its slide is a new swipe.
   stage.addEventListener('pointerdown', (e) => {
-    if (!enabled || e.pointerType !== 'touch' || (e.target !== canvas && e.target !== stage)) return;
-    click = { ...toWorld(e.clientX, e.clientY), reach: TAP_REACH };
+    if (!enabled || e.pointerType !== 'touch' || (e.target !== canvas && e.target !== stage) || swipe) return;
+    swipe = { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp, x0: e.clientX, y0: e.clientY, t0: e.timeStamp, moved: false };
+    stage.classList.add('played');
   });
   window.addEventListener('pointermove', (e) => {
     if (touch && e.pointerId === touch.id) press(e);
+    if (!swipe || e.pointerId !== swipe.id) return;
+    const dir = swipeDir(e.clientX - swipe.x, e.clientY - swipe.y, e.timeStamp - swipe.t);
+    if (Math.hypot(e.clientX - swipe.x0, e.clientY - swipe.y0) > TAP_SLOP) swipe.moved = true;
+    if (!dir) return;
+    glide = dir;
+    Object.assign(swipe, { x: e.clientX, y: e.clientY, t: e.timeStamp });
   });
   const release = (e) => {
+    if (swipe && e.pointerId === swipe.id) {
+      // A tap, not a swipe: stop where you are.
+      if (!swipe.moved && e.type === 'pointerup') glide = null;
+      swipe = null;
+    }
     if (!touch || e.pointerId !== touch.id) return;
     touch = null;
     showPad();
@@ -192,31 +176,6 @@ export function createInput({ stage, canvas, pad, bonkBtn, throwBtn, toWorld, to
   });
   for (const type of ['pointerup', 'pointercancel', 'pointerleave']) throwBtn.addEventListener(type, () => (throwHeld = false));
 
-  function resolveClick(g, me) {
-    const at = click;
-    click = null;
-    let target = null;
-    let best = at.reach || 36;
-    for (const e of g.players) {
-      if (e === me || allied(me, e)) continue;
-      const d = Math.hypot(e.x - at.x, e.y - at.y);
-      if (d < best) {
-        best = d;
-        target = e;
-      }
-    }
-    if (target) return { type: 'attack', id: target.id, deaths: target.deaths };
-    // Clicking the flower means "go nibble": aim for the near side of the ring.
-    const f = g.map.flower;
-    if (Math.hypot(at.x - f.x, at.y - f.y) < f.gatherR) {
-      const dx = me.x - f.x;
-      const dy = me.y - f.y;
-      const d = Math.hypot(dx, dy) || 1;
-      return { type: 'move', x: f.x + (dx / d) * 52, y: f.y + (dy / d) * 52 };
-    }
-    return { type: 'move', ...nearestGround(g.map, at.x, at.y) };
-  }
-
   function read(g, id) {
     const me = g.players[id];
     const out = { mx: 0, my: 0, bonk: held('bonk'), ax: 0, ay: 0, throw: held('throw') || throwHeld, stick: false };
@@ -224,11 +183,12 @@ export function createInput({ stage, canvas, pad, bonkBtn, throwBtn, toWorld, to
     if (held('right')) out.mx += 1;
     if (held('up')) out.my -= 1;
     if (held('down')) out.my += 1;
-    if (touch) {
-      out.mx = touch.x;
-      out.my = touch.y;
-      // A move off the pad is one the lane help may straighten out.
-      out.stick = laneHelp && !!(touch.x || touch.y);
+    const finger = touch || glide;
+    if (finger) {
+      out.mx = finger.x;
+      out.my = finger.y;
+      // A move off the pad or a swipe is one the lane help may straighten out.
+      out.stick = laneHelp && !!(finger.x || finger.y);
     }
     // Keys and the pad point in screen directions; the view may be turned.
     const dir = toWorldDir(out.mx, out.my);
@@ -243,47 +203,6 @@ export function createInput({ stage, canvas, pad, bonkBtn, throwBtn, toWorld, to
       out.ay = aim.ay;
     }
     pulsed = !!aim && !pulsed;
-    if (click && g.phase === 'playing') order = resolveClick(g, me);
-    click = null;
-    if (out.mx || out.my) order = null;
-    if (!order || g.phase !== 'playing') return out;
-
-    const nav = getNav(g.map);
-    // Like an RTS unit, walk around a lane that someone is standing in.
-    const blocked = blockCost(
-      g.map,
-      g.players.filter((p) => p !== me && !allied(me, p)),
-    );
-    const steer = (pt) => {
-      const dx = pt.x - me.x;
-      const dy = pt.y - me.y;
-      const d = Math.hypot(dx, dy) || 1;
-      out.mx = dx / d;
-      out.my = dy / d;
-    };
-    if (order.type === 'attack') {
-      const e = g.players[order.id];
-      if (e.deaths !== order.deaths || inHome(g, e)) {
-        order = null;
-        return out;
-      }
-      const visible = nav.clear(me, e);
-      steer(visible ? e : nav.nextTarget(me, nav.findPath(me, e).points));
-      const p = predictSwing(me, { x: e.x, y: e.y, vx: e.vx, vy: e.vy, swing: e.swing }, BONK.windup);
-      const ready = visible && !me.swing && me.cooldown <= 0 && !inHome(g, me) && p.dist <= BONK.reach - 3;
-      if (ready && !autoHeld) {
-        out.bonk = true;
-        out.ax = p.ax;
-        out.ay = p.ay;
-        autoHeld = true;
-      } else {
-        autoHeld = false;
-      }
-    } else if (Math.hypot(order.x - me.x, order.y - me.y) < 5) {
-      order = null;
-    } else {
-      steer(nav.nextTarget(me, nav.findPath(me, order, blocked).points));
-    }
     return out;
   }
 
@@ -294,7 +213,5 @@ export function createInput({ stage, canvas, pad, bonkBtn, throwBtn, toWorld, to
       enabled = on;
       if (!on) reset();
     },
-    // Where the hamster has been told to walk, for the on-field marker.
-    marker: () => (order && order.type === 'move' ? order : null),
   };
 }
