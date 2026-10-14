@@ -2299,3 +2299,9 @@ body:has(#result:not([hidden])) #throw {
   opacity: 0.7;
   border-style: dashed;
 }
+
+/* Deuce: the race to the title goes on until somebody is two clear. */
+.scoreTable small.deuce {
+  color: #e5484d;
+  font-weight: 800;
+}

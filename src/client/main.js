@@ -133,6 +133,9 @@ const career = slots.map(() => [0, 0, 0, 0, 0, 0, 0]);
 let rounds = 0;
 // The first to this many wins takes the championship, and the room starts over.
 const TITLE_WINS = 10;
+// ...and by this many wins clear of the next. With the leaders level at 9 it is
+// deuce: the title goes to whoever first gets two ahead (11-9, 12-10 and so on).
+const TITLE_LEAD = 2;
 // Championships already decided in this room, newest last. Gone with the room.
 let seasons = [];
 const audio = createAudio();
@@ -1816,7 +1819,8 @@ function fillScores(table) {
   const groups = table.insertRow();
   groups.className = 'groups';
   const race = document.createElement('small');
-  race.textContent = t('firstTo', TITLE_WINS);
+  race.textContent = deuce() ? t('deuce', TITLE_LEAD) : t('firstTo', TITLE_WINS);
+  race.classList.toggle('deuce', deuce());
   th(groups, t('gameNo', rounds + (game.counted ? 0 : 1))).append(race);
   th(groups, t('thisRound'), ROUND_COLS.length).classList.add('round');
   th(groups, t('totals'), TOTAL_COLS.length + 4).classList.add('total', 'split');
@@ -1891,12 +1895,22 @@ function showBoard(on) {
 
 // ---------- championship ----------
 
-// Whoever has the most wins once somebody reaches the title. Wins belong to a
-// seat, not a team, so sides can be reshuffled between rounds; level at the top
-// means the title is shared.
-function champions() {
+// Whoever has the most wins once somebody reaches the title, two clear of the
+// next. Wins belong to a seat, not a team, so sides can be reshuffled between
+// rounds; level at the top (team-mates, a shared round) means the title is shared.
+function standing() {
   const top = Math.max(...game.players.map((p) => wins[p.look]));
-  return top >= TITLE_WINS ? game.players.filter((p) => wins[p.look] === top) : [];
+  const next = Math.max(0, ...game.players.filter((p) => wins[p.look] < top).map((p) => wins[p.look]));
+  return { top, next };
+}
+function champions() {
+  const { top, next } = standing();
+  return top >= TITLE_WINS && top - next >= TITLE_LEAD ? game.players.filter((p) => wins[p.look] === top) : [];
+}
+// Both leaders within a win of the title and nobody two clear: play on.
+function deuce() {
+  const { top, next } = standing();
+  return top >= TITLE_WINS - 1 && next >= TITLE_WINS - 1 && !champions().length;
 }
 
 let champTimer = 0;
@@ -1904,7 +1918,7 @@ let champFrame = 0;
 
 // A gold cup with a sunflower seed standing in it, rays turning behind and
 // confetti coming down.
-function drawTrophy(canvas, time) {
+function drawTrophy(canvas, time, won = TITLE_WINS) {
   const ctx = canvas.getContext('2d');
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const W = 300;
@@ -1981,7 +1995,7 @@ function drawTrophy(canvas, time) {
   ctx.fillStyle = '#ffe27a';
   ctx.font = '800 15px system-ui, sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText(`${TITLE_WINS}`, 0, 77);
+  ctx.fillText(`${won}`, 0, 77);
   // shine
   ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
   ctx.beginPath();
@@ -2026,12 +2040,12 @@ function showChampions(champs) {
   setScoreView('total');
   // Only the host can take the room back to the lobby; anyone can put the card away.
   $('champLobby').hidden = net.role === 'guest';
-  $('champNote').textContent = t('champNote', rounds);
+  $('champNote').textContent = t('champNote', rounds, wins[champs[0].look]);
   $('champ').hidden = false;
   cancelAnimationFrame(champFrame);
   const start = performance.now();
   const loop = (now) => {
-    drawTrophy($('trophy'), (now - start) / 1000);
+    drawTrophy($('trophy'), (now - start) / 1000, wins[champs[0].look]);
     champFrame = requestAnimationFrame(loop);
   };
   champFrame = requestAnimationFrame(loop);
