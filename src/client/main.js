@@ -319,6 +319,10 @@ function renderLobby() {
       if (mine) shareName(name.value);
       if (guest) {
         net.host.send({ t: 'name', name: name.value });
+        // A guest's own name is the one its page keeps in the first seat, and
+        // brings to the room again after a reload.
+        slots[0].name = name.value;
+        saveSlots();
       } else {
         saveSlots();
         sendLobby();
