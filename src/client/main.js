@@ -299,7 +299,7 @@ function renderLobby() {
       avatar.title = t('profileTap');
       avatar.addEventListener('click', () => {
         const level = String(slot.kind).startsWith('bot:') ? slot.kind.slice(4) : '';
-        showProfile({ name: slot.name, look, level, pid: level ? `bot:${level}` : guest ? slot.pid || '' : keyOf(slot).pid });
+        showProfile({ name: slot.name, look, level, pid: level ? `bot:${level}` : guest ? slot.pid || '' : keyOf(slot).pid, seat: i });
       });
     }
 
@@ -604,8 +604,13 @@ function ranking() {
 
 const winRate = (r) => (r.games ? Math.round((r.wins / r.games) * 100) : 0);
 
-// A player's card, from a face in the lobby.
-function showProfile({ name, look, level, pid }) {
+// A player's card, from a face in the lobby. The host also gets the room's
+// keys to hand to a friend from here.
+function showProfile({ name, look, level, pid, seat }) {
+  const heir = net.role === 'host' && !game && slots[seat] && slots[seat].kind === 'remote' && slots[seat].conn;
+  $('profileHost').hidden = !heir;
+  $('profileHost').textContent = t('handOver');
+  $('profileHost').onclick = heir ? () => handOver(seat) : null;
   drawAvatar($('profileFace'), look);
   $('profileName').textContent = level ? `🤖 ${t('botLevels')[level] || level}` : name;
   $('profileKind').textContent = level ? `${name} · ${t('profileBot')}` : '';
@@ -802,6 +807,7 @@ async function openRoom() {
   try {
     const room = await hostRoom({ join: guestJoined, data: guestData, leave: guestLeft }, loadRoom().room);
     net.room = room.room;
+    net.close = room.close;
     saveRoom();
     // The room works by link even if it cannot be listed.
     announceRoom(net.room)
@@ -908,6 +914,10 @@ function guestData(conn, msg) {
     return;
   }
   if (!slot) return;
+  if (msg.t === 'handoverOk') {
+    if (net.handover === slots.indexOf(slot)) leaveForHeir();
+    return;
+  }
   if (msg.t === 'name') {
     slot.name = guestName(slot, msg.name);
     renderLobby();
@@ -1084,6 +1094,8 @@ function hostData(msg) {
     if ($('stage').hidden) renderLobby();
   } else if (msg.t === 'reload') {
     reloadWithHost();
+  } else if (msg.t === 'handover') {
+    becomeHost(msg.pack);
   } else if (msg.t === 'kicked') {
     net.kicked = true;
     const host = net.host;
@@ -2281,6 +2293,82 @@ function playAhead(at) {
     swungAt = at;
   }
   swinging = now;
+}
+
+// ---------- handing the room over ----------
+
+// The room lives in the host's browser, so handing it over means moving it: the
+// host packs up everything the room remembers, with the friend's seat and its own
+// swapped so the friend sits first, as a host does. The friend saves that and
+// reloads as host of the same room id; the old host lets the id go and comes back
+// as a guest, and everyone else reloads and rejoins, as when a host reloads.
+// Only between rounds.
+function handOver(seat) {
+  const heir = slots[seat];
+  if (net.role !== 'host' || game || !heir || heir.kind !== 'remote' || !heir.conn) return;
+  if (!confirm(t('handOverAsk', heir.name))) return;
+  const swap = (list) => {
+    const out = [...list];
+    [out[0], out[seat]] = [out[seat], out[0]];
+    return out;
+  };
+  const seats = slots.map((s, i) => (i === 0 ? '' : s.kind === 'remote' ? s.said || s.name : s.held || ''));
+  // The old host is due back in the friend's old seat, under its own name.
+  seats[0] = slots[0].name;
+  const pack = {
+    room: net.room,
+    pw: roomPw,
+    teams: teamMode,
+    map: mapId,
+    wins: swap(wins),
+    career: swap(career),
+    rounds,
+    seasons,
+    seats: swap(seats).map((name, i) => (i === 0 ? '' : name)),
+    slots: swap(slots.map((s, i) => ({ kind: i === 0 || s.kind === 'remote' ? 'open' : s.kind, name: s.name, team: s.team }))).map((s, i) => (i === 0 ? { ...s, kind: 'human', name: heir.name } : s)),
+  };
+  net.handover = seat;
+  net.status = t('handingOver', heir.name);
+  $('profile').hidden = true;
+  renderLobby();
+  heir.conn.send({ t: 'handover', pack });
+}
+
+// The friend has the room's things: let the room's id go and come back as a guest.
+function leaveForHeir() {
+  const room = net.room;
+  net.handover = -1;
+  broadcast(() => ({ t: 'reload' }));
+  try {
+    sessionStorage.removeItem(ROOM_STORE);
+    sessionStorage.setItem(REJOIN_STORE, String(Date.now() + 30000));
+  } catch {
+    // one try at the room, then
+  }
+  // Not a host any more: nothing to save or tell anyone on the way out.
+  net.role = null;
+  setTimeout(() => {
+    if (net.close) net.close();
+    location.href = `${location.pathname}?room=${room}`;
+  }, 300);
+}
+
+// Handed the room: keep what it remembers as this browser's own, then reload as
+// its host. The old host still holds the id for a moment; opening it is retried.
+function becomeHost(pack) {
+  if (!pack || typeof pack.room !== 'string' || !Array.isArray(pack.slots)) return;
+  try {
+    localStorage.setItem(STORE, JSON.stringify(pack.slots));
+    localStorage.setItem(MODE_STORE, pack.teams ? '1' : '0');
+    if (MAP_IDS.includes(pack.map)) localStorage.setItem(MAP_STORE, pack.map);
+    sessionStorage.setItem(ROOM_STORE, JSON.stringify({ room: pack.room, wins: pack.wins, career: pack.career, rounds: pack.rounds, seasons: pack.seasons, pw: pack.pw, seats: pack.seats }));
+  } catch {
+    return;
+  }
+  net.status = t('becomingHost');
+  renderLobby();
+  net.host.send({ t: 'handoverOk' });
+  setTimeout(() => (location.href = location.pathname), 600);
 }
 
 // A round cut short still counts for the ratings and the record: it is judged as
