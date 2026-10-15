@@ -487,6 +487,7 @@ setInterval(async () => {
 function kick(slot) {
   const conn = slot.conn;
   if (!conn) return;
+  relayChat({ sys: 'leave', name: slot.name, look: -1, text: '' });
   slot.conn = null;
   slot.name = defaultName(slots.indexOf(slot));
   conn.kicked = true;
@@ -939,6 +940,7 @@ function welcome(conn, msg) {
   }
   renderLobby();
   sendLobby();
+  relayChat({ sys: 'join', name: slot ? slot.name : '', look: -1, text: '' });
   if (isNew) {
     const hello = { t: 'new', look: slots.indexOf(slot), name: slot.name };
     broadcast(() => hello);
@@ -1019,10 +1021,12 @@ function guestLeft(conn) {
   if (watching >= 0) {
     net.watchers.splice(watching, 1);
     renderLobby();
+    relayChat({ sys: 'leave', name: '', look: -1, text: '' });
     return;
   }
   const slot = slots.find((s) => s.conn === conn);
   if (!slot) return;
+  relayChat({ sys: 'leave', name: slot.name, look: -1, text: '' });
   slot.conn = null;
   slot.kind = 'open';
   slot.name = defaultName(slots.indexOf(slot));
@@ -1355,7 +1359,9 @@ function showLobbyBubbles() {
 // The time a line arrived, as 24-hour HH:MM.
 const chatTime = () => new Date().toTimeString().slice(0, 5);
 
-function addChat({ name, look, text }) {
+function addChat({ name, look, text, sys }) {
+  // Somebody coming in or going out: a grey line with no speaker.
+  if (sys) text = t(sys === 'join' ? 'chatJoin' : 'chatLeave', String(name || t('spectatorName')).slice(0, 8));
   // A soft chime for what somebody else says.
   if (look !== (net.role === 'host' ? 0 : net.you)) audio.play.chat();
   const at = chatTime();
@@ -1376,7 +1382,8 @@ function addChat({ name, look, text }) {
     who.style.color = seatColor(look);
     const time = document.createElement('time');
     time.textContent = at;
-    line.append(time, who, ` ${cleanChat(text)}`);
+    if (sys) line.className = 'sys';
+    line.append(time, ...(sys ? [cleanChat(text)] : [who, ` ${cleanChat(text)}`]));
     log.append(line);
     // In the lobby the log is a scrolling history; in a round lines fade away.
     if (id === 'gameChat') line.addEventListener('animationend', () => line.remove());

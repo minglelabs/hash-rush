@@ -1569,6 +1569,11 @@ body:has(#result:not([hidden])) #throw {
   opacity: 0.55;
 }
 
+.chat .chatLog .sys {
+  opacity: 0.6;
+  font-size: 0.9em;
+}
+
 #gameChat .chatLog time {
   display: none;
 }
