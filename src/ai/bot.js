@@ -36,7 +36,7 @@ export const DIFFICULTY = {
   normal: { reaction: 0.24, lead: 0.4, margin: 2, jitter: 4, bait: 0.25, hold: 0.5, deny: 0.7, hunt: 0.7, opportunism: 0.8, caution: 0.8, freeze: 0.09, rally: true, toss: 0.3, volley: 0.8 },
   // search: instead of the fixed rules below, it plays each plan forward in a copy
   //   of the game and picks the best (see search.js). Hands as good as hard's.
-  hard: { reaction: 0.12, lead: 0.9, margin: 3, jitter: 1, bait: 0.55, hold: 1, deny: 1, hunt: 1, opportunism: 1.5, caution: 1.2, freeze: 0, rally: true, toss: 0.5, volley: 1, thrifty: 330, nerve: true },
+  hard: { reaction: 0.15, lead: 0.9, margin: 3, jitter: 1, bait: 0.55, hold: 1, deny: 1, hunt: 1, opportunism: 1.5, caution: 1.2, freeze: 0, rally: true, toss: 0.5, volley: 1, thrifty: 330, nerve: true },
 };
 // dance: up close it feints instead of walking in: a dash at the rival to draw a
 //   swing, a step back out of reach so the swing misses, then in for the hit.
@@ -74,15 +74,15 @@ export const DIFFICULTY = {
 //   feinting, it is following, and a follower runs straight into a swing: the bot
 //   stops dead, turns and swings the moment that swing would land. Every time,
 //   where the hard bot only does it when it happens to feel like a swing.
-// flinch: a swing is the one thing it sees sooner than the rest: this many seconds
-//   after it starts instead of `reaction`. A swing takes a moment to land and
+// flinch: how soon after a swing starts it sees it. No sooner than everything
+//   else (`reaction`): no bot sees faster than a quick person does. A swing takes a moment to land and
 //   roots whoever started it, so that is time to step straight back out of its
 //   reach, and then to go back in while the rival is stuck after hitting nothing.
 // dodge: carrying a seed past a side lane, it watches for a person waiting in
 //   there who sets off to swing just as it crosses. Walking on is walking into
 //   that swing, so it goes straight back the way it came for this many seconds:
 //   the swing lands on nothing, and the bot is on whoever is stuck after it.
-DIFFICULTY.ace = { ...DIFFICULTY.hard, search: true, dance: true, poach: 1, wary: 0.5, clock: 0.15, toss: 0, boxed: 120, trail: 78, lure: 54, pincer: 60, gatewise: 300, ambush: 0.2, dodge: 0.3, flinch: 0.07 };
+DIFFICULTY.ace = { ...DIFFICULTY.hard, search: true, dance: true, poach: 1, wary: 0.5, clock: 0.15, toss: 0, boxed: 120, trail: 78, lure: 54, pincer: 60, gatewise: 300, ambush: 0.2, dodge: 0.3, flinch: 0.15 };
 
 const TOUCH = 2 * HAMSTER_R;
 const DANGER_R = 110;

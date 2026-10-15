@@ -18,7 +18,8 @@ const game = (kinds, seed, map = MAPS.meadow) => {
 
 test('the top bot has the hard bot\'s hands and adds looking ahead and footwork', () => {
   const { search, dance, poach, wary, clock, boxed, toss, trail, lure, pincer, gatewise, ambush, dodge, flinch, ...hands } = DIFFICULTY.ace;
-  assert.ok(flinch > 0 && flinch < DIFFICULTY.hard.reaction, 'it sees a swing sooner than anything else');
+  assert.ok(flinch >= DIFFICULTY.hard.reaction, 'it sees a swing no sooner than anything else');
+  assert.equal(DIFFICULTY.hard.reaction, 0.15, 'no bot reacts quicker than 0.15 s');
   assert.ok(dodge > 0);
   assert.ok(gatewise > 0);
   assert.ok(ambush > 0);
@@ -226,8 +227,9 @@ test('the top bot at the flower is not drawn into a wasted swing by someone runn
     }
     baited += bot.deaths;
   }
-  assert.equal(baited, 0, 'it was never bonked for a wasted swing');
-  assert.equal(whiffs, 0, 'and never swung at air');
+  // Seeing everything 0.15 s late, as a quick person does, it is caught out now and then.
+  assert.ok(baited <= 3, `it was rarely bonked for a wasted swing (${baited} times in 24, ${whiffs} swings at air)`);
+  assert.ok(whiffs <= 3, `and rarely swung at air (${whiffs})`);
 });
 
 test('when a seed has to be stopped, looking ahead only chooses how, never whether', () => {
@@ -410,7 +412,7 @@ test('behind a rival that runs ahead and turns to swing, the top bot is out of r
   };
   const hard = tally('hard');
   const ace = tally('ace');
-  assert.ok(ace.bonked <= 5, `the top bot was bonked ${ace.bonked} times in 24: ${JSON.stringify(ace)}`);
+  assert.ok(ace.bonked <= 7, `the top bot was bonked ${ace.bonked} times in 24: ${JSON.stringify(ace)}`);
   assert.ok(ace.bonked < hard.bonked, `fewer than the hard bot: ${JSON.stringify(hard)}`);
   assert.ok(ace.won >= 17, `and it stops the seed: ${JSON.stringify(ace)}`);
 });
@@ -560,47 +562,8 @@ test('carrying a seed past a side lane, the top bot steps back from a person who
   Object.assign(DIFFICULTY.ace, { dodge: 0, flinch: 0 });
   const blind = tally();
   Object.assign(DIFFICULTY.ace, { dodge, flinch });
-  assert.ok(blind.bonked >= 6, `walking on, it goes down: ${JSON.stringify(blind)}`);
+  assert.ok(blind.bonked >= 3, `walking on, it goes down: ${JSON.stringify(blind)} wise ${JSON.stringify(wise)}`);
   assert.ok(wise.bonked <= 1, `stepping back, it does not: ${JSON.stringify(wise)}`);
   assert.ok(wise.won >= 8, `and it is the one waiting that goes down: ${JSON.stringify(wise)}`);
 });
 
-test('the top bot steps back from a swing it sees coming, and bonks whoever is stuck after it', () => {
-  const duel = (difficulty, n) => {
-    const g = createGame({ slots: Array.from({ length: 4 }, (_, i) => ({ name: `p${i}`, kind: i ? 'human' : 'bot' })), seed: n + 1, map: MAPS.meadow });
-    for (let i = 0; i < COUNTDOWN * TICK_RATE + 2; i++) step(g, []);
-    g.calm = true;
-    const [bot, rival, x, y] = g.players;
-    const b = g.map.bounds;
-    Object.assign(x, { x: b.x2 - 30, y: b.y1 + 30 });
-    Object.assign(y, { x: b.x2 - 30, y: b.y2 - 30 });
-    // Head down at the flower, nobody near. Then a rival is suddenly right next to
-    // it, already swinging: all there is to go on is the swing itself.
-    const spot = g.map.gatherSpots[n % g.map.gatherSpots.length];
-    Object.assign(bot, { x: spot.x, y: spot.y });
-    Object.assign(rival, { x: b.x1 + 40, y: b.y2 - 40 });
-    const brain = createBot({ difficulty, seed: n + 3 });
-    const still = { mx: 0, my: 0, bonk: false };
-    for (let t = 0; t < 30; t++) step(g, [brain.think(g, 0), still]);
-    const ux = (spot.x - f0.x) / 55;
-    const uy = (spot.y - f0.y) / 55;
-    const gap = 31 + (n % 4) * 2;
-    Object.assign(rival, { x: bot.x + ux * gap, y: bot.y + uy * gap });
-    for (let t = 0; t < 1.2 * TICK_RATE; t++) {
-      step(g, [brain.think(g, 0), { mx: 0, my: 0, bonk: t === 0, ax: -ux, ay: -uy }]);
-      if (bot.deaths) return 'bonked';
-      if (rival.deaths) return 'countered';
-    }
-    return 'away';
-  };
-  const tally = (difficulty) => {
-    const r = { bonked: 0, countered: 0, away: 0 };
-    for (let n = 0; n < 16; n++) r[duel(difficulty, n)]++;
-    return r;
-  };
-  const hard = tally('hard');
-  const ace = tally('ace');
-  assert.ok(hard.bonked >= 14, `the hard bot sees it too late: ${JSON.stringify(hard)}`);
-  assert.ok(ace.bonked <= 2, `the top bot is gone when it lands: ${JSON.stringify(ace)}`);
-  assert.ok(ace.countered >= 10, `and has the rival before it can move again: ${JSON.stringify(ace)}`);
-});

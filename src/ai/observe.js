@@ -7,6 +7,10 @@ import { MAP_IDS, WORLD, isFree } from '../sim/map.js';
 import { HAZARD, iceNow, isNight, untilNight, inCannonLine } from '../sim/hazards.js';
 import { SPEED, BONK, THROW, OVERTIME, HAMSTER_R, gatherTime } from '../sim/constants.js';
 
+// How stale what the learned bot sees is, in game ticks: 0.15 s, the same as the
+// quickest scripted bot and a quick person. It plays and trains on this.
+export const REACTION_TICKS = 9;
+
 export const MAX_P = 8;
 const SELF = 19;
 const WORLD_F = 11 + MAP_IDS.length;

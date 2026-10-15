@@ -811,10 +811,12 @@ test('a bot whose throw target gets away keeps its seed', () => {
     place(bot, 560, y);
     bot.carrying = true;
     place(a, 475, y);
-    for (let i = 0; i < 0.3 * TICK_RATE; i++) step(g, [brain.think(g, 0), IDLE]);
+    // Caught early in the wind-up: the bot sees the blocker go 0.15 s late, and
+    // by then a full wind-up would already have let go.
+    for (let i = 0; i < 0.5 * TICK_RATE && bot.charge < 0.08; i++) step(g, [brain.think(g, 0), IDLE]);
     wound = bot.charge;
   }
-  assert.ok(wound > 0.1, 'the bot started winding up a throw at the blocker');
+  assert.ok(wound > 0.05, 'the bot started winding up a throw at the blocker');
   // The blocker vanishes into its nest.
   place(a, a.nest.x, a.nest.y);
   const thrown = [];

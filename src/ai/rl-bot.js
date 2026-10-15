@@ -4,7 +4,7 @@
 // every few ticks and holds it in between.
 
 import { mulberry32 } from '../sim/rng.js';
-import { MAX_P, OBS, DIRS, observe } from './observe.js';
+import { MAX_P, OBS, DIRS, REACTION_TICKS, observe } from './observe.js';
 import { decodePolicy, loadPolicy } from './policy.js';
 
 const FILES = { solo: 'rl-solo.bin', team: 'rl-team.bin' };
@@ -26,10 +26,25 @@ export function loadRLPolicy() {
   }
 }
 
+// What the round looked like, tick by tick, shared by every learned bot in it, so
+// each sees it REACTION_TICKS late without working it out more than once a tick.
+const views = new WeakMap();
+function seenLate(g) {
+  let v = views.get(g);
+  if (!v) views.set(g, (v = { tick: -1, past: [] }));
+  if (v.tick !== g.tick) {
+    const now = new Float32Array(MAX_P * OBS);
+    observe(g, now);
+    v.past.push(now);
+    if (v.past.length > REACTION_TICKS + 1) v.past.shift();
+    v.tick = g.tick;
+  }
+  return v.past[0];
+}
+
 export function createRLBot({ seed = 1 } = {}) {
   loadRLPolicy();
   const random = mulberry32(seed);
-  const seen = new Float32Array(MAX_P * OBS);
   let choice = null;
   let tick = 0;
 
@@ -39,10 +54,9 @@ export function createRLBot({ seed = 1 } = {}) {
     if (!policy) return { mx: 0, my: 0, bonk: false, throw: false };
     const every = policy.meta.frameSkip || 4;
     const fresh = tick++ % every === 0;
-    if (fresh || !choice) {
-      observe(g, seen);
-      choice = policy.act(seen.subarray(id * OBS, (id + 1) * OBS), 1, random);
-    }
+    // Every tick, so the late view has no gaps.
+    const seen = seenLate(g);
+    if (fresh || !choice) choice = policy.act(seen.subarray(id * OBS, (id + 1) * OBS), 1, random);
     const [mx, my] = DIRS[choice[0]];
     // A swing is one press, at the start of a choice, as in training.
     return { mx, my, bonk: fresh && choice[1] === 1, throw: choice[2] === 1 };
