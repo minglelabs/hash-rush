@@ -104,6 +104,129 @@ body:has(#result:not([hidden])) #throw {
   padding: 0.35em 0.6em;
 }
 
+#lobby header {
+  position: relative;
+}
+
+#menuBtn {
+  float: right;
+  margin-left: 6px;
+  padding: 0.35em 0.7em;
+}
+
+#menu {
+  position: absolute;
+  top: 44px;
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background: #fff;
+  border: 2px solid var(--line);
+  border-radius: 16px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.15);
+}
+
+#menu button {
+  text-align: left;
+  white-space: nowrap;
+}
+
+#feedback {
+  margin-bottom: 18px;
+  padding: 12px;
+  background: #fff;
+  border: 2px solid var(--line);
+  border-radius: 16px;
+}
+
+#feedback h2 {
+  margin-top: 0;
+}
+
+.boardForm {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.boardForm textarea,
+.boardForm input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  padding: 0.5em;
+  border: 2px solid var(--line);
+  border-radius: 10px;
+}
+
+.boardForm textarea {
+  min-height: 4.5em;
+  resize: vertical;
+}
+
+.boardForm button {
+  align-self: flex-end;
+  padding: 0.5em 1em;
+}
+
+#boardStatus {
+  margin: 0;
+  font-size: 13px;
+}
+
+#boardList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+#boardList > li {
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+
+.boardHead {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+#boardList time {
+  font-size: 12px;
+  opacity: 0.55;
+}
+
+.boardText {
+  margin: 4px 0 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.boardActs {
+  display: flex;
+  gap: 6px;
+}
+
+.boardActs button {
+  padding: 0.25em 0.8em;
+  font-size: 13px;
+}
+
+.boardThread {
+  margin-top: 8px;
+  padding-left: 10px;
+  border-left: 3px solid var(--line);
+}
+
+.boardThread p {
+  margin: 0 0 6px;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
 #lobby header p {
   margin: 0 0 18px;
   line-height: 1.55;
@@ -465,8 +588,7 @@ body:has(#result:not([hidden])) #throw {
   color: #2f7a3d;
 }
 
-#roomListBtn,
-#rankBtn {
+#roomListBtn {
   display: block;
   width: 100%;
   margin-bottom: 14px;

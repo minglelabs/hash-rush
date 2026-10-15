@@ -62,7 +62,7 @@ export const lastRating = () => read(RATING_STORE, { elo: ELO.start, games: 0, w
 
 // ---------- the broker ----------
 
-async function publish(topic, payload) {
+export async function publish(topic, payload) {
   const clients = await openBrokers();
   await Promise.all(clients.map((c) => new Promise((resolve) => c.publish(topic, payload, { retain: true, qos: 1 }, resolve))));
   for (const c of clients) c.end();

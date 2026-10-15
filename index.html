@@ -24,7 +24,12 @@
     <main id="lobby" class="screen">
       <div class="card">
         <header>
+          <button id="menuBtn" aria-label="menu">☰</button>
           <button id="muteLobby">🔊</button>
+          <div id="menu" hidden>
+            <button id="rankBtn" data-i18n="rankBtn"></button>
+            <button id="feedbackBtn" data-i18n="boardBtn"></button>
+          </div>
           <h1>🌻 Hash Rush</h1>
           <p data-i18n="tagline"></p>
         </header>
@@ -36,7 +41,12 @@
           <p id="roomsStatus"></p>
           <ul id="roomItems"></ul>
         </section>
-        <button id="rankBtn" data-i18n="rankBtn"></button>
+        <section id="feedback" hidden>
+          <h2 data-i18n="boardTitle"></h2>
+          <div id="boardCompose"></div>
+          <p id="boardStatus"></p>
+          <ul id="boardList"></ul>
+        </section>
         <section id="ranking" hidden>
           <h2 data-i18n="rankTitle"></h2>
           <p id="rankMe"></p>

@@ -21,6 +21,7 @@ import { lang, t, LANGUAGES, stringsFor } from './i18n.js';
 import { hostRoom, joinRoom, announceRoom, watchRooms } from './net.js';
 import { identity, shareName, signResult, remember, history, lastRating, loadRanking } from './rank.js';
 import { createPredictor } from './predict.js';
+import { toggleBoard } from './board.js';
 
 const $ = (id) => document.getElementById(id);
 const STORE = 'seed-rush-slots';
@@ -606,8 +607,8 @@ let rankAsk = 0;
 function toggleRanking() {
   const open = $('ranking').hidden;
   $('ranking').hidden = !open;
-  $('rankBtn').textContent = t(open ? 'rankClose' : 'rankBtn');
   if (!open) return;
+  $('ranking').scrollIntoView({ behavior: 'smooth', block: 'start' });
   const mine = lastRating();
   $('rankMe').textContent = t('rankMe', mine.elo, mine.games, mine.wins);
   renderHistory();
@@ -2622,7 +2623,14 @@ $('resetGame').addEventListener('click', resetSeries);
 $('modeSolo').addEventListener('click', () => setTeamMode(false));
 $('modeTeam').addEventListener('click', () => setTeamMode(true));
 $('roomListBtn').addEventListener('click', toggleRoomList);
+// The hamburger at the top right holds the ranking and the feedback board.
+$('menuBtn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  $('menu').hidden = !$('menu').hidden;
+});
+document.addEventListener('click', () => ($('menu').hidden = true));
 $('rankBtn').addEventListener('click', toggleRanking);
+$('feedbackBtn').addEventListener('click', () => toggleBoard(() => slots[0].name));
 $('listed').addEventListener('change', announce);
 $('pwField').addEventListener('input', () => {
   roomPw = cleanPw($('pwField').value);
