@@ -709,7 +709,7 @@ function renderRanking(rows, page = 0) {
     const row = table.insertRow();
     row.classList.toggle('me', r.me);
     const name = r.level ? `🤖 ${t('botLevels')[r.level] || r.level}` : r.name;
-    for (const v of [r.rank, name, r.elo, r.games, r.wins, `${winRate(r)}%`]) row.insertCell().textContent = v;
+    for (const v of [r.rank, name, r.elo, r.wins, r.games - r.wins, `${winRate(r)}%`]) row.insertCell().textContent = v;
   }
 }
 
