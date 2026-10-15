@@ -568,7 +568,7 @@ function updateStart() {
 function show(screen) {
   $('lobby').hidden = screen !== 'lobby';
   $('stage').hidden = screen !== 'stage';
-  if (screen === 'stage' && !history.state?.stage) history.pushState({ stage: true }, '');
+  if (screen === 'stage' && !window.history.state?.stage) window.history.pushState({ stage: true }, '');
   if (screen === 'lobby') checkUpdate();
   // The round's tune keeps going from one round to the next, result screen included.
   audio.setMusic(screen === 'lobby' ? 'lobby' : 'game');
@@ -2734,7 +2734,7 @@ document.addEventListener(
   },
   { passive: false },
 );
-window.addEventListener('popstate', () => !$('stage').hidden && history.pushState({ stage: true }, ''));
+window.addEventListener('popstate', () => !$('stage').hidden && window.history.pushState({ stage: true }, ''));
 // Mashing the bonk button must never count as a double tap.
 $('bonk').addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
 window.addEventListener('resize', () => renderer.resize());
