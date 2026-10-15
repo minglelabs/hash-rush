@@ -134,6 +134,33 @@ body:has(#result:not([hidden])) #throw {
   white-space: nowrap;
 }
 
+/* The board and the ranking each have a page of their own, on the lobby's card. */
+#lobby.subpage {
+  place-items: start center;
+}
+
+#lobby.subpage #feedback,
+#lobby.subpage #ranking {
+  margin: 0;
+  padding: 0;
+  background: none;
+  border: 0;
+}
+
+#lobby.subpage #feedback h2,
+#lobby.subpage #ranking h2 {
+  font-size: 26px;
+  color: var(--ink);
+}
+
+.backLink {
+  display: inline-block;
+  margin-bottom: 14px;
+  font-weight: 700;
+  color: var(--ink);
+  text-decoration: none;
+}
+
 #feedback {
   margin-bottom: 18px;
   padding: 12px;

@@ -194,13 +194,9 @@ function render() {
   }
 }
 
-// Opens the board (reading it fresh each time) or closes it.
-export function toggleBoard(name) {
+// Fills the board page, reading the board fresh. `name` gives the name to sign with.
+export function openBoard(name) {
   nameOf = name;
-  const open = $('feedback').hidden;
-  $('feedback').hidden = !open;
-  if (!open) return;
-  $('feedback').scrollIntoView({ behavior: 'smooth', block: 'start' });
   const form = $('boardCompose');
   form.replaceChildren(
     composer(t('boardHint'), POST_MAX, true, async (text) => {
@@ -217,7 +213,7 @@ export function toggleBoard(name) {
   identity().then((me) => (myPid = me ? me.pid : ''));
   loadBoard()
     .then((got) => {
-      if ($('feedback').hidden || mine !== ask) return;
+      if (mine !== ask) return;
       posts = got;
       $('boardStatus').textContent = posts.length ? '' : t('boardEmpty');
       render();
