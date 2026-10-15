@@ -22,6 +22,7 @@ import { hostRoom, joinRoom, announceRoom, watchRooms } from './net.js';
 import { identity, shareName, signResult, remember, lastRating, loadRanking } from './rank.js';
 import { createPredictor } from './predict.js';
 import { winRate } from './rankPage.js';
+import { createRoomList } from './roomList.js';
 
 const $ = (id) => document.getElementById(id);
 const STORE = 'seed-rush-slots';
@@ -579,6 +580,32 @@ function show(screen) {
 
 // ---------- room list ----------
 
+// Under the list, its page buttons; beside its button, the way out of this room
+// and on to the room list page. Built here, so a page cached from before still gets them.
+$('roomItems').insertAdjacentHTML('afterend', '<div id="roomsPager" class="pager"></div>');
+$('roomListBtn').insertAdjacentHTML('beforebegin', '<div id="roomBtns"></div>');
+$('roomBtns').append($('roomListBtn'));
+$('roomBtns').insertAdjacentHTML('beforeend', '<button id="leaveToRooms"></button>');
+
+// Leaves this room for the room list page. A host with friends in the room is
+// asked first, since the room closes with them in it.
+let leaving = false;
+function leaveToRooms() {
+  const friends = net.role === 'host' && slots.some((s) => s.conn);
+  if (friends && !confirm(t('leaveHostConfirm'))) return;
+  leaving = true;
+  try {
+    sessionStorage.removeItem(ROOM_STORE);
+  } catch {
+    // nothing kept
+  }
+  if (net.announce) net.announce.close();
+  const pick = query.get('lang');
+  location.href = `rooms.html${pick ? `?lang=${encodeURIComponent(pick)}` : ''}`;
+}
+$('leaveToRooms').textContent = t('leaveToRooms');
+$('leaveToRooms').addEventListener('click', leaveToRooms);
+
 let stopWatching = null;
 let listTimer = 0;
 
@@ -593,7 +620,8 @@ function toggleRoomList() {
   }
   $('roomItems').textContent = '';
   $('roomsStatus').textContent = t('roomsLoading');
-  watchRooms(renderRooms)
+  const render = createRoomList({ items: $('roomItems'), status: $('roomsStatus'), pages: $('roomsPager'), here: net.room || joinId, base: location.pathname });
+  watchRooms(render)
     .then((stop) => {
       // Closed again while still connecting.
       if ($('rooms').hidden) stop();
@@ -644,47 +672,6 @@ function showProfile({ name, look, level, pid, seat }) {
 }
 $('profileClose').addEventListener('click', () => ($('profile').hidden = true));
 $('profile').addEventListener('click', (e) => e.target === $('profile') && ($('profile').hidden = true));
-
-function renderRooms(rooms) {
-  // The room this player is in comes first, marked as theirs and without buttons:
-  // seeing it is how a host knows the room really is on the list.
-  const here = net.room || joinId;
-  const shown = [...rooms.filter((r) => r.room === here), ...rooms.filter((r) => r.room !== here)];
-  $('roomsStatus').textContent = shown.length ? '' : t('roomsEmpty');
-  $('roomItems').replaceChildren(
-    ...shown.map((r) => {
-      const li = document.createElement('li');
-      const title = document.createElement('b');
-      title.textContent = `${r.locked ? '🔒 ' : ''}${t('roomOf', r.name || '?')}`;
-      const state = document.createElement('span');
-      state.className = `badge${r.playing ? ' playing' : ''}`;
-      state.textContent = t(r.playing ? 'roomPlaying' : 'roomWaiting');
-      const who = document.createElement('small');
-      who.textContent = t('roomPeople', r.humans, r.bots, r.open);
-      const info = document.createElement('div');
-      info.append(title, state, who);
-      if (r.room === here) {
-        const mine = document.createElement('span');
-        mine.className = 'badge mine';
-        mine.textContent = t('roomMine');
-        title.after(mine);
-        li.append(info);
-        return li;
-      }
-      const link = `${location.pathname}?room=${r.room}`;
-      const join = document.createElement('button');
-      join.className = 'primary';
-      join.textContent = t('joinRoom');
-      join.disabled = r.open === 0;
-      join.addEventListener('click', () => (location.href = link));
-      const watch = document.createElement('button');
-      watch.textContent = t('watchRoom');
-      watch.addEventListener('click', () => (location.href = `${link}&watch`));
-      li.append(info, join, watch);
-      return li;
-    }),
-  );
-}
 
 // What the room list shows about this room. Sent at most once a second, since
 // renaming a slot sends the lobby on every keystroke.
@@ -2722,7 +2709,8 @@ $('updateBtn').addEventListener('click', () => {
 // everyone in it is told to reload too. (A tab that is closed for good tells them
 // the same; they knock at the room for a while and then say it cannot be found.)
 window.addEventListener('pagehide', () => {
-  if (net.role !== 'host') return;
+  // Leaving for good, not reloading: friends are not told to wait for this room.
+  if (net.role !== 'host' || leaving) return;
   saveRoom();
   broadcast(() => ({ t: 'reload' }));
 });

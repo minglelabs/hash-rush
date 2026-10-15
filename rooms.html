@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Hash Rush</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌻</text></svg>"
+    />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main id="lobby" class="screen subpage roomsPage">
+      <div class="card">
+        <header>
+          <h1>🌻 Hash Rush</h1>
+          <p data-i18n="tagline"></p>
+        </header>
+        <a id="newRoomLink" class="primary bigLink" href="./" data-i18n="newRoom"></a>
+        <section id="rooms">
+          <h2 data-i18n="roomsTitle"></h2>
+          <p id="roomsStatus"></p>
+          <ul id="roomItems"></ul>
+          <div id="roomsPager" class="pager"></div>
+        </section>
+        <section id="plaza">
+          <h2 data-i18n="plazaTitle"></h2>
+          <div id="plazaLog"></div>
+          <form id="plazaForm">
+            <input autocomplete="off" enterkeyhint="send" />
+            <button class="primary" data-i18n="chatSend"></button>
+          </form>
+        </section>
+        <section class="howto">
+          <h2 data-i18n="howto"></h2>
+          <ul id="how"></ul>
+        </section>
+      </div>
+    </main>
+    <script type="module">
+      import { setUpPage } from './src/client/page.js';
+      import { openRooms } from './src/client/roomsPage.js';
+      setUpPage('roomsPage');
+      openRooms();
+    </script>
+  </body>
+</html>

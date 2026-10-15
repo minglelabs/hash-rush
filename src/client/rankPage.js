@@ -27,7 +27,7 @@ export function openRanking() {
 }
 
 // Page buttons under a list: ‹ 2 / 5 ›. Nothing when it all fits on one page.
-function pager(box, page, pages, go) {
+export function pager(box, page, pages, go) {
   box.textContent = '';
   if (pages <= 1) return;
   const button = (label, to) => {
