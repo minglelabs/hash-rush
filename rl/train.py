@@ -264,6 +264,7 @@ def main():
     ap.add_argument("--width", type=int, default=256)
     ap.add_argument("--blocks", type=int, default=3)
     ap.add_argument("--frame-skip", type=int, default=4, help="game ticks (1/60 s) per decision")
+    ap.add_argument("--reaction", type=int, default=9, help="game ticks late the learner sees the round (9 = 0.15 s, as it plays in the browser; 0 = no delay)")
     ap.add_argument("--lr", type=float, default=3e-4)
     ap.add_argument("--gamma", type=float, default=0.997)
     ap.add_argument("--lam", type=float, default=0.95)
@@ -317,7 +318,7 @@ def main():
             pass
     stage = min(stage, len(STAGES) - 1)
     spar = lambda: (args.bot_env, [0, 1, 2]) if args.no_curriculum else STAGES[stage]
-    settings = {"botEnv": spar()[0], "botLevels": spar()[1], "win": args.win, "lose": args.lose, "shape": args.shape, "teams": args.teams, "frameSkip": args.frame_skip, "headStart": args.head_start, "teamSpirit": args.team_spirit, "catch": args.catch, "delay": args.delay, "role": args.role, "teacher": args.teacher if args.kick else -1}
+    settings = {"botEnv": spar()[0], "botLevels": spar()[1], "win": args.win, "lose": args.lose, "shape": args.shape, "teams": args.teams, "frameSkip": args.frame_skip, "reaction": args.reaction, "headStart": args.head_start, "teamSpirit": args.team_spirit, "catch": args.catch, "delay": args.delay, "role": args.role, "teacher": args.teacher if args.kick else -1}
     if args.maps != "all":
         settings["maps"] = args.maps.split(",")
     env = Workers(args.workers, args.envs, args.seed, settings)
@@ -391,7 +392,7 @@ def main():
     actions = np.zeros((N, P, 3), np.uint8)
     # Against the stage's newest bot level: rounds, the learner's wins and seats, the bots' wins and seats.
     judge = np.zeros(5)
-    meta = lambda: {"iter": it, "decisions": total, "obs": D, "width": args.width, "blocks": args.blocks, "stage": stage, "frameSkip": args.frame_skip}
+    meta = lambda: {"iter": it, "decisions": total, "obs": D, "width": args.width, "blocks": args.blocks, "stage": stage, "frameSkip": args.frame_skip, "reaction": args.reaction}
 
     print(f"{N} rounds on {args.workers} workers, obs {D}, {sum(p.numel() for p in model.parameters())} weights, device {dev}")
     while (time.time() - start) / 60 < args.minutes:

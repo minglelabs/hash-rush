@@ -46,7 +46,7 @@ node rl/play.js rl/runs/first/policy.json 200
 
 ## 반응 지연
 
-학습된 봇은 판을 **0.15초(9틱) 늦게** 봅니다(`src/ai/observe.js`의 `REACTION_TICKS`). 고수·초고수와 같은 값입니다. 학습 환경(`env.js`, 설정 `reaction`)과 브라우저(`src/ai/rl-bot.js`)가 같은 지연을 씁니다. 그래서 이 지연이 들어가기 전에 학습된 가중치는 다시 학습해야 제 실력이 나옵니다. `reaction: 0`이면 예전처럼 지금 상태를 봅니다.
+학습된 봇은 판을 **0.15초(9틱) 늦게** 봅니다(`src/ai/observe.js`의 `REACTION_TICKS`). 고수·초고수와 같은 값입니다. 학습 환경(`env.js`, 설정 `reaction`)과 브라우저(`src/ai/rl-bot.js`)가 같은 지연을 씁니다. 그래서 이 지연이 들어가기 전에 학습된 가중치는 다시 학습해야 제 실력이 나옵니다. `reaction: 0`이면 예전처럼 지금 상태를 봅니다. 학습기에서는 `--reaction 9`(기본값)로 정하고, 저장되는 가중치의 meta에도 적힙니다.
 
 ## 쓰는 기법
 
