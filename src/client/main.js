@@ -443,6 +443,7 @@ function renderLobby() {
   }
   // Chat exists only inside a room.
   syncChat();
+  syncSpect();
   showLobbyBubbles();
   markFresh();
   $('slotHead').classList.toggle('teamed', teams);
@@ -903,7 +904,7 @@ function smallerTeam() {
   return best;
 }
 
-function welcome(conn, msg) {
+function welcome(conn, msg, sitting = false) {
   if (roomPw && cleanPw(msg.pw) !== roomPw) {
     // A few tries, then the connection is dropped so the password cannot be guessed at speed.
     conn.tries = (conn.tries || 0) + 1;
@@ -935,18 +936,23 @@ function welcome(conn, msg) {
     // Their own wins come with them; the seat's last occupant's go back on the shelf.
     seatRecord(slots.indexOf(slot), who);
   } else {
-    // No free slot, or they asked to watch: they become a spectator.
+    // No free slot, or they asked to watch: they become a spectator, under the
+    // name they came with, and can sit down later with the same hello.
+    conn.watchName = String(msg.name || '').trim().slice(0, 8) || t('spectatorName');
+    conn.hello = msg;
     net.watchers.push(conn);
   }
   renderLobby();
   sendLobby();
-  relayChat({ sys: 'join', name: slot ? slot.name : '', look: -1, text: '' });
+  relayChat({ sys: 'join', name: slot ? slot.name : conn.watchName, look: -1, text: '' });
   if (isNew) {
     const hello = { t: 'new', look: slots.indexOf(slot), name: slot.name };
     broadcast(() => hello);
     newcomer(hello);
   }
   // Arriving mid-round, they watch it; a new player gets a hamster next round.
+  // A spectator taking a seat is watching the round already.
+  if (sitting) return;
   if (game) conn.send({ t: 'start', g: net.round, map: game.map.id, players: roster(), you: -1, wins, tot: career, rd: rounds, hist: seasons });
   if (game && paused) conn.send({ t: 'pause', on: true, by: '' });
 }
@@ -986,7 +992,15 @@ function guestData(conn, msg) {
     if (now - (conn.lastChat || 0) < 400) return;
     conn.lastChat = now;
     const text = cleanChat(msg.text);
-    if (text) relayChat({ name: slot ? slot.name : t('spectatorName'), look: slot ? slots.indexOf(slot) : -1, text });
+    if (text) relayChat({ name: slot ? slot.name : conn.watchName, look: slot ? slots.indexOf(slot) : -1, text });
+    return;
+  }
+  if (msg.t === 'sit') {
+    // A spectator takes a free seat: at once in the lobby, for the next round mid-game.
+    const watching = net.watchers.indexOf(conn);
+    if (watching < 0 || !slots.some((s) => s.kind === 'open')) return;
+    net.watchers.splice(watching, 1);
+    welcome(conn, { ...conn.hello, watch: false }, true);
     return;
   }
   if (!slot) return;
@@ -1021,7 +1035,8 @@ function guestLeft(conn) {
   if (watching >= 0) {
     net.watchers.splice(watching, 1);
     renderLobby();
-    relayChat({ sys: 'leave', name: '', look: -1, text: '' });
+    sendLobby();
+    relayChat({ sys: 'leave', name: conn.watchName, look: -1, text: '' });
     return;
   }
   const slot = slots.find((s) => s.conn === conn);
@@ -1054,10 +1069,33 @@ function forEachGuest(fn) {
   for (const conn of net.watchers) if (conn.open) fn(conn);
 }
 
+// Who is watching, by name: the host knows from its connections, a guest from the lobby.
+function spectNames() {
+  return net.role === 'host' ? net.watchers.map((c) => c.watchName) : net.spect || [];
+}
+
+// The spectators' names, in the lobby and over a round, and for a spectator a
+// button to take a free seat: now in the lobby, from the next round mid-game.
+function syncSpect() {
+  const names = spectNames();
+  const open = net.role === 'guest' && net.you < 0 && (net.lobby || []).some((s) => s.kind === 'open');
+  for (const id of ['spectLobby', 'spectGame']) {
+    const box = $(id);
+    box.hidden = !net.role || (!names.length && !open);
+    box.querySelector('span').textContent = names.length ? `👀 ${t('spectators', names.length)}: ${names.join(', ')}` : '';
+    const sit = box.querySelector('.sit');
+    sit.hidden = !open;
+    sit.textContent = t('sitIn');
+  }
+  if (!$('stage').hidden && meId < 0) $('watching').textContent = t(net.role === 'guest' && net.you >= 0 ? 'watchThisRound' : 'spectating');
+}
+for (const b of document.querySelectorAll('.spect .sit')) b.addEventListener('click', () => net.host && net.host.send({ t: 'sit' }));
+
 function sendLobby() {
   if (net.role !== 'host') return;
   const view = slots.map((s) => ({ kind: s.kind, name: s.name, team: s.team, pid: keyOf(s).pid }));
-  broadcast((slot, i) => ({ t: 'lobby', slots: view, teams: teamMode, map: mapId, pw: roomPw, you: i, wins, tot: career, rd: rounds, hist: seasons }));
+  syncSpect();
+  broadcast((slot, i) => ({ t: 'lobby', slots: view, spect: spectNames(), teams: teamMode, map: mapId, pw: roomPw, you: i, wins, tot: career, rd: rounds, hist: seasons }));
   announce();
 }
 
@@ -1172,7 +1210,9 @@ function hostData(msg) {
     (msg.tot || []).forEach((v, i) => (career[i] = v));
     if (msg.rd >= 0) rounds = msg.rd;
     if (Array.isArray(msg.hist)) seasons = msg.hist;
+    net.spect = Array.isArray(msg.spect) ? msg.spect.map((n) => String(n).slice(0, 8)) : [];
     if ($('stage').hidden) renderLobby();
+    syncSpect();
   } else if (msg.t === 'reload') {
     reloadWithHost();
   } else if (msg.t === 'handover') {
