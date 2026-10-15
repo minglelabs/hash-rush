@@ -123,6 +123,11 @@ export function createAudio() {
         tone({ f: 560, to: 550, dur: 0.17, type: 'square', vol: 0.035, at: i * 0.36 + 0.18 });
       }
     },
+    // Somebody said something: a quiet two-note blip.
+    chat: () => {
+      tone({ f: 990, dur: 0.06, vol: 0.035 });
+      tone({ f: 1320, dur: 0.08, vol: 0.03, at: 0.07 });
+    },
     // A clock's tick and tock, through overtime.
     tick: (tock) => tone({ f: tock ? 1500 : 2100, dur: 0.035, type: 'square', vol: 0.03 }),
     // The start lights of a kart race: three flat beeps, then a long high ding.

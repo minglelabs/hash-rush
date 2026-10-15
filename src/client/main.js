@@ -1352,7 +1352,13 @@ function showLobbyBubbles() {
   if (next < Infinity) bubbleTimer = setTimeout(showLobbyBubbles, next - now + 20);
 }
 
+// The time a line arrived, as 24-hour HH:MM.
+const chatTime = () => new Date().toTimeString().slice(0, 5);
+
 function addChat({ name, look, text }) {
+  // A soft chime for what somebody else says.
+  if (look !== (net.role === 'host' ? 0 : net.you)) audio.play.chat();
+  const at = chatTime();
   if (look >= 0) {
     const said = cleanChat(text);
     bubbles.set(look, { name: String(name), text: said, until: performance.now() + 6000 + 80 * said.length });
@@ -1368,7 +1374,9 @@ function addChat({ name, look, text }) {
     const who = document.createElement('b');
     who.textContent = String(name);
     who.style.color = seatColor(look);
-    line.append(who, ` ${cleanChat(text)}`);
+    const time = document.createElement('time');
+    time.textContent = at;
+    line.append(time, who, ` ${cleanChat(text)}`);
     log.append(line);
     // In the lobby the log is a scrolling history; in a round lines fade away.
     if (id === 'gameChat') line.addEventListener('animationend', () => line.remove());
@@ -2238,7 +2246,8 @@ function showResult() {
   // The card can be put away to look around, so the rematch button is also outside it.
   $('againBtn').hidden = net.role === 'guest';
   againAt = performance.now();
-  if (net.role !== 'guest') $('again').focus();
+  // In a room Enter is for the chat, so the rematch button must not catch it.
+  if (!net.role) $('again').focus();
 }
 
 // Tell everyone, once per carry, when a seed is about to reach home.

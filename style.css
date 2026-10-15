@@ -1563,6 +1563,16 @@ body:has(#result:not([hidden])) #throw {
   overflow-wrap: anywhere;
 }
 
+.chat .chatLog time {
+  margin-right: 0.35em;
+  font-size: 0.8em;
+  opacity: 0.55;
+}
+
+#gameChat .chatLog time {
+  display: none;
+}
+
 .chatForm {
   display: flex;
   gap: 6px;
