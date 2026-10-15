@@ -568,6 +568,7 @@ function updateStart() {
 function show(screen) {
   $('lobby').hidden = screen !== 'lobby';
   $('stage').hidden = screen !== 'stage';
+  if (screen === 'stage' && !history.state?.stage) history.pushState({ stage: true }, '');
   if (screen === 'lobby') checkUpdate();
   // The round's tune keeps going from one round to the next, result screen included.
   audio.setMusic(screen === 'lobby' ? 'lobby' : 'game');
@@ -2636,6 +2637,11 @@ window.addEventListener('pointerdown', (e) => {
   if (!$('tools').contains(e.target)) $('tools').classList.remove('open');
 });
 $('board').addEventListener('click', () => showBoard(false));
+// The scores lie over the map without blocking it, so a touch anywhere off them
+// puts them away too.
+window.addEventListener('pointerdown', (e) => {
+  if (!$('board').hidden && !$('board').contains(e.target) && !$('boardBtn').contains(e.target)) showBoard(false);
+});
 // The same sound button sits in the lobby and on the field.
 const soundButtons = ['mute', 'muteLobby'].map($);
 for (const b of soundButtons) {
@@ -2716,6 +2722,19 @@ document.addEventListener(
   { passive: false },
 );
 document.addEventListener('dblclick', (e) => e.preventDefault(), { passive: false });
+// iOS browsers go back a page on a swipe in from the screen's edge, which would
+// drop you out of the round. Mid-game an edge touch is kept from starting one, and
+// a back that gets through anyway lands on this same page.
+document.addEventListener(
+  'touchstart',
+  (e) => {
+    if ($('stage').hidden || e.target.closest('button, input, select, a')) return;
+    const x = e.changedTouches[0].clientX;
+    if (x < 30 || x > innerWidth - 30) e.preventDefault();
+  },
+  { passive: false },
+);
+window.addEventListener('popstate', () => !$('stage').hidden && history.pushState({ stage: true }, ''));
 // Mashing the bonk button must never count as a double tap.
 $('bonk').addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
 window.addEventListener('resize', () => renderer.resize());

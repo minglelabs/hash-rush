@@ -19,9 +19,6 @@ export const KEYS = {
 const HANDLED = new Set(Object.values(KEYS).flat());
 // Past this the hamster runs flat out, the way a held arrow key does.
 const STICK_DEAD = 8;
-// Lanes run along the axes, so a push counts as straight unless it is this close
-// to a true diagonal.
-const DIAGONAL = (15 * Math.PI) / 180;
 // Extra lean needed to leave the current heading, so a wobbling thumb does not flicker.
 const STICKY = (6 * Math.PI) / 180;
 // A swipe on the map is a finger that travels this far (screen pixels)
@@ -31,30 +28,36 @@ const SWIPE_TIME = 50;
 // A swipe points one of this many ways round the clock.
 const SWIPE_WAYS = 16;
 
-// The touch pad is eight-way, like arrow keys: no slow walk, and a thumb a little
-// off a key still runs straight down a lane. (dx, dy) is where the thumb lies from
-// the pad's middle, and `was` is the previous result.
+// The touch pad points one of 16 ways, like a swipe, with no slow walk: past the
+// dead middle the hamster runs flat out. (dx, dy) is where the thumb lies from the
+// pad's middle, and `was` is the previous result.
 export function stickDir(dx, dy, was = null) {
   if (Math.hypot(dx, dy) < STICK_DEAD) return { x: 0, y: 0 };
   const a = Math.atan2(dy, dx);
   if (was && (was.x || was.y)) {
     let off = Math.abs(a - Math.atan2(was.y, was.x));
     if (off > Math.PI) off = 2 * Math.PI - off;
-    if (off <= (was.x && was.y ? DIAGONAL : Math.PI / 4 - DIAGONAL) + STICKY) return was;
+    if (off <= Math.PI / SWIPE_WAYS + STICKY) return was;
   }
-  let snap = Math.round(a / (Math.PI / 4)) * (Math.PI / 4);
-  if (Math.abs(a - snap) > DIAGONAL) snap = Math.round(a / (Math.PI / 2)) * (Math.PI / 2);
-  return { x: Math.round(Math.cos(snap)) || 0, y: Math.round(Math.sin(snap)) || 0 };
+  return wayOf(a);
 }
+
+// The nearest of the 16 ways to angle `a`, as a unit vector.
+function wayOf(a) {
+  const step = (2 * Math.PI) / SWIPE_WAYS;
+  const snap = Math.round(a / step) * step;
+  const r = (v) => Math.round(v * 1000) / 1000 || 0;
+  return { x: r(Math.cos(snap)), y: r(Math.sin(snap)) };
+}
+
+// Which of the pad's four keys a heading lights: one along a lane, both next to a diagonal.
+export const padKey = (v) => (v > 0.5 ? 1 : v < -0.5 ? -1 : 0);
 
 // The way a swipe of (dx, dy) screen pixels over `ms` milliseconds points, as a
 // unit vector one of 16 ways, or null while it is still too short or too quick to count.
 export function swipeDir(dx, dy, ms) {
   if (ms < SWIPE_TIME || Math.hypot(dx, dy) < SWIPE_MIN) return null;
-  const step = (2 * Math.PI) / SWIPE_WAYS;
-  const a = Math.round(Math.atan2(dy, dx) / step) * step;
-  const r = (v) => Math.round(v * 1000) / 1000 || 0;
-  return { x: r(Math.cos(a)), y: r(Math.sin(a)) };
+  return wayOf(Math.atan2(dy, dx));
 }
 
 // Holding the touch button waits for the swing that connects instead of whiffing.
@@ -116,10 +119,12 @@ export function createInput({ stage, canvas, pad, bonkBtn, throwBtn, toWorldDir,
 
   // Touch: a faint pad of arrow keys under the thumb. Whichever way the thumb lies
   // from the pad's middle is the key held down, so a touch moves the hamster at
-  // once and a short slide to the next key turns it. Its keys light up as they are held.
+  // once and a short slide turns it. Its keys light up the way the hamster is
+  // heading, a swipe on the map included.
   function showPad() {
-    pad.dataset.x = touch ? touch.x : 0;
-    pad.dataset.y = touch ? touch.y : 0;
+    const finger = touch || glide;
+    pad.dataset.x = finger ? padKey(finger.x) : 0;
+    pad.dataset.y = finger ? padKey(finger.y) : 0;
   }
   function press(e) {
     const r = pad.getBoundingClientRect();
@@ -152,12 +157,14 @@ export function createInput({ stage, canvas, pad, bonkBtn, throwBtn, toWorldDir,
     if (!dir) return;
     glide = dir;
     Object.assign(swipe, { x: e.clientX, y: e.clientY, t: e.timeStamp, swiped: true });
+    showPad();
   });
   const release = (e) => {
     if (swipe && e.pointerId === swipe.id) {
       // Any touch that made no swipe is a tap: stop where you are.
       if (!swipe.swiped && e.type === 'pointerup') glide = null;
       swipe = null;
+      showPad();
     }
     if (!touch || e.pointerId !== touch.id) return;
     touch = null;
