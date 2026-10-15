@@ -450,8 +450,7 @@ function renderLobby() {
   // A room that could not be reached, or was lost, says so at the top with the way
   // on: a room of one's own first, trying the same one again second.
   const failed = guest && !!net.failed;
-  $('joinFail').hidden = !failed;
-  $('joinFailText').textContent = net.status;
+  syncGone();
   $('netStatus').hidden = !guest || failed;
   $('netStatus').textContent = netLine();
   updateStart();
@@ -1146,6 +1145,7 @@ async function enterRoom(until = 0) {
   renderLobby();
   try {
     net.host = await joinRoom(joinId, { data: hostData, close: hostGone });
+    net.lost = false;
     sayHello();
     net.status = '';
   } catch (err) {
@@ -1166,9 +1166,17 @@ function sayHello() {
   identity().then((me) => net.host && net.host.send({ t: 'hello', name: slots[0].name, watch: watchOnly, pw: net.pw, pid: me?.pid, pub: me?.pub }));
 }
 
+// Lost the host, reloading along with it, or never got in: the cover says so.
+function syncGone() {
+  const gone = net.role === 'guest' && !net.host && (net.failed || net.reloading || net.lost);
+  $('joinFail').hidden = !gone;
+  $('joinFailText').textContent = net.status;
+}
+
 function hostGone() {
   net.host = null;
   net.lobby = null;
+  net.lost = true;
   toLobby();
   // About to reload along with the host: nothing to say or do until then.
   if (net.reloading) return;
@@ -1193,6 +1201,7 @@ function reloadWithHost() {
     // one try at the room, then
   }
   if ($('stage').hidden) renderLobby();
+  syncGone();
   setTimeout(() => location.reload(), 2500);
 }
 
@@ -2569,18 +2578,16 @@ function toLobby() {
   announce();
 }
 
-// The box for a room that could not be joined sits right under the room list
-// button. It is built here, so a page cached from before it existed still gets one.
-$('roomListBtn').insertAdjacentHTML(
-  'afterend',
-  '<div id="joinFail" hidden><p id="joinFailText"></p><button id="newRoom" class="primary" data-i18n="newRoom"></button><button id="retryJoin" data-i18n="retry"></button></div>',
+// A room that could not be joined, or was lost, covers the whole page: what is
+// behind it would be stale, so all there is to do is reload into the room or
+// open a new one. Built here, so a page cached from before it existed gets one.
+document.body.insertAdjacentHTML(
+  'beforeend',
+  '<div id="joinFail" hidden><div><p id="joinFailText"></p><button id="retryJoin" class="primary" data-i18n="retry"></button><button id="newRoom" data-i18n="newRoom"></button></div></div>',
 );
 // Out of a dead link and into a lobby of one's own, as its host.
 $('newRoom').addEventListener('click', () => (location.href = location.pathname));
-$('retryJoin').addEventListener('click', () => {
-  audio.unlock();
-  enterRoom();
-});
+$('retryJoin').addEventListener('click', () => location.reload());
 $('start').addEventListener('click', () => {
   audio.unlock();
   if (net.role === 'guest') enterRoom();

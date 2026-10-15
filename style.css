@@ -345,8 +345,32 @@ body:has(#result:not([hidden])) #throw {
   font-weight: 700;
 }
 
-#invite,
 #joinFail {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: #24572f;
+}
+
+#joinFail[hidden] {
+  display: none;
+}
+
+#joinFail > div {
+  width: min(100%, 360px);
+}
+
+#joinFail button {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+}
+
+#invite,
+#joinFail > div {
   margin: 0 0 18px;
   padding: 12px;
   background: #fff;
@@ -360,12 +384,9 @@ body:has(#result:not([hidden])) #throw {
   font-size: 14px;
 }
 
-#newRoom {
-  display: block;
-  width: 100%;
+#retryJoin {
   font-size: 18px;
   padding: 0.6em;
-  margin-bottom: 10px;
 }
 
 #retryJoin {
