@@ -19,7 +19,7 @@
 import { createGame, step, carrySpeed } from '../src/sim/game.js';
 import { MAPS, MAP_IDS, isFree } from '../src/sim/map.js';
 import { HAMSTER_R, SPEED, DT, gatherTime } from '../src/sim/constants.js';
-import { MAX_P, OBS, DIRS, fields, fieldAt, observe, jobs } from '../src/ai/observe.js';
+import { MAX_P, OBS, DIRS, REACTION_TICKS, fields, fieldAt, observe, jobs } from '../src/ai/observe.js';
 
 export { MAX_P, OBS };
 import { createBot } from '../src/ai/bot.js';
@@ -31,6 +31,9 @@ export const DEFAULTS = {
   envs: 16,
   seed: 1,
   frameSkip: 4, // game ticks per decision: 15 decisions a second
+  // How many ticks late the policy sees the round (src/ai/observe.js): it learns
+  // on the same stale view it plays with in the browser.
+  reaction: REACTION_TICKS,
   maps: MAP_IDS, // every map, hazards and all
   players: [2, 3, 4, 5, 6, 7, 8], // how many seats a round has, drawn from this list
   teams: 0.5, // share of rounds played in teams; the rest are everyone for themselves
@@ -185,11 +188,28 @@ export function createEnvs(settings = {}) {
     }
     const teachers = lineup.map(({ level }) => (level < 0 && cfg.teacher >= 0 ? createBot({ difficulty: BOT_LEVELS[cfg.teacher], seed: Math.floor(rnd() * 1e9) }) : null));
     for (let i = 0; i < MAX_P; i++) taught[e * MAX_P + i] = teachers[i] ? 1 : 0;
-    envs[e] = { g, bots, teachers, home: g.players.map((p) => homeLeft(g, p)), job: g.players.map((p) => jobKey(g, p)), guard: g.players.map((p) => guardPhi(g, p)), caught: g.players.map(() => 0), prev: g.players.map(() => 0), deaths: g.players.map(() => 0), phi: g.players.map((p) => potential(g, p)) };
+    envs[e] = { tick: 0, past: [], g, bots, teachers, home: g.players.map((p) => homeLeft(g, p)), job: g.players.map((p) => jobKey(g, p)), guard: g.players.map((p) => guardPhi(g, p)), caught: g.players.map(() => 0), prev: g.players.map(() => 0), deaths: g.players.map(() => 0), phi: g.players.map((p) => potential(g, p)) };
   }
 
+  // What the policy sees at a decision: the round as it was `reaction` ticks ago
+  // (or as it began, early on). Views are kept only for the ticks that will be asked for.
   function observeEnv(e) {
-    observe(envs[e].g, obs, e * MAX_P * OBS);
+    const env = envs[e];
+    if (!cfg.reaction) {
+      observe(env.g, obs, e * MAX_P * OBS);
+      return;
+    }
+    const want = env.tick - cfg.reaction;
+    while (env.past.length > 1 && env.past[1].tick <= want) env.past.shift();
+    const view = env.past.length && env.past[0].tick <= want ? env.past[0].view : null;
+    if (view) obs.set(view, e * MAX_P * OBS);
+    else observe(env.g, obs, e * MAX_P * OBS);
+  }
+  function keepView(env) {
+    if (!cfg.reaction || (env.tick + cfg.reaction) % cfg.frameSkip !== 0) return;
+    const view = new Float32Array(MAX_P * OBS);
+    observe(env.g, view);
+    env.past.push({ tick: env.tick, view });
   }
 
   // actions: Uint8Array, envs * MAX_P * 3
@@ -226,6 +246,8 @@ export function createEnvs(settings = {}) {
           inputs.push({ mx: dir[0], my: dir[1], bonk: actions[a + 1] === 1 && k === 0, throw: actions[a + 2] === 1 });
         }
         step(g, inputs);
+        env.tick++;
+        keepView(env);
         for (const ev of g.events) {
           if (ev.type === 'bonk' && ev.seed && cfg.catch) env.caught[ev.by] += cfg.catch * (1 + 2 * (1 - homeLeft(g, ev)));
         }
