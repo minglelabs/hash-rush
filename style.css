@@ -1746,8 +1746,21 @@ body:has(#result:not([hidden])) #throw {
 }
 
 #board .card {
-  padding: 14px 20px;
+  position: relative;
+  padding: 14px 44px 14px 20px;
   min-width: min(380px, 90%);
+}
+
+#boardClose {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1;
 }
 
 #board .scoreTable {

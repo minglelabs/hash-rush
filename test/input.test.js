@@ -1,48 +1,32 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { stickDir, holdSwing, swipeDir, KEYS } from '../src/client/input.js';
+import { stickDir, holdSwing, swipeDir, padKey, KEYS } from '../src/client/input.js';
 import { createGame } from '../src/sim/game.js';
 import { BONK, HAMSTER_R } from '../src/sim/constants.js';
 
 const at = (deg, r = 30) => [Math.cos((deg * Math.PI) / 180) * r, Math.sin((deg * Math.PI) / 180) * r];
 
-test('the touch pad is all or nothing, like an arrow key', () => {
-  assert.deepEqual(stickDir(5, 0), { x: 0, y: 0 });
-  assert.deepEqual(stickDir(9, 0), { x: 1, y: 0 });
-  assert.deepEqual(stickDir(46, 0), { x: 1, y: 0 });
-});
+const deg = (d) => Math.round((Math.atan2(d.y, d.x) * 180) / Math.PI);
 
-test('a crooked push still runs straight, and only a clear diagonal is diagonal', () => {
-  const cases = { 0: [1, 0], 25: [1, 0], 45: [1, 1], 58: [1, 1], 65: [0, 1], 90: [0, 1], 135: [-1, 1], 180: [-1, 0], '-90': [0, -1], '-155': [-1, 0] };
-  for (const [deg, [x, y]] of Object.entries(cases)) assert.deepEqual(stickDir(...at(+deg)), { x, y }, `${deg}°`);
+test('the touch pad points one of 16 ways at full speed, past a dead middle', () => {
+  assert.deepEqual(stickDir(5, 0), { x: 0, y: 0 });
+  assert.deepEqual(stickDir(46, 0), { x: 1, y: 0 });
+  assert.equal(deg(stickDir(...at(20))), 23);
+  assert.equal(deg(stickDir(...at(-80))), -90);
+  assert.ok(Math.abs(Math.hypot(stickDir(...at(30)).x, stickDir(...at(30)).y) - 1) < 1e-3);
 });
 
 test('a thumb wobbling on a boundary keeps its heading', () => {
   const right = stickDir(...at(0));
-  assert.equal(stickDir(...at(34), right), right);
-  assert.deepEqual(stickDir(...at(40), right), { x: 1, y: 1 });
-  const diagonal = stickDir(...at(45));
-  assert.equal(stickDir(...at(26), diagonal), diagonal);
-  assert.deepEqual(stickDir(...at(20), diagonal), { x: 1, y: 0 });
+  assert.equal(stickDir(...at(15), right), right);
+  assert.equal(deg(stickDir(...at(20), right)), 23);
 });
 
-test('sliding the thumb across the pad changes key without lifting it', () => {
-  // From the right key straight across the middle to the left key.
-  let dir = stickDir(40, 0);
-  const seen = [];
-  for (let x = 40; x >= -40; x -= 4) {
-    dir = stickDir(x, 2, dir);
-    seen.push(`${dir.x},${dir.y}`);
-  }
-  assert.deepEqual([...new Set(seen)], ['1,0', '0,0', '-1,0']);
-  // From the right key round to the up key: the corner between them is the diagonal.
-  dir = stickDir(40, 0);
-  const round = [];
-  for (let deg = 0; deg >= -90; deg -= 5) {
-    dir = stickDir(...at(deg, 40), dir);
-    round.push(`${dir.x},${dir.y}`);
-  }
-  assert.deepEqual([...new Set(round)], ['1,0', '1,-1', '0,-1']);
+test('the pad lights one key along a lane and two next to a diagonal', () => {
+  const lit = (d) => [padKey(d.x), padKey(d.y)];
+  assert.deepEqual(lit(stickDir(...at(20))), [1, 0]);
+  assert.deepEqual(lit(stickDir(...at(45))), [1, 1]);
+  assert.deepEqual(lit(stickDir(...at(-110))), [0, -1]);
 });
 
 test('a swipe points one of 16 ways once it is long and slow enough', () => {
