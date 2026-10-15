@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Hash Rush</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌻</text></svg>"
+    />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main id="lobby" class="screen subpage">
+      <div class="card">
+        <a class="backLink" href="./" data-i18n="backToGame"></a>
+        <section id="ranking">
+          <h2 data-i18n="rankTitle"></h2>
+          <p id="rankMe"></p>
+          <p id="rankStatus"></p>
+          <table id="rankTable"></table>
+          <div id="rankPager" class="pager"></div>
+          <h3 data-i18n="rankHistory"></h3>
+          <ul id="rankHistory"></ul>
+          <div id="historyPager" class="pager"></div>
+          <p id="rankNote" data-i18n="rankNote"></p>
+        </section>
+      </div>
+    </main>
+    <script type="module">
+      import { setUpPage } from './src/client/page.js';
+      import { openRanking } from './src/client/rankPage.js';
+      setUpPage('rankTitle');
+      openRanking();
+    </script>
+  </body>
+</html>

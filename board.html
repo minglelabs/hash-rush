@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Hash Rush</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌻</text></svg>"
+    />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main id="lobby" class="screen subpage">
+      <div class="card">
+        <a class="backLink" href="./" data-i18n="backToGame"></a>
+        <section id="feedback">
+          <h2 data-i18n="boardTitle"></h2>
+          <div id="boardCompose"></div>
+          <p id="boardStatus"></p>
+          <ul id="boardList"></ul>
+        </section>
+      </div>
+    </main>
+    <script type="module">
+      import { setUpPage, myName } from './src/client/page.js';
+      import { openBoard } from './src/client/board.js';
+      setUpPage('boardTitle');
+      openBoard(myName);
+    </script>
+  </body>
+</html>
