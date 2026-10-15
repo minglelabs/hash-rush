@@ -1,6 +1,8 @@
 // The balance table, with the trained policy (RL) in the top seats: every line-up
 // on every map, one Node process per line-up at once.
-//   node rl/report.js rl/runs/team/policy.json [rounds per map] [rl/runs/long/policy.json]
+//   node rl/report.js rl/runs/team/policy.json [rounds per map, 20] [rl/runs/long/policy.json] [--all]
+// By default a quick check of a few minutes: RL against the ace bot and against
+// RL', alone and in teams. --all plays the whole balance table instead.
 // Free-for-all rows give the win rate per seat, RL / the hard (or ace) bot. Team rows give the
 // RL side's win rate. A seat's share in an even free-for-all is 100 / players.
 // With a second policy (RL'), rows of the two against each other are added, and
@@ -14,7 +16,8 @@ import { createEnvs, MAX_P, OBS } from './env.js';
 import { MAP_IDS } from '../src/sim/map.js';
 import { loadPolicy } from './policy.js';
 
-const [path, roundsArg = '30', vsPath] = process.argv.slice(2);
+const all = process.argv.includes('--all');
+const [path, roundsArg = '20', vsPath] = process.argv.slice(2).filter((a) => a !== '--all');
 const only = process.env.REPORT_ONLY;
 const ROUNDS = Number(roundsArg);
 const RL = -1;
@@ -24,7 +27,7 @@ const MAP_NAMES = { meadow: '초원', desert: '사막', factory: '공장', ice: 
 
 const solo = (levels) => levels.map((level) => ({ level, team: -1 }));
 const sides = (a, b) => [...a.map((level) => ({ level, team: 0 })), ...b.map((level) => ({ level, team: 1 }))];
-const LINEUPS = [
+const FULL = [
   ['RL 1 + 고수 3', solo([RL, HARD, HARD, HARD])],
   ['RL 2 + 고수 2', solo([RL, RL, HARD, HARD])],
   ['RL 3 + 고수 1', solo([RL, RL, RL, HARD])],
@@ -44,7 +47,7 @@ const LINEUPS = [
   ['RL 2 vs 초고수 2', sides([RL, RL], [ACE, ACE])],
 ];
 if (vsPath) {
-  LINEUPS.push(
+  FULL.push(
     ["RL 1 + RL' 3", solo([RL, RIVAL, RIVAL, RIVAL])],
     ["RL 2 + RL' 2", solo([RL, RL, RIVAL, RIVAL])],
     ["RL·RL'·고수 2", solo([RL, RIVAL, HARD, HARD])],
@@ -58,9 +61,24 @@ if (vsPath) {
   );
 }
 
+const QUICK = [
+  ['RL 1 + 초고수 3', solo([RL, ACE, ACE, ACE])],
+  ['RL 2 vs 초고수 2', sides([RL, RL], [ACE, ACE])],
+  ['RL+초보 vs 초고수+초보', sides([RL, EASY], [ACE, EASY])],
+  ...(vsPath
+    ? [
+        ["RL 1 + RL' 3", solo([RL, RIVAL, RIVAL, RIVAL])],
+        ["RL 2 + RL' 2", solo([RL, RL, RIVAL, RIVAL])],
+        ["RL 2 vs RL' 2", sides([RL, RL], [RIVAL, RIVAL])],
+        ["RL+초고수 vs RL'+초고수", sides([RL, ACE], [RIVAL, ACE])],
+      ]
+    : []),
+];
+const LINEUPS = all ? FULL : QUICK;
+
 // One line-up on one map: RL seats' wins, hard seats' wins (or RL side's wins), timeouts.
 function play(policy, rivalPolicy, lineup, map, seed) {
-  const E = 8;
+  const E = Math.min(8, ROUNDS);
   const envs = createEnvs({ envs: E, seed, lineup, maps: [map], botEnv: 1 });
   const actions = new Uint8Array(E * MAX_P * 3);
   const rl = lineup.flatMap((s, i) => (s.level === RL ? [i] : []));
@@ -93,32 +111,37 @@ if (only !== undefined) {
   const load = (file) => (file ? loadPolicy(JSON.parse(readFileSync(file, 'utf8'))) : null);
   const policy = load(path);
   const rivalPolicy = load(vsPath);
-  const [, lineup] = LINEUPS[Number(only)];
-  const rows = MAP_IDS.map((map, k) => play(policy, rivalPolicy, lineup, map, 1000 * Number(only) + k + 1));
-  process.stdout.write(JSON.stringify(rows));
+  // One job is one line-up on one map, so every core has work even with few line-ups.
+  const j = Number(only);
+  const [, lineup] = LINEUPS[Math.floor(j / MAP_IDS.length)];
+  const k = j % MAP_IDS.length;
+  process.stdout.write(JSON.stringify(play(policy, rivalPolicy, lineup, MAP_IDS[k], 1000 * Math.floor(j / MAP_IDS.length) + k + 1)));
 } else {
   const self = fileURLToPath(import.meta.url);
-  const results = new Array(LINEUPS.length);
+  const results = LINEUPS.map(() => new Array(MAP_IDS.length));
+  const jobs = LINEUPS.length * MAP_IDS.length;
   let next = 0;
+  const left = LINEUPS.map(() => MAP_IDS.length);
   const run = () => {
-    if (next >= LINEUPS.length) return Promise.resolve();
-    const k = next++;
+    if (next >= jobs) return Promise.resolve();
+    const j = next++;
+    const k = Math.floor(j / MAP_IDS.length);
     return new Promise((done) => {
       let text = '';
-      const p = spawn(process.execPath, [self, path, roundsArg, ...(vsPath ? [vsPath] : [])], {
+      const p = spawn(process.execPath, [self, path, roundsArg, ...(vsPath ? [vsPath] : []), ...(all ? ['--all'] : [])], {
         stdio: ['ignore', 'pipe', 'inherit'],
-        env: { ...process.env, REPORT_ONLY: String(k) },
+        env: { ...process.env, REPORT_ONLY: String(j) },
       });
       p.stdout.on('data', (d) => (text += d));
       p.on('close', () => {
-        results[k] = JSON.parse(text);
-        process.stderr.write(`  done: ${LINEUPS[k][0]}\n`);
+        results[k][j % MAP_IDS.length] = JSON.parse(text);
+        if (--left[k] === 0) process.stderr.write(`  done: ${LINEUPS[k][0]}\n`);
         done();
       });
     }).then(run);
   };
   const t0 = Date.now();
-  await Promise.all(Array.from({ length: Math.min(availableParallelism(), LINEUPS.length) }, run));
+  await Promise.all(Array.from({ length: Math.min(availableParallelism(), jobs) }, run));
 
   const pct = (x) => Math.round(100 * x);
   const head = MAP_IDS.map((m) => MAP_NAMES[m] || m).join('\t');

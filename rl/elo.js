@@ -3,7 +3,7 @@
 // pool (repeats allowed) on a random map, and the ratings are the standard Elo
 // scale fitted to all results at once (the steady state Elo updates settle to),
 // with the easy bot pinned at 1000. 400 points apart is 10 to 1 odds.
-//   node rl/elo.js [rounds per mode, 1600] RL1=rl/runs/long/policy.json RL2=rl/runs/team/policy.json
+//   node rl/elo.js [rounds per mode, 600] RL1=rl/runs/long/policy.json RL2=rl/runs/team/policy.json
 // Free-for-all: four seats, the winner beats each of the others. Teams: two
 // against two, a team rated as the mean of its members.
 
@@ -15,7 +15,7 @@ import { createEnvs, MAX_P, OBS } from './env.js';
 import { loadPolicy } from './policy.js';
 
 const args = process.argv.slice(2);
-const ROUNDS = Number(args.find((a) => /^\d+$/.test(a)) || 1600);
+const ROUNDS = Number(args.find((a) => /^\d+$/.test(a)) || 600);
 const named = args.filter((a) => a.includes('=')).map((a) => a.split('='));
 const BOTS = [
   ['초보', 0],
