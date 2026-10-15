@@ -1353,6 +1353,15 @@ function markFresh() {
 
 // ---------- chat ----------
 
+// A log that comes into view (back in the lobby, on the result card) starts at its newest line.
+const chatShown = new ResizeObserver((entries) => {
+  for (const { target, contentRect } of entries) {
+    if (contentRect.height > 0 && !target.seen) target.scrollTop = target.scrollHeight;
+    target.seen = contentRect.height > 0;
+  }
+});
+for (const log of document.querySelectorAll('.chatLog')) chatShown.observe(log);
+
 const cleanChat = (raw) => String(raw || '').replace(/\s+/g, ' ').trim().slice(0, 80);
 
 // One conversation runs through the whole room: the lobby box and the box on the
@@ -1412,6 +1421,7 @@ function addChat({ name, look, text, sys }) {
   // Somebody coming in or going out: a grey line with no speaker.
   if (sys) text = t(sys === 'join' ? 'chatJoin' : 'chatLeave', String(name || t('spectatorName')).slice(0, 8));
   // A soft chime for what somebody else says.
+  const mine = !sys && look === (net.role === 'host' ? 0 : net.you) && cleanChat(text) === lastSent;
   if (look !== (net.role === 'host' ? 0 : net.you)) audio.play.chat();
   const at = chatTime();
   if (look >= 0) {
@@ -1437,7 +1447,8 @@ function addChat({ name, look, text, sys }) {
     // In the lobby the log is a scrolling history; in a round lines fade away.
     if (id === 'gameChat') line.addEventListener('animationend', () => line.remove());
     while (log.children.length > 30) log.firstChild.remove();
-    log.scrollTop = log.scrollHeight;
+    // Only my own line pulls the log down; others' leave it where it was read to.
+    if (mine || id === 'gameChat') log.scrollTop = log.scrollHeight;
   }
 }
 
@@ -1447,8 +1458,10 @@ function relayChat(msg) {
   addChat(msg);
 }
 
+let lastSent = '';
 function sendChat(raw) {
   const text = cleanChat(raw);
+  lastSent = text;
   if (!text) return;
   if (net.role === 'guest') {
     if (net.host) net.host.send({ t: 'chat', text });
