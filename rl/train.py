@@ -21,6 +21,7 @@ Run:  python3 rl/train.py --name first --minutes 30
 """
 
 import argparse
+import copy
 import json
 import math
 import os
@@ -187,6 +188,16 @@ def load_weights(model, path, dev):
     model.load_state_dict(saved)
 
 
+def load_policy(path, obs_dim, dev):
+    """A saved policy at the size it was trained at, which may not be the learner's."""
+    saved = torch.load(path, map_location=dev)
+    width = saved["inp.weight"].shape[0]
+    blocks = len({k.split(".")[1] for k in saved if k.startswith("blocks.")})
+    model = Policy(obs_dim, width, blocks).to(dev)
+    load_weights(model, path, dev)
+    return model
+
+
 def export_json(model, path, meta):
     """Plain numbers, so the browser can run the policy without any library."""
     out = {"meta": meta, "heads": HEADS}
@@ -212,8 +223,8 @@ class League:
         self.keep = 1  # the first entries are never replaced: rivals, then the oldest self
 
     def add(self, model, born):
-        clone = self.make()
-        clone.load_state_dict(model.state_dict())
+        # A copy, not a fresh network: rivals may be of another size than the learner.
+        clone = copy.deepcopy(model)
         clone.eval()
         entry = {"model": clone, "wins": 1.0, "games": 2.0, "born": born}
         # A league no bigger than its rivals holds only them: no past selves join.
@@ -320,8 +331,7 @@ def main():
     teachers = {}
     for mode, path in (("solo", args.distill_solo), ("team", args.distill_team)):
         if path:
-            teachers[mode] = make()
-            load_weights(teachers[mode], path, dev)
+            teachers[mode] = load_policy(path, D, dev)
             teachers[mode].eval()
             print(f"distill {mode} from {path}")
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4, eps=1e-5)
@@ -329,8 +339,7 @@ def main():
     # Earlier trained bots (say the one in the game as RL) stay in the league for good,
     # so the learner keeps meeting them as rivals and as teammates.
     for path in args.rivals:
-        rival = make()
-        load_weights(rival, path, dev)
+        rival = load_policy(path, D, dev)
         league.add(rival, -1)
         print(f"rival {path}")
     league.keep = len(args.rivals) + 1
