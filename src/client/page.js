@@ -9,7 +9,7 @@ export function setUpPage(title) {
   for (const el of document.querySelectorAll('[data-i18n]')) el.innerHTML = t(el.dataset.i18n) ?? '';
   // A language picked in the address carries back to the game.
   const pick = new URLSearchParams(location.search).get('lang');
-  if (pick) for (const a of document.querySelectorAll('.backLink')) a.href = `./?lang=${encodeURIComponent(pick)}`;
+  if (pick) for (const a of document.querySelectorAll('.backLink, #newRoomLink')) a.href = `./?lang=${encodeURIComponent(pick)}`;
 }
 
 // The name this browser plays under, as the game keeps it.

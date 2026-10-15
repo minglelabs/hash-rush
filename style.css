@@ -621,6 +621,84 @@ body:has(#result:not([hidden])) #throw {
   margin-bottom: 14px;
 }
 
+/* The room list button, and beside it the way out to the room list page. */
+#roomBtns {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+#roomBtns #roomListBtn {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+#leaveToRooms {
+  flex: none;
+}
+
+/* The room list page. */
+.bigLink {
+  display: block;
+  margin-bottom: 14px;
+  padding: 0.7em;
+  border: 2px solid #e69a00;
+  border-radius: 999px;
+  background: var(--sun);
+  box-shadow: 0 4px 0 #c98400;
+  color: var(--ink);
+  font-size: 20px;
+  font-weight: 800;
+  text-align: center;
+  text-decoration: none;
+}
+
+#plaza {
+  margin-bottom: 18px;
+  padding: 12px;
+  background: #fff;
+  border: 2px solid var(--line);
+  border-radius: 16px;
+}
+
+#plaza h2 {
+  margin-top: 0;
+}
+
+#plazaLog {
+  max-height: 220px;
+  min-height: 2.4em;
+  overflow-y: auto;
+  margin-bottom: 8px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+#plazaLog:empty::before {
+  content: attr(data-empty);
+  color: #a07a45;
+}
+
+#plazaLog time {
+  font-size: 11px;
+  opacity: 0.5;
+}
+
+#plazaForm {
+  display: flex;
+  gap: 6px;
+}
+
+#plazaForm input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 16px;
+  padding: 0.5em 0.8em;
+  border: 2px solid var(--line);
+  border-radius: 999px;
+}
+
 #ranking {
   margin-bottom: 18px;
   padding: 12px;
