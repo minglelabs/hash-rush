@@ -1344,12 +1344,33 @@ const chat = createChat({
 // while nobody is typing, and held there while somebody is: the keyboard only
 // ever covers the foot of the screen.
 const typing = () => /^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName || '') && !document.activeElement.readOnly;
+// A keyboard on its way up or down can be caught halfway, with the page short for
+// a moment; taking that height would shrink the whole map and grow it back. So
+// the height only ever grows at once, or changes along with the width (a turned
+// phone); a shorter page is taken only once it has stayed short a while.
+let pinnedW = 0;
+let pinnedH = 0;
+let shrinkTimer = 0;
 function pinHeight() {
   if (typing()) return;
-  document.documentElement.style.setProperty('--app-h', `${window.innerHeight}px`);
+  clearTimeout(shrinkTimer);
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  if (w === pinnedW && h < pinnedH) {
+    shrinkTimer = setTimeout(() => {
+      if (!typing() && window.innerWidth === pinnedW && window.innerHeight < pinnedH) pinTo(window.innerWidth, window.innerHeight);
+    }, 1500);
+    return;
+  }
+  pinTo(w, h);
+}
+function pinTo(w, h) {
+  pinnedW = w;
+  pinnedH = h;
+  document.documentElement.style.setProperty('--app-h', `${h}px`);
   // Tall or wide goes by the same held size, so a keyboard that shortens the page
   // never flips a tall layout into a wide one.
-  document.documentElement.classList.toggle('tall', window.innerHeight > window.innerWidth);
+  document.documentElement.classList.toggle('tall', h > w);
 }
 pinHeight();
 window.addEventListener('resize', pinHeight);
