@@ -31,8 +31,13 @@ function historyLine({ name, text, color, sys, at }) {
   return line;
 }
 
-// A line floating up over the screen in `log` (a .chatLog), fading away on its own.
-export function floatLine(log, { name, text, color, sys }) {
+// How long a line stays up, floating or in a bubble over its speaker: longer
+// lines get longer to be read.
+export const lineLife = (text) => 6000 + 80 * String(text || '').length;
+
+// A line floating up over the screen in `log` (a .chatLog), fading away on its own
+// after `ms`, as long as its speaker's bubble lasts unless told otherwise.
+export function floatLine(log, { name, text, color, sys }, ms = lineLife(text)) {
   const line = document.createElement('div');
   if (sys) {
     line.className = 'sys';
@@ -43,6 +48,7 @@ export function floatLine(log, { name, text, color, sys }) {
     if (color) who.style.color = color;
     line.append(who, ` ${text}`);
   }
+  line.style.animationDuration = `${Math.round(ms)}ms`;
   log.append(line);
   line.addEventListener('animationend', () => line.remove());
   while (log.children.length > 12) log.firstChild.remove();
@@ -55,7 +61,8 @@ export function floatLine(log, { name, text, color, sys }) {
 //   empty         what the open bar shows while nothing has been said yet
 //   openers       ids of other buttons that open and close the bar
 //   enterOpens()  whether Enter on the page opens the bar right now
-export function createChat({ send, lines, quick = [], placeholder = '', empty = '', title = '', openers = [], enterOpens = () => true }) {
+//   logs          ids of other floating logs, refilled like #lobbyChat on closing
+export function createChat({ send, lines, quick = [], placeholder = '', empty = '', title = '', openers = [], enterOpens = () => true, logs = [] }) {
   const $ = (id) => document.getElementById(id);
   const float = document.createElement('div');
   float.id = 'lobbyChat';
@@ -106,6 +113,27 @@ export function createChat({ send, lines, quick = [], placeholder = '', empty = 
   };
   history.addEventListener('pointerdown', wake);
   history.addEventListener('scroll', wake, { passive: true });
+  // The log is not part of the box: a tap on it puts the keyboard away like a tap
+  // anywhere else would, while a drag still scrolls it.
+  let tapAt = null;
+  history.addEventListener('pointerdown', (e) => (tapAt = { x: e.clientX, y: e.clientY }));
+  history.addEventListener('pointerup', (e) => {
+    if (onPhone() && tapAt && Math.hypot(e.clientX - tapAt.x, e.clientY - tapAt.y) < 10) toggle(false);
+    tapAt = null;
+  });
+  history.addEventListener('pointercancel', () => (tapAt = null));
+
+  // Once the keyboard is down the last few lines float up again for a few
+  // seconds, however old, so what was just read does not vanish at once.
+  function refloat() {
+    const recent = lines().slice(-3);
+    for (const log of [float, ...logs.map($)]) {
+      const box = log?.querySelector('.chatLog');
+      if (!box) continue;
+      box.textContent = '';
+      for (const line of recent) floatLine(box, line, Math.max(5000, (line.at || 0) + lineLife(line.text) - Date.now()));
+    }
+  }
 
   let barTimer = 0;
   // A phone also scrolls the page about as its keyboard comes and goes, and the
@@ -131,6 +159,7 @@ export function createChat({ send, lines, quick = [], placeholder = '', empty = 
     clearTimeout(keepTimer);
     if (!open) {
       field.blur();
+      refloat();
       keepTimer = setTimeout(() => (keepY = null), 800);
       return;
     }

@@ -23,7 +23,7 @@ import { identity, shareName, signResult, remember, lastRating, loadRanking } fr
 import { createPredictor } from './predict.js';
 import { winRate } from './rankPage.js';
 import { createRoomList } from './roomList.js';
-import { createChat, floatLine, cleanChat } from './chatbar.js';
+import { createChat, floatLine, cleanChat, lineLife } from './chatbar.js';
 
 const $ = (id) => document.getElementById(id);
 const STORE = 'seed-rush-slots';
@@ -1305,7 +1305,7 @@ function addChat({ name, look, text, sys }) {
   if (look !== (net.role === 'host' ? 0 : net.you)) audio.play.chat();
   if (look >= 0) {
     const said = cleanChat(text);
-    bubbles.set(look, { name: String(name), text: said, until: performance.now() + 6000 + 80 * said.length });
+    bubbles.set(look, { name: String(name), text: said, until: performance.now() + lineLife(said) });
     showLobbyBubbles();
   }
   syncChat();
@@ -1335,6 +1335,7 @@ const chat = createChat({
   quick: t('quickChat'),
   placeholder: t('chatPlaceholder'),
   openers: ['chatBtn', 'lobbyChatBtn'],
+  logs: ['gameChat'],
   // Enter opens the bar anywhere in a room, the way it does in most games.
   enterOpens: () => !!net.role,
 });
