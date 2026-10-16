@@ -2437,7 +2437,7 @@ $('feedbackBtn').insertAdjacentHTML('afterend', '<button id="installBtn"></butto
 $('boardBtn').insertAdjacentHTML('afterend', '<button id="installGameBtn"></button>');
 document.body.insertAdjacentHTML(
   'beforeend',
-  '<div id="installHelp" hidden><div class="card"><p id="installText"></p><button id="installOk" class="primary"></button></div></div>',
+  '<div id="installHelp" hidden><div id="installPoint"></div><div class="card"><h2 id="installTitle"></h2><ol id="installSteps"></ol><p id="installText"></p><button id="installOk" class="primary"></button></div></div>',
 );
 for (const id of ['installBtn', 'installGameBtn']) {
   $(id).textContent = t('installApp');
@@ -2448,7 +2448,21 @@ for (const id of ['installBtn', 'installGameBtn']) {
       installAsk = null;
       return;
     }
-    $('installText').textContent = t('installHow');
+    // No page may add itself to an iPhone's home screen, so the steps are spelt
+    // out for the browser at hand, with an arrow at the button to start from.
+    const ua = navigator.userAgent;
+    const inApp = /KAKAOTALK|NAVER|Instagram|FBAN|FBAV|Line\/|DaumApps|everytimeApp/i.test(ua);
+    const where = inApp ? 'Other' : /CriOS|EdgiOS|FxiOS/.test(ua) ? 'Chrome' : 'Safari';
+    $('installTitle').textContent = t('installTitle');
+    $('installSteps').replaceChildren(
+      ...t(`install${where}`).map((step) => {
+        const li = document.createElement('li');
+        li.textContent = step;
+        return li;
+      }),
+    );
+    $('installText').textContent = inApp ? '' : t('installAfter');
+    $('installPoint').className = where.toLowerCase();
     $('installOk').textContent = t('installOk');
     $('installHelp').hidden = false;
   });
