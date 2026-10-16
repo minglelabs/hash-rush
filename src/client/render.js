@@ -877,16 +877,40 @@ export function createRenderer(canvas, firstMap) {
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // Tunnels back to the nest.
+    // The burrow is home: where a seed has to be brought. It says so in big
+    // letters, and glows while the player's own hamster is carrying one.
+    const homeMid = { x: (b.x1 + game.homeX) / 2, y: (b.y1 + b.y2) / 2 };
+    const mine = view.meId >= 0 ? game.players[view.meId] : null;
+    if (mine && mine.carrying) {
+      ctx.fillStyle = `rgba(255, 214, 80, ${0.18 + 0.12 * Math.sin(t * 6)})`;
+      ctx.fillRect(b.x1, b.y1, game.homeX - b.x1, b.y2 - b.y1);
+    }
+    upright(homeMid.x, homeMid.y, () => {
+      ctx.font = `900 ${portrait ? 46 : 34}px ${FONT}`;
+      ctx.textAlign = 'center';
+      ctx.fillStyle = mine && mine.carrying ? 'rgba(150, 95, 20, 0.75)' : 'rgba(140, 95, 45, 0.4)';
+      ctx.fillText(`🏠 ${tr('home')}`, 0, 12);
+      ctx.font = `800 ${portrait ? 20 : 15}px ${FONT}`;
+      ctx.fillText(tr('homeHint'), 0, portrait ? 42 : 34);
+    });
+
+    // Portals back to the nest: a purple swirl, plainly not a home of its own.
     for (const w of map.warps) {
-      ctx.fillStyle = '#4a2f1a';
+      const glow = ctx.createRadialGradient(w.x, w.y, 2, w.x, w.y, w.r);
+      glow.addColorStop(0, '#f3e8ff');
+      glow.addColorStop(0.55, '#9b6ce0');
+      glow.addColorStop(1, '#4b2a86');
+      ctx.fillStyle = glow;
       circle(ctx, w.x, w.y, w.r);
-      ctx.strokeStyle = '#8a5a2b';
-      ctx.lineWidth = 4;
-      ctx.beginPath();
-      ctx.arc(w.x, w.y, w.r, 0, TAU);
-      ctx.stroke();
-      ctx.strokeStyle = 'rgba(255, 220, 150, 0.8)';
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
+      ctx.lineWidth = 2.5;
+      for (let k = 0; k < 3; k++) {
+        ctx.beginPath();
+        const a0 = t * 3 + (k * TAU) / 3;
+        ctx.arc(w.x, w.y, w.r * (0.45 + 0.17 * k), a0, a0 + 2.2);
+        ctx.stroke();
+      }
+      ctx.strokeStyle = 'rgba(190, 150, 255, 0.85)';
       ctx.lineWidth = 2.5;
       ctx.setLineDash([8, 9]);
       ctx.lineDashOffset = t * 22;
@@ -895,16 +919,15 @@ export function createRenderer(canvas, firstMap) {
       ctx.stroke();
       ctx.setLineDash([]);
       upright(w.x, w.y, () => {
-        ctx.font = `${Math.round(w.r * 0.9)}px ${FONT}`;
+        ctx.font = `800 ${portrait ? 15 : 12}px ${FONT}`;
         ctx.textAlign = 'center';
-        ctx.fillText('🏠', 0, w.r * 0.32);
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.strokeText(tr('portal'), 0, w.r + (portrait ? 24 : 20));
+        ctx.fillStyle = '#5b2fa0';
+        ctx.fillText(tr('portal'), 0, w.r + (portrait ? 24 : 20));
       });
     }
-
-    ctx.font = `800 20px ${FONT}`;
-    ctx.textAlign = 'center';
-    ctx.fillStyle = 'rgba(140, 95, 45, 0.55)';
-    upright(b.x1 + 36, b.y1 + 28, () => ctx.fillText(tr('home'), 0, 7));
 
     for (const p of game.players) {
       upright(p.nest.x, p.nest.y, () => {

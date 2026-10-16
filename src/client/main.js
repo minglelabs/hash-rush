@@ -219,6 +219,7 @@ let acc = 0;
 let resultTimer = 0;
 let bannerTimer = 0;
 let scoreKey = '';
+let portalSaid = false;
 let tickBeat = -1;
 let bonkSeq = 0;
 let bonkWas = false;
@@ -1245,8 +1246,51 @@ const cleanChat = (raw) => String(raw || '').replace(/\s+/g, ' ').trim().slice(0
 }
 const CHAT_LOGS = ['gameChat', 'lobbyChat'];
 
+// Everything said in this room, kept in the tab so a reload does not lose it. The
+// floating lines fade; this is what opening the chat shows.
+const CHAT_STORE = 'hash-rush-chat';
+const CHAT_KEEP = 300;
+const chatRoom = () => net.room || joinId || '';
+let chatHistory = [];
+try {
+  const saved = JSON.parse(sessionStorage.getItem(CHAT_STORE));
+  if (saved && Array.isArray(saved.lines) && saved.room === (joinId || loadRoom().room || '')) chatHistory = saved.lines;
+} catch {
+  // nothing kept
+}
+function keepChat(line) {
+  chatHistory.push(line);
+  if (chatHistory.length > CHAT_KEEP) chatHistory.splice(0, chatHistory.length - CHAT_KEEP);
+  try {
+    sessionStorage.setItem(CHAT_STORE, JSON.stringify({ room: chatRoom(), lines: chatHistory }));
+  } catch {
+    // not kept
+  }
+  if ($('chatHistory')) $('chatHistory').append(historyLine(line));
+  const box = $('chatHistory');
+  if (box) box.scrollTop = box.scrollHeight;
+}
+function historyLine({ name, text, color, sys, at }) {
+  const line = document.createElement('div');
+  if (sys) line.className = 'sys';
+  const time = document.createElement('time');
+  const d = new Date(at || Date.now());
+  time.textContent = `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+  if (sys) line.append(time, text);
+  else {
+    const who = document.createElement('b');
+    who.textContent = name;
+    who.style.color = color;
+    line.append(time, who, ` ${text}`);
+  }
+  return line;
+}
+
 function syncChat() {
-  for (const id of ['gameChat', 'chatBtn', 'lobbyChatBtn']) $(id).hidden = !net.role;
+  $('gameChat').hidden = !net.role;
+  // The chat has one button of its own, floating over every screen.
+  for (const id of ['chatBtn', 'lobbyChatBtn']) $(id).hidden = true;
+  $('chatFab').hidden = !net.role;
   $('lobbyChat').hidden = !net.role || $('lobby').hidden;
   $('lobbyChatBtn').textContent = t('chatLabel');
 }
@@ -1292,6 +1336,7 @@ function addChat({ name, look, text, sys }) {
     showLobbyBubbles();
   }
   syncChat();
+  keepChat({ name: String(name || ''), text: cleanChat(text), color: seatColor(look), sys: !!sys, at: Date.now() });
   for (const id of CHAT_LOGS) {
     const log = $(id).querySelector('.chatLog');
     const line = document.createElement('div');
@@ -1346,8 +1391,17 @@ function sendChat(raw) {
   Object.assign(field, { name: 'chat', maxLength: 80, autocomplete: 'off', enterKeyHint: 'send' });
   const send = document.createElement('button');
   send.textContent = '↑';
-  bar.append(quick, field, send);
+  // The whole conversation so far, above the ready-made lines, while typing.
+  const history = document.createElement('div');
+  history.id = 'chatHistory';
+  bar.append(history, quick, field, send);
   document.body.append(bar);
+  const fab = document.createElement('button');
+  fab.id = 'chatFab';
+  fab.type = 'button';
+  fab.hidden = true;
+  fab.textContent = '💬';
+  document.body.append(fab);
 }
 const onPhone = () => matchMedia('(pointer: coarse)').matches;
 let barTimer = 0;
@@ -1366,6 +1420,9 @@ function toggleGameChat(open) {
     field.blur();
     return;
   }
+  const history = $('chatHistory');
+  history.replaceChildren(...chatHistory.map(historyLine));
+  history.scrollTop = history.scrollHeight;
   // A phone slides the whole page up when the box being typed in would end up
   // under its keyboard. So the bar starts high on the screen, where no keyboard
   // reaches, and only comes down onto the keyboard once that is up.
@@ -1401,6 +1458,9 @@ const typing = () => /^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName |
 function pinHeight() {
   if (typing()) return;
   document.documentElement.style.setProperty('--app-h', `${window.innerHeight}px`);
+  // Tall or wide goes by the same held size, so a keyboard that shortens the page
+  // never flips a tall layout into a wide one.
+  document.documentElement.classList.toggle('tall', window.innerHeight > window.innerWidth);
 }
 pinHeight();
 window.addEventListener('resize', pinHeight);
@@ -1422,7 +1482,7 @@ $('chatBar').querySelector(':scope > button').addEventListener('pointerdown', (e
 window.addEventListener(
   'pointerdown',
   (e) => {
-    if (!onPhone() || $('chatBar').hidden || $('chatBar').contains(e.target) || e.target === $('chatBtn') || e.target === $('lobbyChatBtn')) return;
+    if (!onPhone() || $('chatBar').hidden || $('chatBar').contains(e.target) || e.target === $('chatBtn') || e.target === $('lobbyChatBtn') || e.target === $('chatFab')) return;
     toggleGameChat(false);
     e.stopPropagation();
   },
@@ -1446,7 +1506,7 @@ window.addEventListener(
     if (e.code === 'Escape') toggleGameChat(false);
   });
 }
-for (const id of ['chatBtn', 'lobbyChatBtn']) $(id).addEventListener('click', () => toggleGameChat($('chatBar').hidden));
+for (const id of ['chatBtn', 'lobbyChatBtn', 'chatFab']) $(id).addEventListener('click', () => toggleGameChat($('chatBar').hidden));
 // Enter opens the bar anywhere in a room, the way it does in most games.
 window.addEventListener('keydown', (e) => {
   if (e.code !== 'Enter' || !net.role) return;
@@ -2182,6 +2242,10 @@ function updateHud() {
     $('bonk').style.setProperty('--cool', cool);
   }
   $('bonk').classList.toggle('off', !!me && inHome(game, me));
+  // Stepping onto a portal with a seed does nothing; say why, once per visit.
+  const onPortal = !!me && me.carrying && game.map.warps.some((w) => Math.hypot(me.x - w.x, me.y - w.y) <= w.r);
+  if (onPortal && !portalSaid) banner(t('portalNoSeed'), true);
+  portalSaid = onPortal;
   if (!$('board').hidden) {
     const now = game.players.map((p) => `${p.kills},${p.deaths},${p.seeds},${p.supers},${p.throws},${p.stops}`).join();
     if (now !== boardKey) {
@@ -2453,6 +2517,9 @@ $('again').addEventListener('click', () => {
   if (performance.now() - askedAt < 3000) return;
   askedAt = performance.now();
   sendChat(t('askAgainLine'));
+  // Say on the button itself that it went, and how: the line shows in the chat.
+  $('again').textContent = t('askedAgain');
+  setTimeout(() => net.role === 'guest' && ($('again').textContent = t('askAgain')), 3000);
 });
 $('resetBtn').addEventListener('click', resetSeries);
 $('resetGame').addEventListener('click', resetSeries);
@@ -2559,6 +2626,8 @@ let againAt = 0;
 $('againBtn').addEventListener('click', () => performance.now() - againAt > 700 && startGame());
 // On a tall screen the field buttons fold behind "⋯". Choosing one, or touching
 // anywhere else, folds them away again.
+// A gear, as settings are in most games. Set here too, for a page cached with the old dots.
+$('toolsMore').textContent = '⚙️';
 $('toolsMore').addEventListener('click', () => $('tools').classList.toggle('open'));
 $('toolsMenu').addEventListener('click', () => $('tools').classList.remove('open'));
 window.addEventListener('pointerdown', (e) => {

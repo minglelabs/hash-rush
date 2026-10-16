@@ -19,6 +19,9 @@
       href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌻</text></svg>"
     />
     <link rel="stylesheet" href="style.css" />
+    <script>
+      document.documentElement.classList.toggle('tall', innerHeight > innerWidth);
+    </script>
   </head>
   <body>
     <main id="lobby" class="screen">
@@ -131,7 +134,7 @@
             <div class="chatLog"></div>
           </div>
           <div id="tools">
-            <button id="toolsMore">⋯</button>
+            <button id="toolsMore">⚙️</button>
             <div id="toolsMenu">
               <button id="mute">🔊</button>
               <button id="swap" class="touch-only">⇄</button>

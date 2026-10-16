@@ -137,6 +137,12 @@ export function createInput({ stage, canvas, pad, bonkBtn, throwBtn, toWorldDir,
     if (!enabled || touch) return;
     touch = { id: e.pointerId, x: 0, y: 0 };
     glide = null;
+    // The thumb keeps the key held however far it strays, until it lifts.
+    try {
+      pad.setPointerCapture(e.pointerId);
+    } catch {
+      // not supported
+    }
     press(e);
     // The hint about the controls has done its job.
     stage.classList.add('played');
@@ -171,7 +177,25 @@ export function createInput({ stage, canvas, pad, bonkBtn, throwBtn, toWorldDir,
     showPad();
   };
   window.addEventListener('pointerup', release);
-  window.addEventListener('pointercancel', release);
+  // A phone may call off the pointer when the thumb slides onto its toolbar or
+  // an edge; the thumb is still down, so the pad stays held until it lifts.
+  window.addEventListener('pointercancel', (e) => {
+    if (swipe && e.pointerId === swipe.id) swipe = null;
+  });
+  window.addEventListener('touchend', (e) => {
+    if (touch && e.touches.length === 0) {
+      touch = null;
+      showPad();
+    }
+  });
+  window.addEventListener('touchcancel', (e) => {
+    if (touch && e.touches.length === 0) {
+      touch = null;
+      showPad();
+    }
+  });
+  // Nor may the page scroll or the browser take the gesture while the pad is held.
+  pad.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
 
   bonkBtn.addEventListener('pointerdown', (e) => {
     button = true;
