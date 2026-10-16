@@ -2212,6 +2212,30 @@ function frame(now) {
   if (away) return;
   renderer.draw(game, { dt, meId, bubbles });
   updateHud();
+  if (now - fadedAt > 100) {
+    fadedAt = now;
+    fadeOverHamsters();
+  }
+}
+
+// The buttons and chat lines lie over the map. Whenever any hamster runs under
+// one it all but vanishes, so nobody ever loses sight of a hamster behind it.
+let fadedAt = 0;
+const OVER_MAP = ['pad', 'bonk', 'throw', 'chatFab', 'scoreBtn', 'toolsMore', 'againBtn'];
+function fadeOverHamsters() {
+  const spots = game.players.map((p) => renderer.toScreen(p.x, p.y));
+  const els = [...OVER_MAP.map($), ...$('gameChat').querySelectorAll('.chatLog div')];
+  for (const el of els) {
+    if (!el) continue;
+    const r = el.getBoundingClientRect();
+    const under =
+      r.width > 0 &&
+      spots.some(({ x, y, unit }) => {
+        const pad = 22 * unit;
+        return x > r.left - pad && x < r.right + pad && y > r.top - pad && y < r.bottom + pad;
+      });
+    el.classList.toggle('under', under);
+  }
 }
 
 // Draws a guest's own hamster where its inputs have taken it by now, ahead of the

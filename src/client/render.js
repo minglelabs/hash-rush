@@ -447,6 +447,14 @@ export function createRenderer(canvas, firstMap) {
     obstacles = buildObstacles(w, h, base, map, up);
   }
 
+  // Where a world point is on the page, and how many page pixels a world unit is.
+  function toScreen(wx, wy) {
+    const r = canvas.getBoundingClientRect();
+    const u = portrait ? wy / WORLD.h : wx / WORLD.w;
+    const v = portrait ? 1 - wx / WORLD.w : wy / WORLD.h;
+    return { x: r.left + u * r.width, y: r.top + v * r.height, unit: r.width / (portrait ? WORLD.h : WORLD.w) };
+  }
+
   function toWorld(clientX, clientY) {
     const r = canvas.getBoundingClientRect();
     const u = (clientX - r.left) / r.width;
@@ -1253,5 +1261,5 @@ export function createRenderer(canvas, firstMap) {
     stars = null;
   }
 
-  return { resize, setMap, draw, onEvent, toWorld, toWorldDir, clear: () => (fx.length = dust.length = 0) };
+  return { resize, setMap, draw, onEvent, toWorld, toScreen, toWorldDir, clear: () => (fx.length = dust.length = 0) };
 }

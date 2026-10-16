@@ -1270,14 +1270,14 @@ body:has(#result:not([hidden])) #throw {
 }
 
 #pad path {
-  fill: rgba(255, 255, 255, 0.2);
-  stroke: rgba(255, 255, 255, 0.55);
+  fill: rgba(255, 255, 255, 0.12);
+  stroke: rgba(255, 255, 255, 0.4);
   stroke-width: 1.2;
   stroke-linejoin: round;
 }
 
 #pad .arrow {
-  fill: rgba(255, 255, 255, 0.8);
+  fill: rgba(255, 255, 255, 0.6);
   stroke: none;
 }
 
@@ -1309,8 +1309,9 @@ body:has(#result:not([hidden])) #throw {
   height: clamp(84px, 20vmin, 128px);
   padding: 0;
   font-size: clamp(17px, 4.4vmin, 26px);
-  background: rgba(255, 180, 0, 0.9);
-  border: 3px solid #fff;
+  background: rgba(255, 180, 0, 0.5);
+  border: 3px solid rgba(255, 255, 255, 0.7);
+  text-shadow: 0 0 3px #fff, 0 0 3px #fff;
   touch-action: none;
 }
 
@@ -1323,8 +1324,8 @@ body:has(#result:not([hidden])) #throw {
   width: clamp(84px, 20vmin, 128px);
   padding: 0.5em 0;
   font-size: clamp(14px, 3.6vmin, 20px);
-  background: rgba(255, 226, 122, 0.95);
-  border: 3px solid #fff;
+  background: rgba(255, 226, 122, 0.6);
+  border: 3px solid rgba(255, 255, 255, 0.7);
   touch-action: none;
   /* Over the ground the bonk button claims around itself. */
   z-index: 1;
@@ -1910,7 +1911,8 @@ html.tall {
   left: 1.4cqw;
   padding: 0.3em 0.9em;
   font-size: clamp(13px, 1.5cqw, 17px);
-  background: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.35);
+  text-shadow: 0 0 3px #fff, 0 0 3px #fff;
 }
 
 html.tall #scoreBtn {
@@ -2010,8 +2012,8 @@ html.tall #scores {
   font-size: 24px;
   line-height: 1;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.85);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  background: rgba(255, 255, 255, 0.35);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
 }
 
 .chatting #chatFab {
@@ -2024,6 +2026,18 @@ body:has(#stage:not([hidden])) #chatFab {
   left: 50%;
   bottom: max(14px, env(safe-area-inset-bottom));
   transform: translateX(-50%);
+}
+
+/* On a phone, halfway between the pad's edge and the bonk button's, which is a
+   little right of the middle (left of it when they swap sides). */
+@media (pointer: coarse) {
+  body:has(#stage:not([hidden])) #chatFab {
+    left: calc(50% + 20px);
+  }
+
+  .bonk-left:has(#stage:not([hidden])) #chatFab {
+    left: calc(50% - 20px);
+  }
 }
 
 /* Ready-made lines, one tap each, in a row above the box. */
@@ -2709,4 +2723,48 @@ html.tall {
 .pager button:disabled {
   opacity: 0.35;
   cursor: default;
+}
+
+/* Buttons over the map, see-through: only an outline of them shows. */
+#tools #toolsMore {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* Over a phone's pad and bonk button the rematch button takes the same middle
+   as the chat button. */
+@media (pointer: coarse) {
+  @container (max-width: 620px) {
+    #againBtn {
+      left: calc(50% + 20px);
+    }
+
+    .bonk-left #againBtn {
+      left: calc(50% - 20px);
+    }
+  }
+}
+
+/* A hamster under a button or a chat line: it fades to a ghost of itself, just
+   enough to show it is still there. filter, not opacity, so a fading chat line
+   keeps its own fade. */
+#pad,
+#bonk,
+#throw,
+#chatFab,
+#scoreBtn,
+#toolsMore,
+#againBtn,
+#gameChat .chatLog div {
+  transition: filter 0.2s;
+}
+
+#pad.under,
+#bonk.under,
+#throw.under,
+#chatFab.under,
+#scoreBtn.under,
+#toolsMore.under,
+#againBtn.under,
+#gameChat .chatLog div.under {
+  filter: opacity(0.18);
 }
