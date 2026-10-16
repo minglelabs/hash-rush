@@ -1929,6 +1929,11 @@ html.tall {
   background: rgba(226, 235, 243, 0.97);
   box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.18);
 }
+/* Waiting high up for the keyboard, out of sight: it only shows once it sits on it. */
+#chatBar.rising {
+  opacity: 0;
+  pointer-events: none;
+}
 
 /* Wins: the race to the title, the biggest thing in the score table. */
 .scoreTable .wins {
