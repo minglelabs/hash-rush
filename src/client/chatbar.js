@@ -129,8 +129,8 @@ export function createChat({ send, lines, quick = [], placeholder = '', empty = 
   // A touch on a floating line opens the whole conversation in its place, to
   // scroll back through without the keyboard. Only a touch that lands on a line
   // does: the map around and under it is still the game's, for swipes and taps.
-  // It folds back to the last few lines once left alone for a while or when
-  // anything else is touched.
+  // It folds back to the last few lines on another tap, inside it or anywhere
+  // else, or once left alone for a while.
   let browsing = null;
   let browseTimer = 0;
   const stayBrowsing = () => {
@@ -147,10 +147,16 @@ export function createChat({ send, lines, quick = [], placeholder = '', empty = 
   for (const log of [float, ...logs.map($)]) {
     const box = log?.querySelector('.chatLog');
     if (!box) continue;
+    // Open, a tap on it folds it again; a slide is a scroll and leaves it open.
+    let tap = null;
     box.addEventListener('pointerdown', (e) => {
       e.stopPropagation();
       stayBrowsing();
-      if (browsing === log) return;
+      if (browsing === log) {
+        tap = { id: e.pointerId, x: e.clientX, y: e.clientY, top: box.scrollTop };
+        return;
+      }
+      tap = null;
       stopBrowsing();
       browsing = log;
       log.classList.add('browse');
@@ -158,6 +164,13 @@ export function createChat({ send, lines, quick = [], placeholder = '', empty = 
       box.scrollTop = box.scrollHeight;
     });
     box.addEventListener('scroll', () => browsing === log && stayBrowsing(), { passive: true });
+    box.addEventListener('pointerup', (e) => {
+      const was = tap;
+      tap = null;
+      if (!was || was.id !== e.pointerId || browsing !== log) return;
+      if (Math.hypot(e.clientX - was.x, e.clientY - was.y) < 10 && Math.abs(box.scrollTop - was.top) < 4) stopBrowsing();
+    });
+    box.addEventListener('pointercancel', () => (tap = null));
   }
   window.addEventListener(
     'pointerdown',

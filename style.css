@@ -2080,10 +2080,24 @@ body:has(#stage:not([hidden])) #chatFab {
 /* A tall screen, as the page was before any keyboard came up (set by the script). */
 html.tall {
   /* Above the pad and the bonk button, which lie over the foot of the map. */
+  /* Low on the screen, where the lobby's lines float, just clear of the pad. */
   #gameChat {
-    bottom: 80cqw;
-    width: 70cqw;
+    position: fixed;
+    left: max(16px, env(safe-area-inset-left));
+    bottom: calc(max(16px, env(safe-area-inset-bottom)) + 70px);
+    width: min(70vw, 340px);
     font-size: 13px;
+  }
+
+  @media (pointer: coarse) {
+    #gameChat {
+      bottom: calc(max(2px, env(safe-area-inset-bottom)) + 160px);
+    }
+  }
+
+  .bonk-left #gameChat {
+    left: auto;
+    right: max(16px, env(safe-area-inset-right));
   }
 }
 
