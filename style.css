@@ -2049,12 +2049,15 @@ body:has(#stage:not([hidden])) #chatFab {
   scrollbar-width: none;
 }
 
+/* Big enough for a thumb: 44px tall, the least a finger can hit for sure. */
 #chatBar .quick button {
   flex: none;
   width: auto;
   height: auto;
-  padding: 0.3em 0.8em;
-  font-size: 13px;
+  min-height: 44px;
+  min-width: 52px;
+  padding: 0.4em 1em;
+  font-size: 16px;
   background: #fff;
   border: 1px solid var(--line);
 }
