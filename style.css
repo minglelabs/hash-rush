@@ -1699,6 +1699,23 @@ html.tall {
     visibility: hidden;
   }
 
+  /* Over a phone's pad and bonk button it takes the same spot as the chat
+     button, halfway between them, and is narrow enough to fit the gap. */
+  @media (pointer: coarse) {
+    #againBtn {
+      left: calc(50% + 20px);
+      max-width: calc(100vw - 280px);
+      padding: 0.35em 0.6em;
+      font-size: 15px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .bonk-left #againBtn {
+      left: calc(50% - 20px);
+    }
+  }
+
   /* The strip under the map is too narrow for every button beside the bonk
      button, so they fold into a menu that opens upwards. */
   #toolsMore {
@@ -1942,8 +1959,73 @@ html.tall #scoreBtn {
 #installHelp .card {
   max-width: 360px;
   padding: 20px;
+  line-height: 1.5;
   text-align: center;
-  line-height: 1.6;
+}
+
+#installHelp h2 {
+  margin: 0 0 10px;
+  font-size: 20px;
+}
+
+#installSteps {
+  margin: 0 0 10px;
+  padding-left: 1.4em;
+  text-align: left;
+  font-size: 16px;
+}
+
+#installSteps li {
+  margin-bottom: 8px;
+}
+
+#installHelp p {
+  margin: 0 0 14px;
+  font-size: 14px;
+  opacity: 0.8;
+}
+
+/* A big bouncing arrow at the browser's own button to start from: the share
+   button in Chrome's address bar at the top, Safari's bar at the bottom. */
+#installPoint {
+  position: fixed;
+  font-size: 54px;
+  line-height: 1;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.4));
+  pointer-events: none;
+}
+
+#installPoint.chrome {
+  top: max(4px, env(safe-area-inset-top));
+  right: 18px;
+  animation: pointUp 0.9s ease-in-out infinite alternate;
+}
+
+#installPoint.chrome::before {
+  content: '⬆️';
+}
+
+#installPoint.safari {
+  bottom: max(4px, env(safe-area-inset-bottom));
+  left: 50%;
+  translate: -50% 0;
+  animation: pointDown 0.9s ease-in-out infinite alternate;
+}
+
+#installPoint.safari::before {
+  content: '⬇️';
+}
+
+@keyframes pointUp {
+  to {
+    transform: translateY(-14px);
+  }
+}
+
+@keyframes pointDown {
+  to {
+    transform: translateY(14px);
+  }
 }
 
 /* There the wins live in the table: no row of name chips over the map. */
@@ -2745,20 +2827,6 @@ html.tall {
 /* Buttons over the map, see-through: only an outline of them shows. */
 #tools #toolsMore {
   background: rgba(255, 255, 255, 0.3);
-}
-
-/* Over a phone's pad and bonk button the rematch button takes the same middle
-   as the chat button. */
-@media (pointer: coarse) {
-  @container (max-width: 620px) {
-    #againBtn {
-      left: calc(50% + 20px);
-    }
-
-    .bonk-left #againBtn {
-      left: calc(50% - 20px);
-    }
-  }
 }
 
 /* A hamster under a button or a chat line: it fades to a ghost of itself, just
