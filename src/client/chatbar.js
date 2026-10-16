@@ -51,7 +51,8 @@ export function floatLine(log, { name, text, color, sys }, ms = lineLife(text)) 
   line.style.animationDuration = `${Math.round(ms)}ms`;
   log.append(line);
   line.addEventListener('animationend', () => line.remove());
-  while (log.children.length > 12) log.firstChild.remove();
+  // Being read back (see browse below), the log keeps everything.
+  if (!log.closest('.browse')) while (log.children.length > 12) log.firstChild.remove();
 }
 
 // Builds the bar, its button and the floating log (#lobbyChat) on this page.
@@ -125,6 +126,47 @@ export function createChat({ send, lines, quick = [], placeholder = '', empty = 
 
   // Once the keyboard is down the last few lines float up again for a few
   // seconds, however old, so what was just read does not vanish at once.
+  // A touch on a floating line opens the whole conversation in its place, to
+  // scroll back through without the keyboard. Only a touch that lands on a line
+  // does: the map around and under it is still the game's, for swipes and taps.
+  // It folds back to the last few lines once left alone for a while or when
+  // anything else is touched.
+  let browsing = null;
+  let browseTimer = 0;
+  const stayBrowsing = () => {
+    clearTimeout(browseTimer);
+    browseTimer = setTimeout(stopBrowsing, 8000);
+  };
+  function stopBrowsing() {
+    if (!browsing) return;
+    clearTimeout(browseTimer);
+    browsing.classList.remove('browse');
+    browsing = null;
+    refloat();
+  }
+  for (const log of [float, ...logs.map($)]) {
+    const box = log?.querySelector('.chatLog');
+    if (!box) continue;
+    box.addEventListener('pointerdown', (e) => {
+      e.stopPropagation();
+      stayBrowsing();
+      if (browsing === log) return;
+      stopBrowsing();
+      browsing = log;
+      log.classList.add('browse');
+      box.replaceChildren(...lines().map(historyLine));
+      box.scrollTop = box.scrollHeight;
+    });
+    box.addEventListener('scroll', () => browsing === log && stayBrowsing(), { passive: true });
+  }
+  window.addEventListener(
+    'pointerdown',
+    (e) => {
+      if (browsing && !browsing.contains(e.target)) stopBrowsing();
+    },
+    true,
+  );
+
   function refloat() {
     const recent = lines().slice(-3);
     for (const log of [float, ...logs.map($)]) {
@@ -149,6 +191,11 @@ export function createChat({ send, lines, quick = [], placeholder = '', empty = 
     { passive: true },
   );
   function toggle(open) {
+    if (open) {
+      clearTimeout(browseTimer);
+      browsing?.classList.remove('browse');
+      browsing = null;
+    }
     if (bar.hidden === !open) {
       if (open && document.activeElement !== field) field.focus();
       return;
