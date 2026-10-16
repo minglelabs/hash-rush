@@ -1266,9 +1266,21 @@ function keepChat(line) {
   } catch {
     // not kept
   }
-  if ($('chatHistory')) $('chatHistory').append(historyLine(line));
   const box = $('chatHistory');
-  if (box) box.scrollTop = box.scrollHeight;
+  if (!box) return;
+  box.append(historyLine(line));
+  box.scrollTop = box.scrollHeight;
+  wakeHistory();
+}
+
+// The log over the keyboard is see-through and fades once nothing has been said
+// or touched for a while; a touch brings it back.
+let historyTimer = 0;
+function wakeHistory() {
+  const box = $('chatHistory');
+  box.classList.remove('dim');
+  clearTimeout(historyTimer);
+  historyTimer = setTimeout(() => box.classList.add('dim'), 14000);
 }
 function historyLine({ name, text, color, sys, at }) {
   const line = document.createElement('div');
@@ -1402,6 +1414,8 @@ function sendChat(raw) {
   fab.hidden = true;
   fab.textContent = '💬';
   document.body.append(fab);
+  history.addEventListener('pointerdown', wakeHistory);
+  history.addEventListener('scroll', wakeHistory, { passive: true });
 }
 const onPhone = () => matchMedia('(pointer: coarse)').matches;
 let barTimer = 0;
@@ -1423,11 +1437,13 @@ function toggleGameChat(open) {
   const history = $('chatHistory');
   history.replaceChildren(...chatHistory.map(historyLine));
   history.scrollTop = history.scrollHeight;
+  wakeHistory();
   // A phone slides the whole page up when the box being typed in would end up
   // under its keyboard. So the bar starts high on the screen, where no keyboard
   // reaches, and only comes down onto the keyboard once that is up.
   bar.classList.toggle('rising', onPhone());
   if (onPhone()) {
+    bar.style.bottom = 'auto';
     bar.style.top = `${Math.round(window.innerHeight * 0.2)}px`;
     barTimer = setTimeout(() => seatChatBar(true), 700);
   } else seatChatBar(true);
@@ -1446,7 +1462,10 @@ function seatChatBar(now) {
   if (now !== true && bar.classList.contains('rising') && vv && vv.height > window.innerHeight - 80) return;
   clearTimeout(barTimer);
   bar.classList.remove('rising');
-  bar.style.top = `${Math.round(seen - bar.offsetHeight)}px`;
+  // Held by its foot, so that whatever grows on top of it grows upwards, away
+  // from the keyboard.
+  bar.style.top = 'auto';
+  bar.style.bottom = `${Math.max(0, Math.round(document.documentElement.clientHeight - seen))}px`;
 }
 if (window.visualViewport) for (const type of ['resize', 'scroll']) window.visualViewport.addEventListener(type, seatChatBar);
 window.addEventListener('resize', seatChatBar);
