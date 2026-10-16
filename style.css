@@ -1930,6 +1930,40 @@ html.tall {
   box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.18);
 }
 
+/* Wins: the race to the title, the biggest thing in the score table. */
+.scoreTable .wins {
+  text-align: center;
+  white-space: nowrap;
+}
+
+.scoreTable td.wins {
+  font-size: 1.4em;
+  font-weight: 900;
+  color: #b86e00;
+  background: #fff1c2;
+}
+
+/* The score table's own button, in the top left corner of a tall round. */
+#scoreBtn {
+  display: none;
+}
+
+html.tall #scoreBtn {
+  display: block;
+  position: absolute;
+  top: 1.2cqw;
+  left: 1.4cqw;
+  min-height: 44px;
+  padding: 0.35em 1em;
+  font-size: 17px;
+  background: rgba(255, 255, 255, 0.85);
+}
+
+/* There the wins live in the table: no row of name chips over the map. */
+html.tall #scores {
+  display: none;
+}
+
 /* The conversation so far, above the ready-made lines, while typing. */
 #chatHistory {
   flex-basis: 100%;
