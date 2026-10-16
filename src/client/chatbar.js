@@ -136,6 +136,18 @@ export function createChat({ send, lines, quick = [], placeholder = '', empty = 
   }
 
   let barTimer = 0;
+  // A phone also scrolls the page about as its keyboard comes and goes, and the
+  // screen jerks with it. The page stays where it was from the moment the bar
+  // opens until the keyboard has gone down again.
+  let keepY = null;
+  let keepTimer = 0;
+  window.addEventListener(
+    'scroll',
+    () => {
+      if (keepY !== null && Math.abs(window.scrollY - keepY) > 1) window.scrollTo(window.scrollX, keepY);
+    },
+    { passive: true },
+  );
   function toggle(open) {
     if (bar.hidden === !open) {
       if (open && document.activeElement !== field) field.focus();
@@ -144,11 +156,14 @@ export function createChat({ send, lines, quick = [], placeholder = '', empty = 
     bar.hidden = !open;
     document.body.classList.toggle('chatting', open);
     clearTimeout(barTimer);
+    clearTimeout(keepTimer);
     if (!open) {
       field.blur();
       refloat();
+      keepTimer = setTimeout(() => (keepY = null), 800);
       return;
     }
+    if (onPhone()) keepY ??= window.scrollY;
     const said = lines();
     history.replaceChildren(...said.map(historyLine));
     if (!said.length && empty) {
@@ -161,7 +176,7 @@ export function createChat({ send, lines, quick = [], placeholder = '', empty = 
     // A phone slides the whole page up when the box being typed in would end up
     // under its keyboard. So the bar starts high on the screen, where no keyboard
     // reaches, and only comes down onto the keyboard once that is up. Up there it
-  // is not drawn, so all anyone sees is the bar arriving on the keyboard.
+    // is not drawn, so all anyone sees is the bar arriving on the keyboard.
     bar.classList.toggle('rising', onPhone());
     if (onPhone()) {
       bar.style.bottom = 'auto';
