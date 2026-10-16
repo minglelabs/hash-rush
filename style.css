@@ -1943,20 +1943,46 @@ html.tall {
   background: #fff1c2;
 }
 
-/* The score table's own button, in the top left corner of a tall round. */
+/* The score table's own button, in the top left corner of every round; the
+   chart button it replaces is gone from the menu, so there is only one. */
 #scoreBtn {
-  display: none;
-}
-
-html.tall #scoreBtn {
-  display: block;
   position: absolute;
   top: 1.2cqw;
   left: 1.4cqw;
-  min-height: 44px;
-  padding: 0.35em 1em;
-  font-size: 17px;
+  padding: 0.3em 0.9em;
+  font-size: clamp(13px, 1.5cqw, 17px);
   background: rgba(255, 255, 255, 0.85);
+}
+
+html.tall #scoreBtn {
+  min-height: 44px;
+  font-size: 17px;
+}
+
+#boardBtn {
+  display: none !important;
+}
+
+/* How to add the game to an iPhone's home screen. */
+#installHelp {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(20, 40, 20, 0.55);
+}
+
+#installHelp[hidden] {
+  display: none;
+}
+
+#installHelp .card {
+  max-width: 360px;
+  padding: 20px;
+  text-align: center;
+  line-height: 1.6;
 }
 
 /* There the wins live in the table: no row of name chips over the map. */
