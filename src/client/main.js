@@ -23,6 +23,7 @@ import { identity, shareName, signResult, remember, lastRating, loadRanking } fr
 import { createPredictor } from './predict.js';
 import { winRate } from './rankPage.js';
 import { createRoomList } from './roomList.js';
+import { createChat, floatLine, cleanChat } from './chatbar.js';
 
 const $ = (id) => document.getElementById(id);
 const STORE = 'seed-rush-slots';
@@ -1228,22 +1229,11 @@ function markFresh() {
 
 // ---------- chat ----------
 
-const cleanChat = (raw) => String(raw || '').replace(/\s+/g, ' ').trim().slice(0, 80);
-
-// One conversation runs through the whole room and looks the same everywhere: the
-// lines float up over the screen and fade, in the lobby (from the corner of the
-// page) as in a round (over the map). There is one place to type, a bar across
-// the bottom that stays open and keeps its text through every change of screen:
-// lobby, round, result, the next round. Enter or the chat button opens it; Enter
-// on an empty bar or Escape closes it.
-{
-  const float = document.createElement('div');
-  float.id = 'lobbyChat';
-  float.className = 'chat';
-  float.hidden = true;
-  float.innerHTML = '<div class="chatLog"></div>';
-  document.body.append(float);
-}
+// One conversation runs through the whole room and looks the same everywhere (see
+// chatbar.js): the lines float up over the screen and fade, in the lobby (from the
+// corner of the page) as in a round (over the map), and one bar to type in stays
+// open with its text through every change of screen: lobby, round, result, the
+// next round.
 const CHAT_LOGS = ['gameChat', 'lobbyChat'];
 
 // Everything said in this room, kept in the tab so a reload does not lose it. The
@@ -1266,36 +1256,7 @@ function keepChat(line) {
   } catch {
     // not kept
   }
-  const box = $('chatHistory');
-  if (!box) return;
-  box.append(historyLine(line));
-  box.scrollTop = box.scrollHeight;
-  wakeHistory();
-}
-
-// The log over the keyboard is see-through and fades once nothing has been said
-// or touched for a while; a touch brings it back.
-let historyTimer = 0;
-function wakeHistory() {
-  const box = $('chatHistory');
-  box.classList.remove('dim');
-  clearTimeout(historyTimer);
-  historyTimer = setTimeout(() => box.classList.add('dim'), 14000);
-}
-function historyLine({ name, text, color, sys, at }) {
-  const line = document.createElement('div');
-  if (sys) line.className = 'sys';
-  const time = document.createElement('time');
-  const d = new Date(at || Date.now());
-  time.textContent = `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
-  if (sys) line.append(time, text);
-  else {
-    const who = document.createElement('b');
-    who.textContent = name;
-    who.style.color = color;
-    line.append(time, who, ` ${text}`);
-  }
-  return line;
+  chat.heard(line);
 }
 
 function syncChat() {
@@ -1349,19 +1310,7 @@ function addChat({ name, look, text, sys }) {
   }
   syncChat();
   keepChat({ name: String(name || ''), text: cleanChat(text), color: seatColor(look), sys: !!sys, at: Date.now() });
-  for (const id of CHAT_LOGS) {
-    const log = $(id).querySelector('.chatLog');
-    const line = document.createElement('div');
-    const who = document.createElement('b');
-    who.textContent = String(name);
-    who.style.color = seatColor(look);
-    if (sys) line.className = 'sys';
-    line.append(...(sys ? [cleanChat(text)] : [who, ` ${cleanChat(text)}`]));
-    log.append(line);
-    // Each line fades away on its own.
-    line.addEventListener('animationend', () => line.remove());
-    while (log.children.length > 12) log.firstChild.remove();
-  }
+  for (const id of CHAT_LOGS) floatLine($(id).querySelector('.chatLog'), { name, text: cleanChat(text), color: seatColor(look), sys });
 }
 
 // The host shows a message and passes it on to everyone in the room.
@@ -1380,95 +1329,16 @@ function sendChat(raw) {
   }
 }
 
-// The bar: ready-made lines that send with one tap, the text box and a send
-// button, sitting on top of the phone's keyboard the way a messenger's does.
-// It is built here, so a page cached from before it existed still gets one.
-{
-  const bar = document.createElement('form');
-  bar.id = 'chatBar';
-  bar.className = 'chatForm';
-  bar.hidden = true;
-  const quick = document.createElement('div');
-  quick.className = 'quick';
-  for (const line of t('quickChat')) {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.textContent = line;
-    // A tap must not take the focus, or the keyboard would drop.
-    b.addEventListener('pointerdown', (e) => e.preventDefault());
-    b.addEventListener('click', () => sendChat(line));
-    quick.append(b);
-  }
-  const field = document.createElement('input');
-  Object.assign(field, { name: 'chat', maxLength: 80, autocomplete: 'off', enterKeyHint: 'send' });
-  const send = document.createElement('button');
-  send.textContent = '↑';
-  // The whole conversation so far, above the ready-made lines, while typing.
-  const history = document.createElement('div');
-  history.id = 'chatHistory';
-  bar.append(history, quick, field, send);
-  document.body.append(bar);
-  const fab = document.createElement('button');
-  fab.id = 'chatFab';
-  fab.type = 'button';
-  fab.hidden = true;
-  fab.textContent = '💬';
-  document.body.append(fab);
-  history.addEventListener('pointerdown', wakeHistory);
-  history.addEventListener('scroll', wakeHistory, { passive: true });
-}
-const onPhone = () => matchMedia('(pointer: coarse)').matches;
-let barTimer = 0;
+const chat = createChat({
+  send: sendChat,
+  lines: () => chatHistory,
+  quick: t('quickChat'),
+  placeholder: t('chatPlaceholder'),
+  openers: ['chatBtn', 'lobbyChatBtn'],
+  // Enter opens the bar anywhere in a room, the way it does in most games.
+  enterOpens: () => !!net.role,
+});
 
-function toggleGameChat(open) {
-  const bar = $('chatBar');
-  const field = bar.querySelector('input');
-  if (bar.hidden === !open) {
-    if (open && document.activeElement !== field) field.focus();
-    return;
-  }
-  bar.hidden = !open;
-  document.body.classList.toggle('chatting', open);
-  clearTimeout(barTimer);
-  if (!open) {
-    field.blur();
-    return;
-  }
-  const history = $('chatHistory');
-  history.replaceChildren(...chatHistory.map(historyLine));
-  history.scrollTop = history.scrollHeight;
-  wakeHistory();
-  // A phone slides the whole page up when the box being typed in would end up
-  // under its keyboard. So the bar starts high on the screen, where no keyboard
-  // reaches, and only comes down onto the keyboard once that is up.
-  bar.classList.toggle('rising', onPhone());
-  if (onPhone()) {
-    bar.style.bottom = 'auto';
-    bar.style.top = `${Math.round(window.innerHeight * 0.2)}px`;
-    barTimer = setTimeout(() => seatChatBar(true), 700);
-  } else seatChatBar(true);
-  field.focus();
-  // A phone may refuse to bring up a keyboard; then there is no bar either.
-  if (document.activeElement !== field) toggleGameChat(false);
-}
-
-// Sits the bar on the bottom of what can be seen: the top of the keyboard.
-function seatChatBar(now) {
-  const bar = $('chatBar');
-  const vv = window.visualViewport;
-  if (bar.hidden) return;
-  const seen = vv ? vv.offsetTop + vv.height : window.innerHeight;
-  // Until the keyboard has come up there is nothing to sit on yet.
-  if (now !== true && bar.classList.contains('rising') && vv && vv.height > window.innerHeight - 80) return;
-  clearTimeout(barTimer);
-  bar.classList.remove('rising');
-  // Held by its foot, so that whatever grows on top of it grows upwards, away
-  // from the keyboard.
-  bar.style.top = 'auto';
-  bar.style.bottom = `${Math.max(0, Math.round(document.documentElement.clientHeight - seen))}px`;
-}
-if (window.visualViewport) for (const type of ['resize', 'scroll']) window.visualViewport.addEventListener(type, seatChatBar);
-window.addEventListener('resize', seatChatBar);
 // Some phones shrink the page itself when the keyboard comes up, and everything
 // sized from its height would shrink along. So the page's height is written down
 // while nobody is typing, and held there while somebody is: the keyboard only
@@ -1486,53 +1356,6 @@ window.addEventListener('resize', pinHeight);
 window.addEventListener('orientationchange', () => setTimeout(pinHeight, 300));
 // The keyboard may still be on its way down when the box lets go.
 document.addEventListener('focusout', () => setTimeout(pinHeight, 400));
-// On a phone the bar is up exactly while its box has the keyboard: whatever takes
-// the focus away puts it away too, so it never lingers without one. What was
-// typed stays in the box for next time.
-$('chatBar').querySelector('input').addEventListener('blur', () => {
-  if (!onPhone()) return;
-  setTimeout(() => {
-    if (document.activeElement !== $('chatBar').querySelector('input')) toggleGameChat(false);
-  }, 0);
-});
-// The send key must not take the focus, or the keyboard would drop after each line.
-$('chatBar').querySelector(':scope > button').addEventListener('pointerdown', (e) => e.preventDefault());
-// On a phone a touch anywhere else puts the keyboard away, and does nothing else.
-window.addEventListener(
-  'pointerdown',
-  (e) => {
-    if (!onPhone() || $('chatBar').hidden || $('chatBar').contains(e.target) || e.target === $('chatBtn') || e.target === $('lobbyChatBtn') || e.target === $('chatFab')) return;
-    toggleGameChat(false);
-    e.stopPropagation();
-  },
-  true,
-);
-{
-  const form = $('chatBar');
-  const field = form.querySelector('input');
-  field.placeholder = t('chatPlaceholder');
-  form.addEventListener('submit', (e) => {
-    e.preventDefault();
-    // An empty line closes the bar: back to the game.
-    if (!cleanChat(field.value)) {
-      toggleGameChat(false);
-      return;
-    }
-    sendChat(field.value);
-    field.value = '';
-  });
-  field.addEventListener('keydown', (e) => {
-    if (e.code === 'Escape') toggleGameChat(false);
-  });
-}
-for (const id of ['chatBtn', 'lobbyChatBtn', 'chatFab']) $(id).addEventListener('click', () => toggleGameChat($('chatBar').hidden));
-// Enter opens the bar anywhere in a room, the way it does in most games.
-window.addEventListener('keydown', (e) => {
-  if (e.code !== 'Enter' || !net.role) return;
-  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLButtonElement || e.target instanceof HTMLSelectElement) return;
-  e.preventDefault();
-  toggleGameChat(true);
-});
 
 // ---------- looking in on the lobby ----------
 // Anyone can step out to the lobby and back while the round carries on without
