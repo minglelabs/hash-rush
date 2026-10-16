@@ -879,19 +879,20 @@ export function createRenderer(canvas, firstMap) {
 
     // The burrow is home: where a seed has to be brought. It says so in big
     // letters, and glows while the player's own hamster is carrying one.
-    const homeMid = { x: (b.x1 + game.homeX) / 2, y: (b.y1 + b.y2) / 2 };
+    // Off to one side of the nests, where nothing stands on it (the right of a tall screen).
+    const homeMid = { x: (b.x1 + game.homeX) / 2, y: b.y2 - (portrait ? 82 : 60) };
     const mine = view.meId >= 0 ? game.players[view.meId] : null;
     if (mine && mine.carrying) {
       ctx.fillStyle = `rgba(255, 214, 80, ${0.18 + 0.12 * Math.sin(t * 6)})`;
       ctx.fillRect(b.x1, b.y1, game.homeX - b.x1, b.y2 - b.y1);
     }
     upright(homeMid.x, homeMid.y, () => {
-      ctx.font = `900 ${portrait ? 46 : 34}px ${FONT}`;
+      ctx.font = `900 ${portrait ? 36 : 30}px ${FONT}`;
       ctx.textAlign = 'center';
-      ctx.fillStyle = mine && mine.carrying ? 'rgba(150, 95, 20, 0.75)' : 'rgba(140, 95, 45, 0.4)';
-      ctx.fillText(`🏠 ${tr('home')}`, 0, 12);
-      ctx.font = `800 ${portrait ? 20 : 15}px ${FONT}`;
-      ctx.fillText(tr('homeHint'), 0, portrait ? 42 : 34);
+      ctx.fillStyle = mine && mine.carrying ? 'rgba(150, 95, 20, 0.85)' : 'rgba(140, 95, 45, 0.5)';
+      ctx.fillText(`🏠 ${tr('home')}`, 0, 0);
+      ctx.font = `800 ${portrait ? 16 : 13}px ${FONT}`;
+      ctx.fillText(tr('homeHint'), 0, portrait ? 24 : 20);
     });
 
     // Portals back to the nest: a purple swirl, plainly not a home of its own.

@@ -2552,6 +2552,39 @@ $('resetGame').addEventListener('click', resetSeries);
 $('modeSolo').addEventListener('click', () => setTeamMode(false));
 $('modeTeam').addEventListener('click', () => setTeamMode(true));
 $('roomListBtn').addEventListener('click', toggleRoomList);
+// "Add to home screen", in the lobby's menu and the round's settings. Opened from
+// there the game runs full screen, without the browser's address bar. Android
+// browsers can be asked to install it; iPhones only do it from the share menu,
+// so there the button says how.
+let installAsk = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  installAsk = e;
+});
+const installed = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+$('feedbackBtn').insertAdjacentHTML('afterend', '<button id="installBtn"></button>');
+$('boardBtn').insertAdjacentHTML('afterend', '<button id="installGameBtn"></button>');
+document.body.insertAdjacentHTML(
+  'beforeend',
+  '<div id="installHelp" hidden><div class="card"><p id="installText"></p><button id="installOk" class="primary"></button></div></div>',
+);
+for (const id of ['installBtn', 'installGameBtn']) {
+  $(id).textContent = t('installApp');
+  $(id).hidden = installed();
+  $(id).addEventListener('click', async () => {
+    if (installAsk) {
+      installAsk.prompt();
+      installAsk = null;
+      return;
+    }
+    $('installText').textContent = t('installHow');
+    $('installOk').textContent = t('installOk');
+    $('installHelp').hidden = false;
+  });
+}
+$('installOk').addEventListener('click', () => ($('installHelp').hidden = true));
+$('installHelp').addEventListener('click', (e) => e.target === $('installHelp') && ($('installHelp').hidden = true));
+
 // The hamburger at the top right holds the ranking and the feedback board.
 $('menuBtn').addEventListener('click', (e) => {
   e.stopPropagation();
@@ -2630,10 +2663,11 @@ const releaseTab = () => {
 };
 window.addEventListener('keyup', (e) => e.code === 'Tab' && releaseTab());
 window.addEventListener('blur', releaseTab);
-// On a tall screen the score table has a button of its own in the top left
-// corner, as the settings have in the right; the wins live in the table.
+// The score table has a button of its own in the top left corner of a round, as
+// the settings have on the right; on a tall screen the wins live only in the table.
 $('field').insertAdjacentHTML('beforeend', '<button id="scoreBtn"></button>');
-$('scoreBtn').textContent = t('scoreBtn');
+// With a keyboard, it says Tab does the same.
+$('scoreBtn').textContent = `${t('scoreBtn')}${matchMedia('(pointer: fine)').matches ? ' (Tab)' : ''}`;
 $('scoreBtn').addEventListener('click', () => $('boardBtn').click());
 $('boardBtn').addEventListener('click', () => {
   if (game && game.phase === 'over' && !$('result').hidden) $('result').hidden = true;
