@@ -131,7 +131,8 @@ export function createChat({ send, lines, quick = [], placeholder = '', empty = 
     wake();
     // A phone slides the whole page up when the box being typed in would end up
     // under its keyboard. So the bar starts high on the screen, where no keyboard
-    // reaches, and only comes down onto the keyboard once that is up.
+    // reaches, and only comes down onto the keyboard once that is up. Up there it
+  // is not drawn, so all anyone sees is the bar arriving on the keyboard.
     bar.classList.toggle('rising', onPhone());
     if (onPhone()) {
       bar.style.bottom = 'auto';
