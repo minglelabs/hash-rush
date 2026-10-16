@@ -1839,7 +1839,8 @@ function addCareer() {
 // each under its own heading. The corner says which game of the room this is.
 // It is the result screen's table and the one Tab brings up mid-round.
 // Which half a narrow screen shows; a wide one shows both side by side.
-let scoreView = 'round';
+// The running totals first: they are what people look at.
+let scoreView = 'total';
 
 function setScoreView(view) {
   scoreView = view;
@@ -1880,12 +1881,15 @@ function fillScores(table) {
   race.textContent = deuce() ? t('deuce', TITLE_LEAD) : t('firstTo', TITLE_WINS);
   race.classList.toggle('deuce', deuce());
   th(groups, t('gameNo', rounds + (game.counted ? 0 : 1))).append(race);
+  th(groups, '').classList.add('wins');
   th(groups, t('thisRound'), ROUND_COLS.length).classList.add('round');
-  th(groups, t('totals'), TOTAL_COLS.length + 4).classList.add('total', 'split');
+  th(groups, t('totals'), TOTAL_COLS.length + 3).classList.add('total', 'split');
   const head = table.insertRow();
   th(head, '');
+  // Wins, the race to the title, right beside each name and shown in both views.
+  th(head, t('colWins')).classList.add('wins');
   ROUND_COLS.forEach((c) => th(head, cols[c]).classList.add('round'));
-  [...TOTAL_COLS.map((c) => cols[c]), t('colWins'), t('colLosses'), t('colScore')].forEach((h, k) => {
+  [...TOTAL_COLS.map((c) => cols[c]), t('colLosses'), t('colScore')].forEach((h, k) => {
     const cell = th(head, h);
     cell.classList.add('total');
     cell.classList.toggle('split', k === 0);
@@ -1909,7 +1913,10 @@ function fillScores(table) {
     }
     const round = roundOf(p);
     const total = totalOf(p);
-    [...ROUND_COLS.map((c) => round[c]), ...TOTAL_COLS.map((c) => total[c]), wins[p.look], losses(p), mvpScore(total)].forEach((v, k) => {
+    const won_ = row.insertCell();
+    won_.className = 'wins';
+    won_.textContent = t('tally', wins[p.look]);
+    [...ROUND_COLS.map((c) => round[c]), ...TOTAL_COLS.map((c) => total[c]), losses(p), mvpScore(total)].forEach((v, k) => {
       const cell = row.insertCell();
       cell.textContent = v;
       cell.classList.add(k >= ROUND_COLS.length ? 'total' : 'round');
@@ -2130,7 +2137,7 @@ function hideChampions() {
   clearTimeout(champTimer);
   cancelAnimationFrame(champFrame);
   $('champ').hidden = true;
-  setScoreView('round');
+  setScoreView('total');
 }
 
 // The title is decided: keep the record, wipe the scores and take the room back
@@ -2604,6 +2611,11 @@ const releaseTab = () => {
 };
 window.addEventListener('keyup', (e) => e.code === 'Tab' && releaseTab());
 window.addEventListener('blur', releaseTab);
+// On a tall screen the score table has a button of its own in the top left
+// corner, as the settings have in the right; the wins live in the table.
+$('field').insertAdjacentHTML('beforeend', '<button id="scoreBtn"></button>');
+$('scoreBtn').textContent = t('scoreBtn');
+$('scoreBtn').addEventListener('click', () => $('boardBtn').click());
 $('boardBtn').addEventListener('click', () => {
   if (game && game.phase === 'over' && !$('result').hidden) $('result').hidden = true;
   else if (!reopenResult()) showBoard($('board').hidden);
@@ -2637,7 +2649,7 @@ $('board').addEventListener('click', () => showBoard(false));
 // The scores lie over the map without blocking it, so a touch anywhere off them
 // puts them away too.
 window.addEventListener('pointerdown', (e) => {
-  if (!$('board').hidden && !$('board').contains(e.target) && !$('boardBtn').contains(e.target)) showBoard(false);
+  if (!$('board').hidden && !$('board').contains(e.target) && !$('boardBtn').contains(e.target) && e.target !== $('scoreBtn')) showBoard(false);
 });
 // The same sound button sits in the lobby and on the field.
 const soundButtons = ['mute', 'muteLobby'].map($);
