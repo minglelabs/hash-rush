@@ -1653,7 +1653,8 @@ body:has(#result:not([hidden])) #throw {
 }
 
 /* Tall screens get the map turned a quarter so it fills the screen. */
-@media (orientation: portrait) {
+/* A tall screen, as the page was before any keyboard came up (set by the script). */
+html.tall {
   #stage {
     align-content: start;
   }
@@ -1708,16 +1709,20 @@ body:has(#result:not([hidden])) #throw {
 }
 
 /* On a tall screen the buttons and hints live in the strip under the map. */
-@media (orientation: portrait) {
+/* A tall screen, as the page was before any keyboard came up (set by the script). */
+html.tall {
   /* The pad has one corner of the strip and the bonk button the other: the menu
      sits between them. */
+  /* The settings sit at the top, just left of the clock; the bottom middle is
+     the chat button's. */
   #tools,
   .bonk-left #tools {
-    position: fixed;
-    left: 50%;
-    right: auto;
-    transform: translateX(-50%);
-    bottom: max(14px, env(safe-area-inset-bottom));
+    position: absolute;
+    left: auto;
+    right: 18cqw;
+    top: 1.2cqw;
+    bottom: auto;
+    transform: none;
     font-size: 19px;
   }
 
@@ -1726,11 +1731,11 @@ body:has(#result:not([hidden])) #throw {
     padding: 0.35em 1em;
   }
 
-  /* Above the row, so showing it never slides "⋯" over to where it was tapped. */
+  /* Low in the middle, above the chat button, apart from every other button. */
   #againBtn {
-    position: absolute;
+    position: fixed;
     left: 50%;
-    bottom: calc(100% + 10px);
+    bottom: calc(max(14px, env(safe-area-inset-bottom)) + 66px);
     transform: translateX(-50%);
     white-space: nowrap;
   }
@@ -1764,8 +1769,9 @@ body:has(#result:not([hidden])) #throw {
   #toolsMenu {
     display: none;
     position: absolute;
-    left: 0;
-    bottom: calc(100% + 8px);
+    left: auto;
+    right: 0;
+    top: calc(100% + 8px);
     flex-direction: column;
     align-items: stretch;
     gap: 6px;
@@ -1781,10 +1787,6 @@ body:has(#result:not([hidden])) #throw {
     background: rgba(255, 255, 255, 0.92);
   }
 
-  .bonk-left #toolsMenu {
-    left: auto;
-    right: 0;
-  }
 
   #hint,
   #hintTouch {
@@ -1815,8 +1817,8 @@ body:has(#result:not([hidden])) #throw {
 }
 
 /* On a wide phone the menu runs along the bottom of the map, so the pad sits above it. */
-@media (pointer: coarse) and (orientation: landscape) {
-  #pad {
+@media (pointer: coarse) {
+  html:not(.tall) #pad {
     bottom: max(64px, env(safe-area-inset-bottom));
   }
 }
@@ -1868,7 +1870,7 @@ body:has(#result:not([hidden])) #throw {
 #lobbyChat {
   position: fixed;
   left: max(16px, env(safe-area-inset-left));
-  bottom: max(16px, env(safe-area-inset-bottom));
+  bottom: calc(max(16px, env(safe-area-inset-bottom)) + 70px);
   z-index: 19;
   width: min(70vw, 340px);
   font-size: 15px;
@@ -1876,8 +1878,10 @@ body:has(#result:not([hidden])) #throw {
   pointer-events: none;
 }
 
-.chatting #lobbyChat {
-  bottom: calc(max(16px, env(safe-area-inset-bottom)) + 110px);
+/* While typing, the whole conversation shows above the box instead. */
+.chatting #lobbyChat,
+.chatting #gameChat {
+  display: none;
 }
 
 #lobbyChat .chatLog div {
@@ -1894,7 +1898,7 @@ body:has(#result:not([hidden])) #throw {
 #gameChat {
   position: absolute;
   left: 1.4cqw;
-  bottom: 6cqw;
+  bottom: 20cqw;
   width: min(46cqw, 340px);
   font-size: clamp(12px, 1.4cqw, 16px);
   font-weight: 600;
@@ -1924,6 +1928,62 @@ body:has(#result:not([hidden])) #throw {
   padding: 8px max(10px, env(safe-area-inset-right)) 8px max(10px, env(safe-area-inset-left));
   background: rgba(226, 235, 243, 0.97);
   box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.18);
+}
+
+/* The conversation so far, above the ready-made lines, while typing. */
+#chatHistory {
+  flex-basis: 100%;
+  max-height: min(34vh, 240px);
+  overflow-y: auto;
+  font-size: 14px;
+  line-height: 1.45;
+  overscroll-behavior: contain;
+}
+
+#chatHistory:empty {
+  display: none;
+}
+
+#chatHistory div {
+  overflow-wrap: anywhere;
+}
+
+#chatHistory time {
+  margin-right: 0.4em;
+  font-size: 0.8em;
+  opacity: 0.5;
+}
+
+#chatHistory .sys {
+  opacity: 0.6;
+}
+
+/* The chat's own button, floating at the right edge over every screen of a room. */
+#chatFab {
+  position: fixed;
+  right: max(10px, env(safe-area-inset-right));
+  bottom: max(18px, env(safe-area-inset-bottom));
+  z-index: 19;
+  width: 52px;
+  height: 52px;
+  padding: 0;
+  font-size: 24px;
+  line-height: 1;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+.chatting #chatFab {
+  display: none;
+}
+
+/* In a round it takes the bottom middle, between the pad and the bonk button. */
+body:has(#stage:not([hidden])) #chatFab {
+  right: auto;
+  left: 50%;
+  bottom: max(14px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
 }
 
 /* Ready-made lines, one tap each, in a row above the box. */
@@ -1963,10 +2023,11 @@ body:has(#result:not([hidden])) #throw {
   background: #fbe54d;
 }
 
-@media (orientation: portrait) {
+/* A tall screen, as the page was before any keyboard came up (set by the script). */
+html.tall {
   /* Above the pad and the bonk button, which lie over the foot of the map. */
   #gameChat {
-    bottom: 46cqw;
+    bottom: 80cqw;
     width: 70cqw;
     font-size: 13px;
   }
