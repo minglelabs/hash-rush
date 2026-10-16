@@ -2224,7 +2224,9 @@ let fadedAt = 0;
 const OVER_MAP = ['pad', 'bonk', 'throw', 'chatFab', 'scoreBtn', 'toolsMore', 'againBtn'];
 function fadeOverHamsters() {
   const spots = game.players.map((p) => renderer.toScreen(p.x, p.y));
-  const els = [...OVER_MAP.map($), ...$('gameChat').querySelectorAll('.chatLog div')];
+  // Lines being read back stay as they are.
+  const said = $('gameChat').classList.contains('browse') ? [] : $('gameChat').querySelectorAll('.chatLog div');
+  const els = [...OVER_MAP.map($), ...said];
   for (const el of els) {
     if (!el) continue;
     const r = el.getBoundingClientRect();

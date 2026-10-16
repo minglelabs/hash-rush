@@ -2768,3 +2768,28 @@ html.tall {
 #gameChat .chatLog div.under {
   filter: opacity(0.18);
 }
+
+/* A floating line can be touched, to read the whole conversation back in its
+   place (a line faded over a hamster cannot: that touch is the game's). */
+.chat .chatLog div:not(.under) {
+  pointer-events: auto;
+}
+
+.chat.browse .chatLog {
+  max-height: 45vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  pointer-events: auto;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 2.5em);
+  mask-image: linear-gradient(to bottom, transparent, #000 2.5em);
+  padding-top: 2em;
+}
+
+#gameChat.browse .chatLog {
+  max-height: min(45vh, 90cqw);
+}
+
+.chat.browse .chatLog div {
+  animation: none;
+}
