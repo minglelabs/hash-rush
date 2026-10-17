@@ -2274,13 +2274,15 @@ function fadeOverHamsters() {
   // Lines being read back stay as they are.
   const said = $('gameChat').classList.contains('browse') ? [] : $('gameChat').querySelectorAll('.chatLog div');
   const els = [...OVER_MAP.map($), ...said];
+  const lines = new Set(said);
   for (const el of els) {
     if (!el) continue;
     const r = el.getBoundingClientRect();
     const under =
       r.width > 0 &&
       spots.some(({ x, y, unit }) => {
-        const pad = 22 * unit;
+        // A chat line clears out of the way well before a hamster reaches it.
+        const pad = (lines.has(el) ? 70 : 22) * unit;
         return x > r.left - pad && x < r.right + pad && y > r.top - pad && y < r.bottom + pad;
       });
     el.classList.toggle('under', under);
@@ -2629,6 +2631,14 @@ $('toolsMore').addEventListener('click', () => $('tools').classList.toggle('open
 $('toolsMenu').addEventListener('click', () => $('tools').classList.remove('open'));
 window.addEventListener('pointerdown', (e) => {
   if (!$('tools').contains(e.target)) $('tools').classList.remove('open');
+});
+// Escape opens the same menu with a keyboard, the way most games bring up theirs
+// (and closes it again). Not while typing: there it puts the chat bar away.
+window.addEventListener('keydown', (e) => {
+  if (e.code !== 'Escape' || $('stage').hidden) return;
+  if (/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '')) return;
+  if (!$('chatBar').hidden) return;
+  $('tools').classList.toggle('open');
 });
 $('board').addEventListener('click', () => showBoard(false));
 // The scores lie over the map without blocking it, so a touch anywhere off them

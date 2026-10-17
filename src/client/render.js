@@ -1193,13 +1193,15 @@ export function createRenderer(canvas, firstMap) {
     for (const p of order) {
       const said = view.bubbles && view.bubbles.get(p.look);
       if (!said || said.until <= now) continue;
-      upright(p.x, p.y, () => drawBubble(p, said, now));
+      upright(p.x, p.y, () => drawBubble(p, said, now, order));
     }
 
     drawFx(dt);
   }
 
-  function drawBubble(p, said, now) {
+  // A see-through bubble, the words haloed so they read over the map; with
+  // another hamster close by it fades nearly away, so nobody is hidden behind it.
+  function drawBubble(p, said, now, others) {
     const size = 13 * (portrait ? 1.45 : 1);
     const maxW = 170 * (portrait ? 1.3 : 1);
     const head = `${said.name}: `;
@@ -1220,35 +1222,46 @@ export function createRenderer(canvas, firstMap) {
     const lh = size * 1.25;
     const h = lines.length * lh + 10;
     // Keep the whole bubble on screen when the hamster is near an edge.
-    const sx = portrait ? p.y : p.x;
-    const sy = portrait ? WORLD.w - p.x : p.y;
+    const screen = (q) => (portrait ? { x: q.y, y: WORLD.w - q.x } : { x: q.x, y: q.y });
+    const { x: sx, y: sy } = screen(p);
     const vw = portrait ? WORLD.h : WORLD.w;
     const cx = Math.min(Math.max(sx, w / 2 + 4), vw - w / 2 - 4) - sx;
     const top = Math.max(-(p.carrying ? 58 : 34) - h, 4 - sy);
-    ctx.globalAlpha = Math.min(1, (said.until - now) / 400);
+    const m = 24;
+    const crowded = others.some((q) => {
+      if (q === p) return false;
+      const o = screen(q);
+      const dx = o.x - sx;
+      const dy = o.y - sy;
+      return dx > cx - w / 2 - m && dx < cx + w / 2 + m && dy > top - m && dy < top + h + m;
+    });
+    ctx.globalAlpha = Math.min(1, (said.until - now) / 400) * (crowded ? 0.25 : 1);
     ctx.beginPath();
     ctx.roundRect(cx - w / 2, top, w, h, 9);
     ctx.moveTo(-5, top + h - 1);
     ctx.lineTo(0, top + h + 7);
     ctx.lineTo(5, top + h - 1);
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.96)';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
     ctx.fill();
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 1.5;
     ctx.strokeStyle = colorOf(p);
     ctx.stroke();
     ctx.textAlign = 'left';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 3.5;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
     lines.forEach((line, i) => {
       const y = top + 5 + lh * (i + 0.78);
-      ctx.fillStyle = '#3a2a1a';
-      ctx.fillText(line, cx - w / 2 + 8, y);
+      const x = cx - w / 2 + 8;
+      ctx.strokeText(line, x, y);
       // The name stands out in the speaker's colour.
-      if (i === 0) {
-        const shown = line.slice(0, head.length - 1);
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.96)';
-        ctx.fillRect(cx - w / 2 + 7, top + 4, ctx.measureText(shown).width + 1, lh);
+      const shown = i === 0 ? line.slice(0, head.length - 1) : '';
+      if (shown) {
         ctx.fillStyle = colorOf(p);
-        ctx.fillText(shown, cx - w / 2 + 8, y);
+        ctx.fillText(shown, x, y);
       }
+      ctx.fillStyle = '#3a2a1a';
+      ctx.fillText(line.slice(shown.length), x + (shown ? ctx.measureText(shown).width : 0), y);
     });
     ctx.globalAlpha = 1;
   }
