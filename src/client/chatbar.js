@@ -45,16 +45,17 @@ const FAINT = 5000;
 const FLOAT_MAX = 8;
 
 // A line floating up over the screen in `log` (a .chatLog), crisp for `ms`.
-export function floatLine(log, { name, text, color, sys }, ms = CRISP) {
+export function floatLine(log, { name, text, color, sys, at }, ms = CRISP) {
   const line = document.createElement('div');
+  // When it was said, as in the whole conversation.
   if (sys) {
     line.className = 'sys';
-    line.append(text);
+    line.append(stamp(at), text);
   } else {
     const who = document.createElement('b');
     who.textContent = String(name);
     if (color) who.style.color = color;
-    line.append(who, ` ${text}`);
+    line.append(stamp(at), who, ` ${text}`);
   }
   log.append(line);
   setTimeout(() => line.classList.add('faint'), ms);
