@@ -1864,7 +1864,6 @@ html.tall {
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.92);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
-  animation: fade 14s forwards;
 }
 
 #gameChat {
@@ -1883,7 +1882,6 @@ html.tall {
   padding: 0.15em 0.7em;
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.88);
-  animation: fade 14s forwards;
 }
 
 /* Typing on a phone, and mid-round anywhere: one bar across the screen, which the
@@ -2852,6 +2850,21 @@ html.tall {
 #againBtn.under,
 #gameChat .chatLog div.under {
   filter: opacity(0.18);
+}
+
+/* A floating line past its few crisp seconds: a faint trace for a minute, still
+   there to touch for the whole conversation. */
+#lobbyChat .chatLog div,
+#gameChat .chatLog div {
+  transition: filter 0.2s, opacity 0.8s;
+}
+
+.chat .chatLog div.faint {
+  opacity: 0.25;
+}
+
+.chat.browse .chatLog div.faint {
+  opacity: 1;
 }
 
 /* A floating line can be touched, to read the whole conversation back in its

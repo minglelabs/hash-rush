@@ -1,5 +1,5 @@
 // The chat as it looks on every page that has one: lines float up from the corner
-// of the screen and fade, and there is one place to type, a bar across the bottom
+// of the screen, then fade to a faint trace for a minute, and there is one place to type, a bar across the bottom
 // that sits on top of a phone's keyboard the way a messenger's does. While it is
 // open the whole conversation so far shows above it. Enter or the chat button
 // opens it; Enter on an empty bar or Escape closes it. What was typed stays in the
@@ -31,13 +31,20 @@ function historyLine({ name, text, color, sys, at }) {
   return line;
 }
 
-// How long a line stays up, floating or in a bubble over its speaker: longer
-// lines get longer to be read.
+// How long a line stays up in a bubble over its speaker: longer lines get longer
+// to be read.
 export const lineLife = (text) => 6000 + 80 * String(text || '').length;
 
-// A line floating up over the screen in `log` (a .chatLog), fading away on its own
-// after `ms`, as long as its speaker's bubble lasts unless told otherwise.
-export function floatLine(log, { name, text, color, sys }, ms = lineLife(text)) {
+// A floating line is crisp for a few seconds, three at most at a time, then
+// lingers faint for a minute: still there to be touched (see browse below) for
+// the whole conversation, without opening the bar and its keyboard.
+const CRISP = 5000;
+const CRISP_MAX = 3;
+const FAINT = 60000;
+const FLOAT_MAX = 8;
+
+// A line floating up over the screen in `log` (a .chatLog), crisp for `ms`.
+export function floatLine(log, { name, text, color, sys }, ms = CRISP) {
   const line = document.createElement('div');
   if (sys) {
     line.className = 'sys';
@@ -48,11 +55,14 @@ export function floatLine(log, { name, text, color, sys }, ms = lineLife(text)) 
     if (color) who.style.color = color;
     line.append(who, ` ${text}`);
   }
-  line.style.animationDuration = `${Math.round(ms)}ms`;
   log.append(line);
-  line.addEventListener('animationend', () => line.remove());
+  setTimeout(() => line.classList.add('faint'), ms);
+  setTimeout(() => line.remove(), ms + FAINT);
   // Being read back (see browse below), the log keeps everything.
-  if (!log.closest('.browse')) while (log.children.length > 12) log.firstChild.remove();
+  if (log.closest('.browse')) return;
+  const crisp = [...log.children].filter((el) => !el.classList.contains('faint'));
+  for (const el of crisp.slice(0, -CRISP_MAX)) el.classList.add('faint');
+  while (log.children.length > FLOAT_MAX) log.firstChild.remove();
 }
 
 // Builds the bar, its button and the floating log (#lobbyChat) on this page.
@@ -124,8 +134,8 @@ export function createChat({ send, lines, quick = [], placeholder = '', empty = 
   });
   history.addEventListener('pointercancel', () => (tapAt = null));
 
-  // Once the keyboard is down the last few lines float up again for a few
-  // seconds, however old, so what was just read does not vanish at once.
+  // Once the keyboard is down the last few lines float up again, crisp for a few
+  // seconds however old, so what was just read does not vanish at once.
   // A touch on a floating line opens the whole conversation in its place, to
   // scroll back through without the keyboard. Only a touch that lands on a line
   // does: the map around and under it is still the game's, for swipes and taps.
@@ -186,7 +196,7 @@ export function createChat({ send, lines, quick = [], placeholder = '', empty = 
       const box = log?.querySelector('.chatLog');
       if (!box) continue;
       box.textContent = '';
-      for (const line of recent) floatLine(box, line, Math.max(5000, (line.at || 0) + lineLife(line.text) - Date.now()));
+      for (const line of recent) floatLine(box, line);
     }
   }
 
