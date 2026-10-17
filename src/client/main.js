@@ -18,7 +18,7 @@ import { createAudio } from './audio.js';
 import { createHaptics } from './haptics.js';
 import { LOOKS, TEAMS, colorOf, lookOf } from './looks.js';
 import { lang, t, LANGUAGES, stringsFor } from './i18n.js';
-import { hostRoom, joinRoom, announceRoom, watchRooms } from './net.js';
+import { hostRoom, joinRoom, announceRoom, watchRooms, randomRoom } from './net.js';
 import { identity, shareName, signResult, remember, lastRating, loadRanking } from './rank.js';
 import { createPredictor } from './predict.js';
 import { winRate } from './rankPage.js';
@@ -743,12 +743,29 @@ function restoreRoom() {
   }
 }
 
+// This browser's own room id: every room it opens has the same link, so the one
+// friends already have still works after the room was closed and opened again.
+// (One room at a time: a second tab hosting finds it taken and gets another.)
+const MY_ROOM_STORE = 'hashrush.myroom';
+function myRoom() {
+  try {
+    let id = localStorage.getItem(MY_ROOM_STORE);
+    if (!/^[a-z2-9]{6}$/.test(id || '')) {
+      id = randomRoom();
+      localStorage.setItem(MY_ROOM_STORE, id);
+    }
+    return id;
+  } catch {
+    return undefined;
+  }
+}
+
 async function openRoom() {
   if (net.role === 'host') return;
   net.role = 'host';
   net.status = '';
   try {
-    const room = await hostRoom({ join: guestJoined, data: guestData, leave: guestLeft }, loadRoom().room);
+    const room = await hostRoom({ join: guestJoined, data: guestData, leave: guestLeft }, loadRoom().room || myRoom());
     net.room = room.room;
     net.close = room.close;
     saveRoom();
