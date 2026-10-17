@@ -157,8 +157,19 @@ export function createChat({ send, lines, quick = [], placeholder = '', empty = 
   for (const log of [float, ...logs.map($)]) {
     const box = log?.querySelector('.chatLog');
     if (!box) continue;
+    const open = () => {
+      stopBrowsing();
+      browsing = log;
+      log.classList.add('browse');
+      box.replaceChildren(...lines().map(historyLine));
+      box.scrollTop = box.scrollHeight;
+    };
     // Open, a tap on it folds it again; a slide is a scroll and leaves it open.
     let tap = null;
+    // A slide that starts on the folded lines opens them and scrolls at once,
+    // the way anyone tries to: the page cannot scroll a log that was not yet
+    // scrollable when the finger came down, so this one finger scrolls it by hand.
+    let drag = null;
     box.addEventListener('pointerdown', (e) => {
       e.stopPropagation();
       stayBrowsing();
@@ -167,20 +178,43 @@ export function createChat({ send, lines, quick = [], placeholder = '', empty = 
         return;
       }
       tap = null;
-      stopBrowsing();
-      browsing = log;
-      log.classList.add('browse');
-      box.replaceChildren(...lines().map(historyLine));
-      box.scrollTop = box.scrollHeight;
+      open();
+      drag = { id: e.pointerId, y: e.clientY };
+      try {
+        box.setPointerCapture(e.pointerId);
+      } catch {
+        // scrolled while over the log only
+      }
     });
+    box.addEventListener('pointermove', (e) => {
+      if (!drag || drag.id !== e.pointerId || browsing !== log) return;
+      box.scrollTop -= e.clientY - drag.y;
+      drag.y = e.clientY;
+    });
+    // A mouse wheel over the folded lines does the same.
+    box.addEventListener(
+      'wheel',
+      (e) => {
+        if (browsing === log) return stayBrowsing();
+        e.preventDefault();
+        stayBrowsing();
+        open();
+        box.scrollTop += e.deltaY;
+      },
+      { passive: false },
+    );
     box.addEventListener('scroll', () => browsing === log && stayBrowsing(), { passive: true });
     box.addEventListener('pointerup', (e) => {
+      if (drag && drag.id === e.pointerId) drag = null;
       const was = tap;
       tap = null;
       if (!was || was.id !== e.pointerId || browsing !== log) return;
       if (Math.hypot(e.clientX - was.x, e.clientY - was.y) < 10 && Math.abs(box.scrollTop - was.top) < 4) stopBrowsing();
     });
-    box.addEventListener('pointercancel', () => (tap = null));
+    box.addEventListener('pointercancel', () => {
+      tap = null;
+      drag = null;
+    });
   }
   window.addEventListener(
     'pointerdown',

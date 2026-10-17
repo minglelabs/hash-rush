@@ -2873,6 +2873,12 @@ html.tall {
   pointer-events: auto;
 }
 
+/* Folded, a slide on a line is the script's to scroll the log with (see chatbar.js),
+   not the page's or the map's. */
+.chat:not(.browse) .chatLog div {
+  touch-action: none;
+}
+
 .chat.browse .chatLog {
   max-height: 45vh;
   overflow-y: auto;
