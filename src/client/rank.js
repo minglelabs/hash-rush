@@ -110,39 +110,58 @@ const stamp = (data) => {
   }
 };
 
-// Everything on the broker, checked and worked out: the table, best first, with
-// names, and this player's own row. Rejects if no broker can be reached.
+// What this browser has seen on the brokers, kept as it came: { topic: payload }.
+// A public broker may forget everything it holds (one did), and either may be out
+// of reach for a while; whatever any one browser kept, it puts back.
+const SEEN_STORE = 'hashrush.seen';
+const SEEN_MAX = 4000;
+
+// Everything on the brokers and in this browser, checked and worked out: the
+// table, best first, with names, and this player's own row. Whatever checked out
+// and a broker was missing is put back on it. Rejects if no broker can be reached.
 export async function loadRanking() {
   const clients = await openBrokers();
   const sigs = new Map();
   const names = new Map();
+  const raw = new Map();
+  const had = clients.map(() => new Map());
   const heard = (topic, payload) => {
+    if (!topic.startsWith(`${TOPIC}/`)) return;
     const parts = topic.slice(TOPIC.length + 1).split('/');
+    const text = payload.toString();
     let data;
     try {
-      data = JSON.parse(payload.toString());
+      data = JSON.parse(text);
     } catch {
       return;
     }
     if (parts[0] === 'm' && parts.length === 3 && typeof data.r === 'string' && typeof data.s === 'string') {
       // The same signature off two brokers is one signature.
       sigs.set(topic, { mid: parts[1], pid: parts[2], text: data.r, sig: data.s });
-    } else if (parts[0] === 'p' && PID.test(parts[1]) && typeof data.b === 'string') {
+      raw.set(topic, text);
+    } else if (parts[0] === 'p' && parts.length === 2 && PID.test(parts[1]) && typeof data.b === 'string') {
       // Two brokers may hold different versions of a name: the newest counts.
       const was = names.get(parts[1]);
-      if (!was || stamp(data) > stamp(was)) names.set(parts[1], data);
+      if (!was || stamp(data) > stamp(was)) {
+        names.set(parts[1], data);
+        raw.set(topic, text);
+      }
     }
   };
+  for (const [topic, payload] of Object.entries(read(SEEN_STORE, {}))) heard(topic, payload);
   // Retained messages arrive right after subscribing; give them time to come in.
   await Promise.all(
-    clients.map((c) => {
-      c.on('message', heard);
+    clients.map((c, i) => {
+      c.on('message', (topic, payload) => {
+        had[i].set(topic, payload.toString());
+        heard(topic, payload);
+      });
       return new Promise((resolve) => c.subscribe([`${TOPIC}/m/+/+`, `${TOPIC}/p/+`], () => setTimeout(resolve, 2500)));
     }),
   );
-  for (const c of clients) c.end(true);
 
-  const table = rate(await signedResults([...sigs.values()]));
+  const results = await signedResults([...sigs.values()]);
+  const table = rate(results);
   // A name counts if the key it belongs to signed it.
   const named = new Map();
   for (const [pid, { b, s }] of names) {
@@ -156,6 +175,16 @@ export async function loadRanking() {
     if ((await pidOf(body.pub)) !== pid || !(await verify(body.pub, b, s))) continue;
     named.set(pid, body.name.slice(0, 8));
   }
+  // What checked out is kept here and put back where it is missing: every
+  // signature of a counted round, and every name its own key signed.
+  const counted = new Set(results.map((r) => r.id));
+  const good = [...raw.keys()].filter((topic) => {
+    const parts = topic.slice(TOPIC.length + 1).split('/');
+    return parts[0] === 'm' ? counted.has(parts[1]) : named.has(parts[1]);
+  });
+  write(SEEN_STORE, Object.fromEntries(good.slice(-SEEN_MAX).map((topic) => [topic, raw.get(topic)])));
+  heal(clients, had, good.map((topic) => [topic, raw.get(topic)]));
+
   const me = await identity();
   // People go by their newest name. Two keys with the same name are told apart by
   // number, in the order they first turned up: Nam, Nam2, Nam3. Computers go by level.
@@ -171,4 +200,15 @@ export async function loadRanking() {
   const mine = rows.find((r) => r.me) || null;
   if (mine) write(RATING_STORE, { elo: mine.elo, games: mine.games, wins: mine.wins });
   return { rows, mine };
+}
+
+// Puts back on each broker what it was missing, then lets go of it. A few hundred
+// at most per visit; whoever comes next carries on.
+const HEAL_MAX = 300;
+function heal(clients, had, good) {
+  clients.forEach((c, i) => {
+    // Missing, or holding an older name than the one that counts.
+    const missing = good.filter(([topic, payload]) => had[i].get(topic) !== payload).slice(0, HEAL_MAX);
+    Promise.all(missing.map(([topic, payload]) => new Promise((resolve) => c.publish(topic, payload, { retain: true, qos: 1 }, resolve)))).finally(() => c.end());
+  });
 }
