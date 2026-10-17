@@ -248,6 +248,29 @@ export function createChat({ send, lines, quick = [], placeholder = '', empty = 
     },
     { passive: true },
   );
+  // Nor may a finger drag the page about under the keyboard: held in place by
+  // the line above, it would stick and shake, the bar with it. Only the log and
+  // the row of ready-made lines scroll, and the log not past its ends, where the
+  // drag would pass on to the page.
+  let fingerY = 0;
+  window.addEventListener('touchstart', (e) => (fingerY = e.touches[0]?.clientY || 0), { passive: true });
+  window.addEventListener(
+    'touchmove',
+    (e) => {
+      if (bar.hidden || !e.cancelable) return;
+      const y = e.touches[0]?.clientY || 0;
+      const up = y < fingerY;
+      fingerY = y;
+      if (row.contains(e.target)) return;
+      if (history.contains(e.target)) {
+        const atTop = history.scrollTop <= 0;
+        const atEnd = history.scrollTop + history.clientHeight >= history.scrollHeight - 1;
+        if ((up && !atEnd) || (!up && !atTop)) return;
+      }
+      e.preventDefault();
+    },
+    { passive: false },
+  );
   function toggle(open) {
     if (open) {
       clearTimeout(browseTimer);
