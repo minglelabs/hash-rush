@@ -356,6 +356,7 @@ function renderLobby() {
       } else {
         saveSlots();
         sendLobby();
+        if (i === 0) renameInChat('host', slot.name);
       }
     });
     if (!guest)
@@ -365,6 +366,7 @@ function renderLobby() {
         slot.name = name.value = free;
         saveSlots();
         sendLobby();
+        if (i === 0) renameInChat('host', slot.name);
       });
 
     const kind = document.createElement('select');
@@ -491,7 +493,7 @@ setInterval(async () => {
 function kick(slot) {
   const conn = slot.conn;
   if (!conn) return;
-  relayChat({ sys: 'leave', name: slot.name, look: -1, text: '' });
+  relayChat({ sys: 'leave', name: slot.name, look: -1, text: '', who: conn.peer });
   slot.conn = null;
   slot.name = defaultName(slots.indexOf(slot));
   conn.kicked = true;
@@ -836,7 +838,7 @@ function welcome(conn, msg, sitting = false) {
   }
   renderLobby();
   sendLobby();
-  relayChat({ sys: 'join', name: slot ? slot.name : conn.watchName, look: -1, text: '' });
+  relayChat({ sys: 'join', name: slot ? slot.name : conn.watchName, look: -1, text: '', who: conn.peer });
   if (isNew) {
     const hello = { t: 'new', look: slots.indexOf(slot), name: slot.name };
     broadcast(() => hello);
@@ -884,7 +886,7 @@ function guestData(conn, msg) {
     if (now - (conn.lastChat || 0) < 400) return;
     conn.lastChat = now;
     const text = cleanChat(msg.text);
-    if (text) relayChat({ name: slot ? slot.name : conn.watchName, look: slot ? slots.indexOf(slot) : -1, text });
+    if (text) relayChat({ name: slot ? slot.name : conn.watchName, look: slot ? slots.indexOf(slot) : -1, text, who: conn.peer });
     return;
   }
   if (msg.t === 'sit') {
@@ -907,6 +909,7 @@ function guestData(conn, msg) {
     saveSlots();
     renderLobby();
     sendLobby();
+    renameInChat(conn.peer, slot.name);
   } else if (msg.t === 'team') {
     if (!teamMode || !validTeam(msg.team)) return;
     slot.team = msg.team;
@@ -928,12 +931,12 @@ function guestLeft(conn) {
     net.watchers.splice(watching, 1);
     renderLobby();
     sendLobby();
-    relayChat({ sys: 'leave', name: conn.watchName, look: -1, text: '' });
+    relayChat({ sys: 'leave', name: conn.watchName, look: -1, text: '', who: conn.peer });
     return;
   }
   const slot = slots.find((s) => s.conn === conn);
   if (!slot) return;
-  relayChat({ sys: 'leave', name: slot.name, look: -1, text: '' });
+  relayChat({ sys: 'leave', name: slot.name, look: -1, text: '', who: conn.peer });
   slot.conn = null;
   slot.kind = 'open';
   slot.name = defaultName(slots.indexOf(slot));
@@ -1200,6 +1203,8 @@ function hostData(msg) {
     renderLobby();
   } else if (msg.t === 'chat') {
     addChat(msg);
+  } else if (msg.t === 'rename') {
+    renameInChat(msg.who, msg.name);
   } else if (msg.t === 'new') {
     newcomer(msg);
   } else if (msg.t === 'pause') {
@@ -1315,9 +1320,11 @@ function showLobbyBubbles() {
   if (next < Infinity) bubbleTimer = setTimeout(showLobbyBubbles, next - now + 20);
 }
 
-function addChat({ name, look, text, sys }) {
-  // Somebody coming in or going out: a grey line with no speaker.
-  if (sys) text = t(sys === 'join' ? 'chatJoin' : 'chatLeave', String(name || t('spectatorName')).slice(0, 8));
+// Somebody coming in or going out: a line with no speaker.
+const sysText = (sys, name) => t(sys === 'join' ? 'chatJoin' : 'chatLeave', String(name || t('spectatorName')).slice(0, 8));
+
+function addChat({ name, look, text, sys, who }) {
+  if (sys) text = sysText(sys, name);
   // A soft chime for what somebody else says.
   if (look !== (net.role === 'host' ? 0 : net.you)) audio.play.chat();
   if (look >= 0) {
@@ -1326,8 +1333,31 @@ function addChat({ name, look, text, sys }) {
     showLobbyBubbles();
   }
   syncChat();
-  keepChat({ name: String(name || ''), text: cleanChat(text), color: seatColor(look), sys: !!sys, at: Date.now() });
+  keepChat({ name: String(name || ''), text: cleanChat(text), color: seatColor(look), sys: sys === 'join' || sys === 'leave' ? sys : !!sys, at: Date.now(), who: typeof who === 'string' ? who.slice(0, 64) : '' });
   for (const id of CHAT_LOGS) floatLine($(id).querySelector('.chatLog'), { name, text: cleanChat(text), color: seatColor(look), sys });
+}
+
+// Somebody took another name: everything they said, and their coming in, now
+// shows under it, here and (from the host) for everyone in the room. `who` is
+// what the host knows them by: 'host', or a guest's connection.
+function renameInChat(who, name) {
+  name = String(name || '').trim().slice(0, 8);
+  if (!who || typeof who !== 'string' || !name) return;
+  if (net.role === 'host') broadcast(() => ({ t: 'rename', who, name }));
+  let changed = false;
+  for (const line of chatHistory) {
+    if (line.who !== who || line.name === name) continue;
+    line.name = name;
+    if (line.sys === 'join' || line.sys === 'leave') line.text = sysText(line.sys, name);
+    changed = true;
+  }
+  if (!changed) return;
+  try {
+    sessionStorage.setItem(CHAT_STORE, JSON.stringify({ room: chatRoom(), lines: chatHistory }));
+  } catch {
+    // not kept
+  }
+  chat.redraw();
 }
 
 // The host shows a message and passes it on to everyone in the room.
@@ -1342,7 +1372,7 @@ function sendChat(raw) {
   if (net.role === 'guest') {
     if (net.host) net.host.send({ t: 'chat', text });
   } else if (net.role === 'host') {
-    relayChat({ name: slots[0].name, look: 0, text });
+    relayChat({ name: slots[0].name, look: 0, text, who: 'host' });
   }
 }
 
