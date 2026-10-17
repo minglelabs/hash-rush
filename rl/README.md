@@ -167,3 +167,15 @@ the win rate fell to the fair share within 20 minutes.
 Elo with the delay (600 rounds a mode): free-for-all ace 1245, RL10 1234, hard
 1194, RL9 1187, the old rl1 1026; teams ace 1703, hard 1493, RL10 1431, RL9
 1368, the old rl6 1076. rl10 plays both kinds of round.
+
+### Deciding every 2 ticks (`--frame-skip 2`)
+
+The scripted bots think every tick; a policy at the default `--frame-skip 4`
+decides 15 times a second, so with the 0.15 s delay it answers 0.15–0.22 s
+late against their 0.15–0.17 s. `--frame-skip 2` (30 decisions a second) closes
+that gap. The weights carry it in their meta, the game follows it, and
+`elo.js`/`report.js` run each policy at its own rate (a round with several runs
+at the quickest; the slower ones hold their move in between). Keep the horizon
+in seconds by taking the square roots of gamma and lambda:
+
+    python3 rl/train.py --name rl12 --resume rl/runs/rl10/policy.pt --frame-skip 2 --gamma 0.9985 --lam 0.975 --minutes 300 --teams 0.5 --entropy 0.003 --lr 1.5e-4 --rivals rl/runs/rl7/policy.pt rl/runs/rl9/policy.pt rl/runs/rl10/policy.pt rl/runs/rl11/policy.pt

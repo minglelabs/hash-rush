@@ -12,7 +12,7 @@ import { availableParallelism } from 'node:os';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createEnvs, MAX_P, OBS } from './env.js';
-import { loadPolicy } from './policy.js';
+import { loadPolicy, pacing, seatMove } from './policy.js';
 
 const args = process.argv.slice(2);
 const ROUNDS = Number(args.find((a) => /^\d+$/.test(a)) || 600);
@@ -37,16 +37,18 @@ function job(policies, mode, seed) {
   const rnd = () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296);
   const ids = [pick(rnd), pick(rnd), pick(rnd), pick(rnd)];
   const lineup = ids.map((id, i) => ({ level: POOL[id][1], team: mode === 'team' ? i % 2 : -1 }));
-  const envs = createEnvs({ envs: PER_JOB, seed, lineup, botEnv: 1 });
+  const pace = pacing(lineup.filter(({ level }) => level < 0).map(({ level }) => policies[-1 - level]));
+  const envs = createEnvs({ envs: PER_JOB, seed, lineup, botEnv: 1, frameSkip: pace.skip });
   const actions = new Uint8Array(PER_JOB * MAX_P * 3);
   const results = [];
   const done = new Array(PER_JOB).fill(false);
-  while (done.includes(false)) {
+  for (let step = 0; done.includes(false); step++) {
     for (let e = 0; e < PER_JOB; e++) {
       lineup.forEach(({ level }, i) => {
         if (level >= 0) return;
+        const p = policies[-1 - level];
         const at = (e * MAX_P + i) * OBS;
-        actions.set(policies[-1 - level].act(envs.obs.subarray(at, at + OBS)), (e * MAX_P + i) * 3);
+        seatMove(actions, (e * MAX_P + i) * 3, p, envs.obs.subarray(at, at + OBS), pace.due(p, step));
       });
     }
     envs.act(actions);

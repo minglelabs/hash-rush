@@ -14,7 +14,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createEnvs, MAX_P, OBS } from './env.js';
 import { MAP_IDS } from '../src/sim/map.js';
-import { loadPolicy } from './policy.js';
+import { loadPolicy, pacing, seatMove } from './policy.js';
 
 const all = process.argv.includes('--all');
 const [path, roundsArg = '20', vsPath] = process.argv.slice(2).filter((a) => a !== '--all');
@@ -79,19 +79,20 @@ const LINEUPS = all ? FULL : QUICK;
 // One line-up on one map: RL seats' wins, hard seats' wins (or RL side's wins), timeouts.
 function play(policy, rivalPolicy, lineup, map, seed) {
   const E = Math.min(8, ROUNDS);
-  const envs = createEnvs({ envs: E, seed, lineup, maps: [map], botEnv: 1 });
+  const pace = pacing([policy, rivalPolicy]);
+  const envs = createEnvs({ envs: E, seed, lineup, maps: [map], botEnv: 1, frameSkip: pace.skip });
   const actions = new Uint8Array(E * MAX_P * 3);
   const rl = lineup.flatMap((s, i) => (s.level === RL ? [i] : []));
   const rival = lineup.flatMap((s, i) => (s.level === RIVAL ? [i] : []));
   // The seats RL is compared with: RL' when it plays, else the hard or ace bots.
   const hard = rival.length ? rival : lineup.flatMap((s, i) => (s.level >= HARD ? [i] : []));
   const out = { rounds: 0, rl: 0, hard: 0, timeouts: 0 };
-  while (out.rounds < ROUNDS) {
+  for (let step = 0; out.rounds < ROUNDS; step++) {
     for (let e = 0; e < E; e++) {
       for (const [seats, p] of [[rl, policy], [rival, rivalPolicy]]) {
         for (const i of seats) {
           const at = (e * MAX_P + i) * OBS;
-          actions.set(p.act(envs.obs.subarray(at, at + OBS)), (e * MAX_P + i) * 3);
+          seatMove(actions, (e * MAX_P + i) * 3, p, envs.obs.subarray(at, at + OBS), pace.due(p, step));
         }
       }
     }
