@@ -1808,7 +1808,6 @@ html.tall {
 }
 
 .chat .chatLog .sys {
-  opacity: 0.6;
   font-size: 0.9em;
 }
 
@@ -2074,10 +2073,6 @@ html.tall #scores {
   margin-right: 0.4em;
   font-size: 0.8em;
   opacity: 0.5;
-}
-
-#chatHistory .sys {
-  opacity: 0.7;
 }
 
 /* The chat's own button, floating at the right edge over every screen of a room. */
@@ -2852,7 +2847,7 @@ html.tall {
   filter: opacity(0.18);
 }
 
-/* A floating line past its few crisp seconds: a faint trace for a minute, still
+/* A floating line past its few crisp seconds: a faint trace for a few more, still
    there to touch for the whole conversation. */
 #lobbyChat .chatLog div,
 #gameChat .chatLog div {
