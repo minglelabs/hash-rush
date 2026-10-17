@@ -377,6 +377,10 @@ export function createChat({ send, lines, quick = [], placeholder = '', empty = 
     }
     send(field.value);
     field.value = '';
+    // With a keyboard of its own, the bar goes once the line is sent, so the keys
+    // move the hamster again at once; Enter opens it for the next line. A phone
+    // keeps it up for the next line instead.
+    if (!onPhone()) toggle(false);
   });
   field.addEventListener('keydown', (e) => {
     if (e.code === 'Escape') toggle(false);

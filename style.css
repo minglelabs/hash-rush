@@ -2904,3 +2904,35 @@ html.tall {
 .chat.browse .chatLog div {
   animation: none;
 }
+
+/* On a wide screen the buttons sit in a row; Escape (or the gear, where there is
+   one) also brings them up together as a menu in the middle of the map. */
+html:not(.tall) #tools.open #toolsMenu {
+  display: flex;
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  z-index: 30;
+  transform: translate(-50%, -50%);
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  min-width: 220px;
+  padding: 16px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.3);
+  font-size: 17px;
+}
+
+/* With a mouse the row of buttons under the map reaches the middle, so the chat
+   button keeps to the bottom right corner there. */
+@media (pointer: fine) {
+  body:has(#stage:not([hidden])) #chatFab,
+  .bonk-left:has(#stage:not([hidden])) #chatFab {
+    left: auto;
+    right: max(10px, env(safe-area-inset-right));
+    bottom: max(10px, env(safe-area-inset-bottom));
+    transform: none;
+  }
+}
