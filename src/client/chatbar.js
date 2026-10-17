@@ -1,6 +1,6 @@
 // The chat as it looks on every page that has one: lines float up from the corner
-// of the screen, then fade to a faint trace for a minute, and there is one place to type, a bar across the bottom
-// that sits on top of a phone's keyboard the way a messenger's does. While it is
+// of the screen, then fade to a faint trace for a few seconds, and there is one
+// place to type, a bar across the bottom that sits on top of a phone's keyboard the way a messenger's does. While it is
 // open the whole conversation so far shows above it. Enter or the chat button
 // opens it; Enter on an empty bar or Escape closes it. What was typed stays in the
 // box for next time.
@@ -36,11 +36,12 @@ function historyLine({ name, text, color, sys, at }) {
 export const lineLife = (text) => 6000 + 80 * String(text || '').length;
 
 // A floating line is crisp for a few seconds, three at most at a time, then
-// lingers faint for a minute: still there to be touched (see browse below) for
-// the whole conversation, without opening the bar and its keyboard.
+// lingers faint as long again: still there to be touched (see browse below) for
+// the whole conversation, without opening the bar and its keyboard, and soon
+// out of the way of whatever it covers.
 const CRISP = 5000;
 const CRISP_MAX = 3;
-const FAINT = 60000;
+const FAINT = 5000;
 const FLOAT_MAX = 8;
 
 // A line floating up over the screen in `log` (a .chatLog), crisp for `ms`.
