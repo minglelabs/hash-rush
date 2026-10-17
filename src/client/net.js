@@ -143,7 +143,7 @@ function loadScript(src, global) {
 
 const loadPeer = () => loadScript(PEER_SRC, 'Peer');
 
-function randomRoom() {
+export function randomRoom() {
   const letters = 'abcdefghjkmnpqrstuvwxyz23456789';
   let id = '';
   for (let i = 0; i < 6; i++) id += letters[Math.floor(Math.random() * letters.length)];
@@ -152,8 +152,8 @@ function randomRoom() {
 
 // Opens a room. `on.join(conn)`, `on.data(conn, msg)` and `on.leave(conn)` are
 // called as guests come and go. Resolves with { room, close }.
-// `want` asks for a room id again, the one this tab hosted before it was reloaded,
-// so the link friends already have still leads here.
+// `want` asks for a room id again, the one this tab hosted before it was reloaded
+// or this browser's own, so the link friends already have still leads here.
 export async function hostRoom(on, want) {
   await loadPeer();
   const open = (id) =>
@@ -177,8 +177,9 @@ export async function hostRoom(on, want) {
       peer = await open(room);
     } catch (err) {
       if (room !== want || !err || err.type !== 'unavailable-id') throw err;
-      // The broker still has the id down to the page that was just reloaded. It
-      // lets go within a few seconds; after that somebody else really has it.
+      // The broker still has the id down to the page that was just reloaded or
+      // closed. It lets go within a few seconds; after that somebody else really
+      // has it (another tab of this browser hosting too).
       if (tries < 7) await new Promise((r) => setTimeout(r, 1000));
       else room = randomRoom();
     }
