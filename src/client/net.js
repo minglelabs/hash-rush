@@ -263,22 +263,22 @@ export const openBroker = () => connectBroker({});
 
 // Connections to every broker that answers, for the ratings: results are put on
 // all of them and read back from all of them, so one broker being down for a
-// while loses nothing. Rejects only if none answers.
+// while loses nothing. A broker that does not answer gets a second try (HiveMQ
+// now and then never answers a connection). Rejects only if none answers.
 export async function openBrokers() {
   await loadScript(MQTT_SRC, 'mqtt');
-  const tries = BROKERS.map(
-    (url) =>
-      new Promise((resolve, reject) => {
-        const client = window.mqtt.connect(url, { connectTimeout: 6000 });
-        client.once('connect', () => resolve(client));
-        const fail = () => {
-          client.end(true);
-          reject(new Error('no broker'));
-        };
-        client.once('error', fail);
-        client.once('offline', fail);
-      }),
-  );
+  const attempt = (url) =>
+    new Promise((resolve, reject) => {
+      const client = window.mqtt.connect(url, { connectTimeout: 6000 });
+      client.once('connect', () => resolve(client));
+      const fail = () => {
+        client.end(true);
+        reject(new Error('no broker'));
+      };
+      client.once('error', fail);
+      client.once('offline', fail);
+    });
+  const tries = BROKERS.map((url) => attempt(url).catch(() => attempt(url)));
   const open = (await Promise.allSettled(tries)).filter((r) => r.status === 'fulfilled').map((r) => r.value);
   if (!open.length) throw new Error('no broker');
   return open;
