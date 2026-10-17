@@ -152,3 +152,18 @@ nothing and end up one network for both kinds of round:
     python3 rl/train.py --name rl7 --minutes 480 --teams 0.5 --distill 0.3 --distill-solo rl/runs/long/policy.pt --distill-team rl/runs/rl6/policy.pt --kick 0.2 --rivals rl/runs/long/policy.pt rl/runs/rl6/policy.pt
 
 The log's "off the teachers" is that KL: falling means it plays like them.
+
+### Relearning with the 0.15 s delay (rl9, rl10: in the game)
+
+Every bot, this one included, sees the others 0.15 s late (`--reaction 9`), so
+the weights from before had to learn again. rl9 started from rl7 with a light
+distill as an anchor; rl10 went on from rl9 without it, with a smaller entropy
+bonus and learning rate: at the default 0.01 the entropy climbed past 2.2 and
+the win rate fell to the fair share within 20 minutes.
+
+    python3 rl/train.py --name rl9 --resume rl/runs/rl7/policy.pt --minutes 300 --teams 0.5 --distill 0.2 --distill-solo rl/runs/rl7/policy.pt --distill-team rl/runs/rl6/policy.pt --rivals rl/runs/long/policy.pt rl/runs/rl6/policy.pt rl/runs/rl7/policy.pt rl/runs/rl8/policy.pt
+    python3 rl/train.py --name rl10 --resume rl/runs/rl9/policy.pt --minutes 240 --teams 0.5 --entropy 0.003 --lr 1.5e-4 --rivals rl/runs/rl6/policy.pt rl/runs/rl7/policy.pt rl/runs/rl8/policy.pt rl/runs/rl9/policy.pt
+
+Elo with the delay (600 rounds a mode): free-for-all ace 1245, RL10 1234, hard
+1194, RL9 1187, the old rl1 1026; teams ace 1703, hard 1493, RL10 1431, RL9
+1368, the old rl6 1076. rl10 plays both kinds of round.
