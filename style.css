@@ -1811,10 +1811,6 @@ html.tall {
   font-size: 0.9em;
 }
 
-#gameChat .chatLog time {
-  display: none;
-}
-
 .chatForm {
   display: flex;
   gap: 6px;
