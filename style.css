@@ -2122,6 +2122,18 @@ body:has(#stage:not([hidden])) #chatFab {
   overflow-x: auto;
   margin-bottom: 0;
   scrollbar-width: none;
+  touch-action: pan-x;
+  overscroll-behavior-x: contain;
+}
+
+#chatBar .quick::-webkit-scrollbar {
+  display: none;
+}
+
+/* More lines off to the side: the far edge fades out. */
+#chatBar .quick.more {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent);
 }
 
 /* Big enough for a thumb: 44px tall, the least a finger can hit for sure. */

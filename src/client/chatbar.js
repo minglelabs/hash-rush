@@ -98,6 +98,19 @@ export function createChat({ send, lines, quick = [], placeholder = '', empty = 
     b.addEventListener('click', () => send(said));
     row.append(b);
   }
+  // More lines than fit: the row slides sideways, and its far edge fades while
+  // there is more to see that way. A mouse wheel slides it too.
+  const more = () => row.classList.toggle('more', row.scrollLeft + row.clientWidth < row.scrollWidth - 4);
+  row.addEventListener('scroll', more, { passive: true });
+  row.addEventListener(
+    'wheel',
+    (e) => {
+      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+      e.preventDefault();
+      row.scrollLeft += e.deltaY;
+    },
+    { passive: false },
+  );
   const field = document.createElement('input');
   Object.assign(field, { name: 'chat', maxLength: 80, autocomplete: 'off', enterKeyHint: 'send', placeholder });
   const go = document.createElement('button');
@@ -259,6 +272,7 @@ export function createChat({ send, lines, quick = [], placeholder = '', empty = 
       return;
     }
     bar.hidden = !open;
+    if (open) requestAnimationFrame(more);
     document.body.classList.toggle('chatting', open);
     clearTimeout(barTimer);
     clearTimeout(keepTimer);
