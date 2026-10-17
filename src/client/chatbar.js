@@ -392,6 +392,16 @@ export function createChat({ send, lines, quick = [], placeholder = '', empty = 
 
   return {
     toggle,
+    // The conversation changed under it (somebody renamed): shown again as it is now.
+    redraw() {
+      const boxes = [...(bar.hidden ? [] : [history]), ...(browsing ? [browsing.querySelector('.chatLog')] : [])];
+      for (const box of boxes) {
+        const atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 30;
+        const top = box.scrollTop;
+        box.replaceChildren(...lines().map(historyLine));
+        box.scrollTop = atEnd ? box.scrollHeight : top;
+      }
+    },
     // A line just said: added to the conversation showing above the bar.
     heard(line) {
       if (bar.hidden) return;
