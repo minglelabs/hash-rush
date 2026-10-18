@@ -42,6 +42,13 @@ const KINDS = ['human', 'open', 'bot:easy', 'bot:normal', 'bot:hard', 'bot:ace',
 // computers, and the rest empty for friends. An empty seat can be closed.
 const MAX_SLOTS = LOOKS.length;
 const defaultName = (i) => t('names')[i] ?? t('fallbackName', i + 1);
+// A name given by default, in any language, becomes the same hamster's name in
+// this page's: open the game in English and Choco is no longer 초코. A name
+// somebody typed stays as it is.
+const DEFAULT_NAMES = new Map();
+for (const code of LANGUAGES) stringsFor(code).names.forEach((name, j) => DEFAULT_NAMES.has(name) || DEFAULT_NAMES.set(name, j));
+const localName = (name) => (DEFAULT_NAMES.has(name) ? defaultName(DEFAULT_NAMES.get(name)) : name);
+const PEOPLE = new Set(['human', 'remote', 'open', 'closed']);
 const DEFAULT_SLOTS = Array.from({ length: MAX_SLOTS }, (_, i) => ({
   kind: i === 0 ? 'human' : i < 4 ? 'bot:hard' : 'open',
   name: defaultName(i),
@@ -86,7 +93,7 @@ function loadSlots() {
         if (!s) return { ...d };
         return {
           kind: i === 0 ? 'human' : KINDS.some((k) => k === s.kind && k !== 'human') ? s.kind : 'open',
-          name: String(s.name || defaultName(i)).slice(0, 8),
+          name: localName(String(s.name || defaultName(i)).slice(0, 8)),
           team: validTeam(s.team) ? s.team : i % 2,
         };
       });
@@ -1104,7 +1111,8 @@ function reloadWithHost() {
 function hostData(msg) {
   if (!msg) return;
   if (msg.t === 'lobby') {
-    net.lobby = msg.slots;
+    // Computers go by their names in this page's language; people by their own.
+    net.lobby = Array.isArray(msg.slots) ? msg.slots.map((sl) => (sl && !PEOPLE.has(sl.kind) ? { ...sl, name: localName(sl.name) } : sl)) : msg.slots;
     net.teams = !!msg.teams;
     net.map = MAP_IDS.includes(msg.map) ? msg.map : 'meadow';
     net.pw = cleanPw(msg.pw);
@@ -1158,7 +1166,7 @@ function hostData(msg) {
       winners: [],
       timeout: false,
       players: msg.players.map((p, id) => ({
-        id, name: p.name, look: p.look, team: p.team ?? -1, kind: p.kind, nest: p.nest, x: p.nest.x, y: p.nest.y, vx: 0, vy: 0, fx: 1, fy: 0,
+        id, name: String(p.kind || '').startsWith('bot') ? localName(p.name) : p.name, look: p.look, team: p.team ?? -1, kind: p.kind, nest: p.nest, x: p.nest.x, y: p.nest.y, vx: 0, vy: 0, fx: 1, fy: 0,
         carrying: false, gather: 0, queued: -1, swing: null, cooldown: 0, kills: 0, deaths: 0, seeds: 0, supers: 0, charge: 0, throws: 0, stops: 0,
         pid: typeof p.pid === 'string' ? p.pid : '', pub: typeof p.pub === 'string' ? p.pub : '',
       })),
