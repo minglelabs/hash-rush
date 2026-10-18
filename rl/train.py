@@ -280,6 +280,7 @@ def main():
     ap.add_argument("--pfsp-power", type=float, default=1.0)
     ap.add_argument("--bot-env", type=float, default=0.15, help="share of rounds with scripted bots, when the curriculum is off")
     ap.add_argument("--no-curriculum", action="store_true", help="every bot level from the start, at --bot-env")
+    ap.add_argument("--bot-levels", type=int, nargs="+", default=None, help="only these bot levels as sparring partners (0 easy .. 3 ace), in --bot-env of the rounds; the curriculum stays where it is")
     ap.add_argument("--stage", type=int, default=-1, help="curriculum stage to start from (0 easy bots only); default: where the resumed run stopped")
     ap.add_argument("--promote-after", type=int, default=1000, help="bot rounds to judge a stage by")
     ap.add_argument("--win", type=float, default=30)
@@ -317,7 +318,7 @@ def main():
         except (OSError, ValueError, KeyError):
             pass
     stage = min(stage, len(STAGES) - 1)
-    spar = lambda: (args.bot_env, [0, 1, 2]) if args.no_curriculum else STAGES[stage]
+    spar = lambda: (args.bot_env, args.bot_levels) if args.bot_levels else (args.bot_env, [0, 1, 2]) if args.no_curriculum else STAGES[stage]
     settings = {"botEnv": spar()[0], "botLevels": spar()[1], "win": args.win, "lose": args.lose, "shape": args.shape, "teams": args.teams, "frameSkip": args.frame_skip, "reaction": args.reaction, "headStart": args.head_start, "teamSpirit": args.team_spirit, "catch": args.catch, "delay": args.delay, "role": args.role, "teacher": args.teacher if args.kick else -1}
     if args.maps != "all":
         settings["maps"] = args.maps.split(",")
