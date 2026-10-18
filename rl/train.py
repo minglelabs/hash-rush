@@ -382,6 +382,7 @@ def main():
     b_teach = np.zeros((T, N, P, 3), np.int64)
     b_taught = np.zeros((T, N, P), bool)
 
+    recent, best = [], [-1.0]
     log_path = os.path.join(out_dir, "log.csv")
     with open(log_path, "w") as f:
         f.write("iter,minutes,decisions,sps,stage,episodes,learner_score,win_vs_bots,fair_share,win_vs_league,entropy,value_loss,kl\n")
@@ -550,6 +551,16 @@ def main():
         row = [it, round(minutes, 2), total, int(sps), stage, len(stats["score"]), round(mean("score"), 2), round(mean("bot_win"), 3), round(mean("bot_fair"), 3), round(mean("league_win"), 3), round(ent_mean, 3), round(v_loss, 4), round(kl, 4)]
         with open(log_path, "a") as f:
             f.write(",".join(str(v) for v in row) + "\n")
+        # The best stretch so far, by how far above a fair share the learner wins
+        # against the bots over the last 20 iterations, kept apart: a run can lose
+        # ground after its peak, and the last weights are not always the best.
+        if it % 5 == 0 and stats["bot_win"]:
+            recent.append(mean("bot_win") - mean("bot_fair"))
+            del recent[:-4]
+            if len(recent) == 4 and np.mean(recent) > best[0]:
+                best[0] = float(np.mean(recent))
+                torch.save(model.state_dict(), os.path.join(out_dir, "best.pt"))
+                export_json(model, os.path.join(out_dir, "best.json"), {**meta(), "edge": round(best[0], 3)})
         if it % 5 == 0 or it == 1:
             print(f"it {it:4d}  stage {stage}  {minutes:5.1f}m  {total/1e6:6.2f}M decisions  {int(sps):6d}/s  score {mean('score'):5.2f}  win vs bots {mean('bot_win'):.2f} (fair {mean('bot_fair'):.2f})  vs league {mean('league_win'):.2f}  ent {ent_mean:.2f}" + (f"  copies the teacher {copied:.2f}" if kick else "") + (f"  off the teachers {gap:.2f}" if distill else ""), flush=True)
             stats = {k: [] for k in stats}
@@ -557,7 +568,7 @@ def main():
     torch.save(model.state_dict(), os.path.join(out_dir, "policy.pt"))
     export_json(model, os.path.join(out_dir, "policy.json"), meta())
     env.close()
-    print(f"saved {out_dir}/policy.pt and policy.json")
+    print(f"saved {out_dir}/policy.pt and policy.json" + (f"; the best stretch (+{best[0]:.3f} over a fair share against the bots) in best.pt and best.json" if best[0] > -1 else ""))
 
 
 if __name__ == "__main__":

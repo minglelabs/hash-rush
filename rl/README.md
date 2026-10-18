@@ -179,3 +179,14 @@ at the quickest; the slower ones hold their move in between). Keep the horizon
 in seconds by taking the square roots of gamma and lambda:
 
     python3 rl/train.py --name rl12 --resume rl/runs/rl10/policy.pt --frame-skip 2 --gamma 0.9985 --lam 0.975 --minutes 300 --teams 0.5 --entropy 0.003 --lr 1.5e-4 --rivals rl/runs/rl7/policy.pt rl/runs/rl9/policy.pt rl/runs/rl10/policy.pt rl/runs/rl11/policy.pt
+
+### The best stretch is kept apart (best.pt, best.json)
+
+A run can lose ground after its peak (rl12 won 0.37 against the bots in its
+first half hour, then fell to the fair share for an hour after the change of
+gamma and lambda), and the last weights are not always the best. Every 5
+iterations the trainer looks at how far above a fair share the learner won over
+the last 20, and the best such stretch so far goes to `best.pt`/`best.json`
+next to `policy.pt` (its `edge` in the meta). Measure both:
+
+    node rl/elo.js RL10=rl/runs/rl10/policy.json last=rl/runs/rl13/policy.json best=rl/runs/rl13/best.json
