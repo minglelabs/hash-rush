@@ -190,3 +190,13 @@ the last 20, and the best such stretch so far goes to `best.pt`/`best.json`
 next to `policy.pt` (its `edge` in the meta). Measure both:
 
     node rl/elo.js RL10=rl/runs/rl10/policy.json last=rl/runs/rl13/policy.json best=rl/runs/rl13/best.json
+
+### Sparring with the strong bots only (`--bot-levels`)
+
+At the last curriculum stage half the rounds have scripted bots, drawn from
+every level, so half of those are the easy and normal bots it has long since
+outgrown. `--bot-levels 2 3 --bot-env 0.7` puts only the hard and ace bots in,
+in 70% of the rounds: it learns from playing them, without copying them
+(`--kick` made rl14 copy the ace and it fell below a fair share within 15 minutes).
+
+    python3 rl/train.py --name rl14 --resume rl/runs/rl10/policy.pt --frame-skip 2 --minutes 480 --teams 0.6 --bot-levels 2 3 --bot-env 0.7 --entropy 0.003 --lr 1e-4 --rivals rl/runs/rl9/policy.pt rl/runs/rl10/policy.pt rl/runs/rl11/policy.pt rl/runs/rl13/policy.pt
