@@ -3022,3 +3022,105 @@ body:not(:has(#stage:not([hidden]))) #chatFab {
   background: rgba(255, 255, 255, 0.92);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
 }
+
+/* The team menu shut is a dot of the team's colour; its names show once opened. */
+#slots select.teamPick {
+  color: transparent;
+  background: var(--tc, var(--cream));
+  border-color: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 0 1px var(--line);
+  text-align: center;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+#slots select.teamPick option {
+  color: var(--ink);
+  background: #fff;
+}
+
+#slots li.teamed,
+#slotHead.teamed {
+  grid-template-columns: 52px 1fr 40px 148px;
+}
+
+/* The player's own row: a blue ring and a tag. */
+#slots li.own {
+  box-shadow: 0 0 0 2px rgb(30, 120, 255);
+}
+
+#slots li.own::after {
+  content: attr(data-me);
+  position: absolute;
+  top: -7px;
+  left: 6px;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: rgb(30, 120, 255);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 16px;
+}
+
+/* A phone: tight rows, so the names have the room. */
+@media (max-width: 480px) {
+  #lobby .card {
+    padding: 14px 8px 12px;
+  }
+
+  #slots {
+    gap: 6px;
+  }
+
+  #slots li,
+  #slotHead {
+    grid-template-columns: 38px 1fr 104px;
+    gap: 4px;
+  }
+
+  #slots li {
+    padding: 3px 4px 3px 2px;
+    border-width: 1px;
+    border-left-width: 5px;
+    border-radius: 12px;
+  }
+
+  #slots li.teamed,
+  #slotHead.teamed {
+    grid-template-columns: 38px 1fr 30px 92px;
+    gap: 4px;
+  }
+
+  #slotHead {
+    padding: 0 5px 0 7px;
+  }
+
+  #slotHead span {
+    padding-left: 0.3em;
+  }
+
+  #slots canvas {
+    width: 38px;
+    height: 34px;
+  }
+
+  #slots li.vacant > span {
+    height: 34px;
+  }
+
+  #slots input,
+  #slots select {
+    padding: 0.3em 0.4em;
+    font-size: 14px;
+    border-width: 1px;
+    border-radius: 8px;
+  }
+
+  #slots li.teamed select.teamPick {
+    padding: 0;
+    height: 28px;
+    border-radius: 50%;
+  }
+}

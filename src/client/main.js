@@ -407,10 +407,17 @@ function renderLobby() {
       });
     }
 
+    // The player's own row is marked, so on a crowded list they find themselves.
+    const own = !vacant && (guest ? i === net.you : slot.kind === 'human');
+    li.classList.toggle('own', own);
+    if (own) li.dataset.me = t('meTag');
     li.append(avatar, name);
     if (teams) {
-      // The host arranges the teams; a guest can also switch its own.
+      // The host arranges the teams; a guest can also switch its own. Shut, the
+      // menu is only a dot of the team's colour; the names are inside it.
       const team = document.createElement('select');
+      team.className = 'teamPick';
+      if (!vacant && TEAMS[slot.team]) team.style.setProperty('--tc', TEAMS[slot.team].color);
       team.setAttribute('aria-label', t('slotTeam', i + 1));
       (vacant ? ['–'] : t('teamNames')).forEach((label, k) => {
         const opt = document.createElement('option');
