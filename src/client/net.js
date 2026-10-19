@@ -184,10 +184,32 @@ export async function hostRoom(on, want) {
       else room = randomRoom();
     }
   }
+  // A guest whose page is gone without a goodbye (a phone that slept, a lost
+  // line) may never get a close: the link itself going down for good counts as
+  // leaving, so no hamster is left standing in for nobody.
+  const watchLine = (conn) => {
+    const pc = conn.peerConnection;
+    if (!pc) return;
+    let downSince = 0;
+    const check = () => {
+      const state = pc.connectionState || pc.iceConnectionState;
+      if (state === 'failed' || state === 'closed') return conn.close();
+      if (state !== 'disconnected') return (downSince = 0);
+      downSince ||= Date.now();
+    };
+    pc.addEventListener('connectionstatechange', check);
+    pc.addEventListener('iceconnectionstatechange', check);
+    const timer = setInterval(() => {
+      if (!conn.open) return clearInterval(timer);
+      check();
+      if (downSince && Date.now() - downSince > 10000) conn.close();
+    }, 2000);
+  };
   peer.on('connection', (conn) => {
     conn.on('open', () => {
       conn.fast = fastLane(conn, (msg) => on.data(conn, msg), false);
       on.join(conn);
+      watchLine(conn);
     });
     conn.on('data', (msg) => on.data(conn, msg));
     conn.on('close', () => on.leave(conn));
