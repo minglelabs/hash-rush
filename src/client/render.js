@@ -1165,13 +1165,15 @@ export function createRenderer(canvas, firstMap) {
         // for, and only one hamster nibbles at a time. Everyone's nibbling is
         // named; the reminders are for the player's own hamster.
         const waiting = p.queued >= 0 && game.nibbler >= 0 && game.nibbler !== p.id;
-        const note = p.gather > 0 ? 'nibbling' : !me || game.phase !== 'playing' ? '' : waiting ? 'waitTurn' : game.nibbler === p.id ? 'holdStill' : '';
+        // Onto a portal with a seed: it does not warp, and the hamster is told why.
+        const warpless = me && p.carrying && game.map.warps.some((w) => Math.hypot(p.x - w.x, p.y - w.y) <= w.r);
+        const note = p.gather > 0 ? 'nibbling' : !me || game.phase !== 'playing' ? '' : warpless ? 'portalNoSeed' : waiting ? 'waitTurn' : game.nibbler === p.id ? 'holdStill' : '';
         if (note) {
           const size = 12 * (portrait ? 1.5 : 1);
           ctx.font = `800 ${size}px ${FONT}`;
           ctx.lineWidth = 3.5;
           ctx.strokeText(tr(note), 0, ly - size * 1.35);
-          ctx.fillStyle = note === 'nibbling' ? '#a86a00' : note === 'holdStill' ? '#d92d2d' : '#555';
+          ctx.fillStyle = note === 'nibbling' ? '#a86a00' : note === 'holdStill' || note === 'portalNoSeed' ? '#d92d2d' : '#555';
           ctx.fillText(tr(note), 0, ly - size * 1.35);
           ctx.fillStyle = look.color;
         }
