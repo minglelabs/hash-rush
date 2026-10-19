@@ -206,3 +206,14 @@ the hard and ace bots) is in the game: its best stretch for free-for-all, its
 last weights for teams. Elo, 600 rounds a mode: free-for-all best 1292, last
 1268, rl10 1242, ace 1180; teams ace 1495, hard 1408, last 1389, best 1292,
 rl10 1283.
+
+### What the teammate is up to (observation 209 → 219)
+
+Ten numbers at the end of each row: the nearest teammate's job (attack, mark,
+guard) and whether it is after the same rival, and the spot 120 px ahead of the
+rival carrier nearest home on its way home, with whether a teammate is nearer
+that carrier, so one can press from behind while the other gets in front, as
+the ace bots split up. Policies from before read only the first 209 and play as
+they did; a run resumed from one starts the new inputs at zero weight.
+
+    python3 rl/train.py --name rl16 --resume rl/runs/rl15/policy.pt --frame-skip 2 --minutes 480 --teams 0.8 --bot-levels 2 3 --bot-env 0.7 --entropy 0.003 --lr 1e-4 --rivals rl/runs/rl10/policy.pt rl/runs/rl13/policy.pt rl/runs/rl14/policy.pt rl/runs/rl15/policy.pt
