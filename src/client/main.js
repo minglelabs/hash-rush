@@ -905,6 +905,21 @@ function guestData(conn, msg) {
     return;
   }
   if (!slot) return;
+  if (msg.t === 'stand') {
+    // A player gives up the seat to watch instead, in the lobby only.
+    if (game && game.phase !== 'over' && !$('stage').hidden) return;
+    relayChat({ sys: 'leave', name: slot.name, look: -1, text: '', who: conn.peer });
+    conn.watchName = slot.name;
+    conn.hello = { ...(conn.hello || {}), name: slot.name, pid: slot.pid, pub: slot.pub };
+    slot.conn = null;
+    slot.kind = 'open';
+    slot.name = defaultName(slots.indexOf(slot));
+    net.watchers.push(conn);
+    renderLobby();
+    sendLobby();
+    relayChat({ sys: 'join', name: conn.watchName, look: -1, text: '', who: conn.peer });
+    return;
+  }
   if (msg.t === 'handoverOk') {
     if (net.handover === slots.indexOf(slot)) leaveForHeir();
     return;
@@ -973,17 +988,28 @@ function forEachGuest(fn) {
 
 // Who is watching, by name: the host knows from its connections, a guest from the lobby.
 function spectNames() {
-  return net.role === 'host' ? net.watchers.map((c) => c.watchName) : net.spect || [];
+  if (net.role !== 'host') return net.spect || [];
+  // The host watching from its own seat is one of them too.
+  const host = slots[0].kind === 'closed' ? [slots[0].name.trim() || t('spectatorName')] : [];
+  return [...host, ...net.watchers.map((c) => c.watchName)];
 }
 
 // The spectators' names, in the lobby and over a round, and for a spectator a
 // button to take a free seat: now in the lobby, from the next round mid-game.
 function syncSpect() {
   const names = spectNames();
-  const open = net.role === 'guest' && net.you < 0 && (net.lobby || []).some((s) => s.kind === 'open');
+  const host = net.role === 'host';
+  const open = (net.role === 'guest' && net.you < 0 && (net.lobby || []).some((s) => s.kind === 'open')) || (host && slots[0].kind === 'closed');
+  // In the lobby a player can stand up to watch instead.
+  const stand = $('stage').hidden && (net.role === 'guest' ? net.you >= 0 : host && slots[0].kind === 'human');
   for (const id of ['spectLobby', 'spectGame']) {
     const box = $(id);
-    box.hidden = !net.role || (!names.length && !open);
+    box.hidden = !net.role || (!names.length && !open && !(stand && id === 'spectLobby'));
+    const up = box.querySelector('.stand');
+    if (up) {
+      up.hidden = !stand;
+      up.textContent = t('standUp');
+    }
     box.querySelector('span').textContent = names.length ? `👀 ${t('spectators', names.length)}: ${names.join(', ')}` : '';
     const sit = box.querySelector('.sit');
     sit.hidden = !open;
@@ -991,7 +1017,11 @@ function syncSpect() {
   }
   if (!$('stage').hidden && meId < 0) $('watching').textContent = t(net.role === 'guest' && net.you >= 0 ? 'watchThisRound' : 'spectating');
 }
-for (const b of document.querySelectorAll('.spect .sit')) b.addEventListener('click', () => net.host && net.host.send({ t: 'sit' }));
+for (const b of document.querySelectorAll('.spect .sit'))
+  b.addEventListener('click', () => (net.role === 'host' ? setKind(slots[0], 'human') : net.host && net.host.send({ t: 'sit' })));
+$('spectLobby')
+  .querySelector('.stand')
+  .addEventListener('click', () => (net.role === 'host' ? setKind(slots[0], 'closed') : net.host && net.host.send({ t: 'stand' })));
 
 function sendLobby() {
   if (net.role !== 'host') return;

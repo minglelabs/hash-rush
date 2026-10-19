@@ -882,7 +882,8 @@ body:has(#result:not([hidden])) #throw {
   font-size: 0.85em;
 }
 
-.spect .sit {
+.spect .sit,
+.spect .stand {
   margin-left: 0.4em;
 }
 
