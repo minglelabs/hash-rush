@@ -2958,3 +2958,9 @@ html:not(.tall) #tools.open #toolsMenu {
 #chatBar .quick button {
   background: rgba(255, 255, 255, 0.75);
 }
+
+/* The round's chat lines stay on top of whatever covers the map: the pause, the
+   score table, the round's result and the champion's card. */
+#gameChat {
+  z-index: 16;
+}
