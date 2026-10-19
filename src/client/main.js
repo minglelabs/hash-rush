@@ -6,8 +6,8 @@
 // played a little ahead so that it answers at once (predict.js).
 
 import { createGame, step, allied, inHome, timeoutReason, timeoutWinners } from '../sim/game.js';
-import { DT, OVERTIME, COUNTDOWN, BONK } from '../sim/constants.js';
-import { MAP, MAPS, MAP_IDS } from '../sim/map.js';
+import { DT, OVERTIME, COUNTDOWN, BONK, HAMSTER_R } from '../sim/constants.js';
+import { MAP, MAPS, MAP_IDS, isFree } from '../sim/map.js';
 import { createBot } from '../ai/bot.js';
 import { createRLBot, loadRLPolicy } from '../ai/rl-bot.js';
 import { createRenderer, drawHamster, drawSeed, nearHome } from './render.js';
@@ -1147,6 +1147,7 @@ function hostData(msg) {
     net.round = msg.g;
     net.match = typeof msg.mid === 'string' ? { id: msg.mid, at: Number(msg.at) || 0 } : null;
     net.snap = null;
+    others.clear();
     net.tick = -1;
     net.mine = null;
     predictor.reset();
@@ -1190,7 +1191,9 @@ function hostData(msg) {
       game.hazards = (msg.hz || []).map(([kind, x, y, dx, dy, age]) => ({ kind, x, y, dx, dy, age }));
       game.winners = msg.ws || [];
       game.timeout = !!msg.to;
+      const drawn = game.players.map((p) => ({ x: p.x, y: p.y }));
       msg.p.forEach((s, i) => readPlayer(game.players[i], s));
+      heardOthers(drawn);
       net.snap = msg;
       if (msg.k >= 0) {
         net.tick = msg.k;
@@ -2238,6 +2241,7 @@ function frame(now) {
       }
       playAhead(at);
     }
+    drawOthers(dt);
   } else if (paused) {
     acc = 0;
   } else {
@@ -2295,6 +2299,45 @@ function fadeOverHamsters() {
       });
     el.classList.toggle('under', under);
   }
+}
+
+// Everyone else on a guest's screen. Snapshots come about once a frame, but one
+// can be late or lost on the way, and drawing each as it lands then stops the
+// others dead for a moment and jumps them on. So between snapshots they carry on
+// at the speed the last one gave them (for a tenth of a second at most, and never
+// into a wall), and where a new one puts them a little elsewhere, the gap closes
+// over a few frames instead of at once. A big jump (a respawn, a portal) is taken
+// as it is.
+const others = new Map();
+function heardOthers(drawn) {
+  const at = performance.now() / 1000;
+  game.players.forEach((p, id) => {
+    if (id === meId) return;
+    const was = others.get(id);
+    const ox = was ? drawn[id].x - p.x : 0;
+    const oy = was ? drawn[id].y - p.y : 0;
+    const near = Math.hypot(ox, oy) < 40;
+    others.set(id, { x: p.x, y: p.y, at, ox: near ? ox : 0, oy: near ? oy : 0 });
+  });
+}
+function drawOthers(dt) {
+  const at = performance.now() / 1000;
+  const ease = Math.exp(-dt / 0.07);
+  game.players.forEach((p, id) => {
+    const o = others.get(id);
+    if (id === meId || !o) return;
+    const e = Math.min(0.1, at - o.at);
+    let x = o.x + p.vx * e;
+    let y = o.y + p.vy * e;
+    if (!isFree(game.map, x, y, HAMSTER_R * 0.8)) {
+      x = o.x;
+      y = o.y;
+    }
+    o.ox *= ease;
+    o.oy *= ease;
+    p.x = x + o.ox;
+    p.y = y + o.oy;
+  });
 }
 
 // Draws a guest's own hamster where its inputs have taken it by now, ahead of the

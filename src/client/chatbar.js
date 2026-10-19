@@ -390,7 +390,11 @@ export function createChat({ send, lines, quick = [], placeholder = '', empty = 
   // Enter opens the bar anywhere, the way it does in most games.
   window.addEventListener('keydown', (e) => {
     if (e.code !== 'Enter' || !enterOpens()) return;
-    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLButtonElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLAnchorElement) return;
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
+    // A button or link keeps the focus after a click with the mouse, and Enter
+    // would press it again; only one reached with the keyboard (Tab) keeps Enter.
+    if ((e.target instanceof HTMLButtonElement || e.target instanceof HTMLAnchorElement) && e.target.matches(':focus-visible')) return;
+    if (e.target instanceof HTMLElement && e.target !== document.body) e.target.blur();
     e.preventDefault();
     toggle(true);
   });
