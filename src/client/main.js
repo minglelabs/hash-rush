@@ -817,6 +817,21 @@ function welcome(conn, msg, sitting = false) {
   const said = String(msg.name || '');
   const pid = typeof msg.pid === 'string' && /^[A-Za-z0-9_-]{16}$/.test(msg.pid) ? msg.pid : '';
   const who = pid || `n:${said}`;
+  // The same browser back again (a reload, a dropped line) while its old connection
+  // has not yet been noticed gone: that one is let go first, so it leaves no
+  // hamster behind and the name does not come back with a 2 on it.
+  if (pid) {
+    const stale = [...slots.filter((s) => s.kind === 'remote' && s.conn && s.conn !== conn && s.pid === pid).map((s) => s.conn), ...net.watchers.filter((c) => c !== conn && c.hello?.pid === pid)];
+    for (const old of stale) {
+      guestLeft(old);
+      old.kicked = true;
+      try {
+        old.close();
+      } catch {
+        // already gone
+      }
+    }
+  }
   const free = msg.watch ? [] : slots.filter((s) => s.kind === 'open');
   const slot = free.find((s) => owners[slots.indexOf(s)] === who) || free.find((s) => s.held && s.held === said) || free.find((s) => !s.held) || free[0];
   // Somebody the room has not seen before is pointed out to everyone.
