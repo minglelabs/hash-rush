@@ -3013,3 +3013,9 @@ html:not(.tall) #tools.open #toolsMenu {
 .chat .chatLog::-webkit-scrollbar {
   display: none;
 }
+
+/* Outside a round there is no map to keep in view: the chat button stands out. */
+body:not(:has(#stage:not([hidden]))) #chatFab {
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
