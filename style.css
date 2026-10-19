@@ -3002,3 +3002,14 @@ html:not(.tall) #tools.open #toolsMenu {
     z-index: 35;
   }
 }
+
+/* The conversation scrolls by touch, drag and wheel, with no scroll bar showing. */
+#chatHistory,
+.chat .chatLog {
+  scrollbar-width: none;
+}
+
+#chatHistory::-webkit-scrollbar,
+.chat .chatLog::-webkit-scrollbar {
+  display: none;
+}
