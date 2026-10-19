@@ -1270,16 +1270,19 @@ body:has(#result:not([hidden])) #throw {
   pointer-events: none;
 }
 
+/* Plain to see over any map, so a first-time player finds it at once; it only
+   fades while a hamster runs under it. */
 #pad path {
-  fill: rgba(255, 255, 255, 0.12);
-  stroke: rgba(255, 255, 255, 0.4);
-  stroke-width: 1.2;
+  fill: rgba(255, 255, 255, 0.32);
+  stroke: rgba(40, 30, 20, 0.45);
+  stroke-width: 1.4;
   stroke-linejoin: round;
 }
 
 #pad .arrow {
-  fill: rgba(255, 255, 255, 0.6);
-  stroke: none;
+  fill: rgba(255, 255, 255, 0.95);
+  stroke: rgba(40, 30, 20, 0.55);
+  stroke-width: 1;
 }
 
 #pad[data-y='-1'] .u path,
