@@ -2964,3 +2964,33 @@ html:not(.tall) #tools.open #toolsMenu {
 #gameChat {
   z-index: 16;
 }
+
+/* On a phone the buttons are the only way to play: a hamster under one dims it
+   only by half, and once the round is over they stand out over the dimmed map,
+   the chat button above everything. */
+@media (pointer: coarse) {
+  #pad.under,
+  #bonk.under,
+  #throw.under,
+  #chatFab.under,
+  #scoreBtn.under,
+  #toolsMore.under,
+  #againBtn.under {
+    filter: opacity(0.5);
+  }
+
+  #chatFab {
+    background: rgba(255, 255, 255, 0.55);
+  }
+
+  .ended:has(#stage:not([hidden])) #chatFab,
+  .ended:has(#stage:not([hidden])) #tools #toolsMore,
+  .ended:has(#stage:not([hidden])) #scoreBtn {
+    background: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  }
+
+  .ended:has(#stage:not([hidden])) #chatFab {
+    z-index: 35;
+  }
+}

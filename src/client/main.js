@@ -2285,7 +2285,11 @@ function fadeOverHamsters() {
   const spots = game.players.map((p) => renderer.toScreen(p.x, p.y));
   // Lines being read back stay as they are.
   const said = $('gameChat').classList.contains('browse') ? [] : $('gameChat').querySelectorAll('.chatLog div');
-  const els = [...OVER_MAP.map($), ...said];
+  // Once the round is over the buttons are what is left to press: they stay clear.
+  const over = game.phase === 'over';
+  document.body.classList.toggle('ended', over);
+  const els = [...(over ? [] : OVER_MAP.map($)), ...said];
+  if (over) for (const id of OVER_MAP) $(id)?.classList.remove('under');
   const lines = new Set(said);
   for (const el of els) {
     if (!el) continue;
