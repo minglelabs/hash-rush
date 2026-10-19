@@ -1465,8 +1465,8 @@ $('backToGame').addEventListener('click', backToGame);
 // ---------- pause ----------
 // The host can stop the round for everyone and start it again; guests just see it.
 let paused = false;
-$('field').insertAdjacentHTML('beforeend', '<div id="pause" hidden><b id="pauseWord"></b><p id="pauseBy"></p><button id="resume" class="primary"></button></div>');
-$('boardBtn').insertAdjacentHTML('beforebegin', '<button id="pauseBtn">⏸</button>');
+$('field').insertAdjacentHTML('beforeend', '<div id="pause" hidden><b id="pauseWord"></b><p id="pauseBy"></p><button id="resume" class="primary noEnter" tabindex="-1"></button></div>');
+$('boardBtn').insertAdjacentHTML('beforebegin', '<button id="pauseBtn" class="noEnter" tabindex="-1">⏸</button>');
 
 function showPause(on, by = '') {
   paused = on;
