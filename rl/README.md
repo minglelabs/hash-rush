@@ -200,3 +200,9 @@ in 70% of the rounds: it learns from playing them, without copying them
 (`--kick` made rl14 copy the ace and it fell below a fair share within 15 minutes).
 
     python3 rl/train.py --name rl14 --resume rl/runs/rl10/policy.pt --frame-skip 2 --minutes 480 --teams 0.6 --bot-levels 2 3 --bot-env 0.7 --entropy 0.003 --lr 1e-4 --rivals rl/runs/rl9/policy.pt rl/runs/rl10/policy.pt rl/runs/rl11/policy.pt rl/runs/rl13/policy.pt
+
+rl14 (the command above, 480 minutes from rl10 at 2 ticks, sparring only with
+the hard and ace bots) is in the game: its best stretch for free-for-all, its
+last weights for teams. Elo, 600 rounds a mode: free-for-all best 1292, last
+1268, rl10 1242, ace 1180; teams ace 1495, hard 1408, last 1389, best 1292,
+rl10 1283.
