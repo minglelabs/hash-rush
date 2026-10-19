@@ -24,7 +24,11 @@ const OTHER = 13;
 // The first policies saw only this much; team play was added after it.
 const BASE_OBS = SELF + WORLD_F + NAV + RAYS + HAZARDS * HAZARD_F + GATES * GATE_F + (MAX_P - 1) * OTHER;
 const TEAM_F = 10;
-export const OBS = BASE_OBS + TEAM_F;
+// What the nearest teammate is up to, and where to cut off the rival carrier
+// nearest home: added after TEAM_F, so the policies before it read only the
+// numbers they know and carry on as they were.
+const MATE_F = 10;
+export const OBS = BASE_OBS + TEAM_F + MATE_F;
 const HAZARD_KINDS = ['trap', 'cannon', 'wave'];
 export const DIRS = [[0, 0], ...Array.from({ length: 8 }, (_, k) => [Math.cos((k * Math.PI) / 4), Math.sin((k * Math.PI) / 4)])];
 
@@ -144,6 +148,31 @@ function hint(F, dist, x, y, out, at) {
   out[at] = bx / len;
   out[at + 1] = by / len;
   out[at + 2] = Math.min(1, (dist[i] * CELL) / 1000);
+}
+
+// Where `p` will be after walking `px` pixels down `dist`'s slope: a carrier's
+// way home a little ahead of it, the spot to cut it off at.
+function ahead(F, dist, p, px) {
+  let i = cellOf(F, p.x, p.y);
+  if (i < 0 || dist[i] === Infinity) return { x: p.x, y: p.y };
+  for (let step = 0; step < px / CELL; step++) {
+    const c = i % F.cols;
+    const r = (i - c) / F.cols;
+    let next = i;
+    for (let dr = -1; dr <= 1; dr++) {
+      for (let dc = -1; dc <= 1; dc++) {
+        const nc = c + dc;
+        const nr = r + dr;
+        if ((!dr && !dc) || nc < 0 || nr < 0 || nc >= F.cols || nr >= F.rows) continue;
+        const j = nr * F.cols + nc;
+        if (dist[j] < dist[next]) next = j;
+      }
+    }
+    if (next === i) break;
+    i = next;
+  }
+  const c = i % F.cols;
+  return { x: (c + 0.5) * CELL, y: ((i - c) / F.cols + 0.5) * CELL };
 }
 
 export const fieldAt = (F, dist, p) => {
@@ -345,6 +374,35 @@ export function observe(g, out, at = 0) {
       out[o + 7] = (mark.y - me.y) / WORLD.h;
       out[o + 8] = fieldAt(F, F.home, mark);
       out[o + 9] = Math.min(1, Math.hypot(mark.x - me.x, mark.y - me.y) / 1000);
+    }
+
+    // The nearest teammate's job and whether it is after the same rival, and the
+    // spot ahead of the rival carrier nearest home where its way home can be cut
+    // off, with whether a teammate is nearer that carrier: one presses from
+    // behind, the other gets in front.
+    o = base + BASE_OBS + TEAM_F;
+    if (me.team < 0) continue;
+    const all = jobs(g);
+    let mate = null;
+    for (const p of players) if (p !== me && p.team === me.team && (!mate || Math.hypot(p.x - me.x, p.y - me.y) < Math.hypot(mate.x - me.x, mate.y - me.y))) mate = p;
+    if (mate) {
+      const theirs = all[mate.id];
+      out[o] = 1;
+      out[o + 1] = theirs.job === 'attack' ? 1 : 0;
+      out[o + 2] = theirs.job === 'mark' ? 1 : 0;
+      out[o + 3] = theirs.job === 'guard' ? 1 : 0;
+      out[o + 4] = theirs.mark && theirs.mark === mark ? 1 : 0;
+    }
+    let carrier = null;
+    for (const p of players) if (p.carrying && !allied(p, me) && (!carrier || fieldAt(F, F.home, p) < fieldAt(F, F.home, carrier))) carrier = p;
+    if (carrier) {
+      const cut = ahead(F, F.home, carrier, 120);
+      out[o + 5] = (cut.x - me.x) / WORLD.w;
+      out[o + 6] = (cut.y - me.y) / WORLD.h;
+      out[o + 7] = Math.min(1, Math.hypot(cut.x - me.x, cut.y - me.y) / 1000);
+      const mine = Math.hypot(carrier.x - me.x, carrier.y - me.y);
+      out[o + 8] = players.some((p) => p !== me && p.team === me.team && Math.hypot(carrier.x - p.x, carrier.y - p.y) < mine) ? 1 : 0;
+      out[o + 9] = fieldAt(F, F.home, carrier);
     }
   }
 }
