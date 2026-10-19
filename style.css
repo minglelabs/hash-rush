@@ -2932,3 +2932,18 @@ html:not(.tall) #tools.open #toolsMenu {
     transform: none;
   }
 }
+
+/* With a mouse the bar is a panel in the bottom left corner, as wide as the
+   conversation floating above it, not a strip across the whole screen. */
+@media (pointer: fine) {
+  #chatBar {
+    left: max(16px, env(safe-area-inset-left));
+    right: auto;
+    width: min(420px, calc(100vw - 32px));
+    border-radius: 16px 16px 0 0;
+  }
+
+  #lobbyChat {
+    width: min(420px, calc(100vw - 32px));
+  }
+}
