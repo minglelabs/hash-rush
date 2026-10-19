@@ -2236,6 +2236,8 @@ html.tall {
 
 #board .card {
   position: relative;
+  box-sizing: border-box;
+  max-width: calc(100% - 12px);
   padding: 14px 44px 14px 20px;
   min-width: min(380px, 90%);
 }
@@ -2252,7 +2254,12 @@ html.tall {
   line-height: 1;
 }
 
+/* A table wider than the map scrolls sideways inside the card, so the card (and
+   its close button) always stays on the screen. */
 #board .scoreTable {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
   margin-bottom: 0;
 }
 
