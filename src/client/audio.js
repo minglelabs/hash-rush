@@ -37,8 +37,9 @@ export function createAudio() {
     }
   }
 
+  // A page out of sight keeps its round going but stays quiet, as the music does.
   function tone({ f, to = f, dur = 0.12, type = 'sine', vol = 0.12, at = 0 }) {
-    if (muted || !ctx) return;
+    if (muted || !ctx || document.hidden) return;
     const t0 = ctx.currentTime + at;
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
@@ -53,7 +54,7 @@ export function createAudio() {
   }
 
   function noise({ dur = 0.08, vol = 0.1, cutoff = 800 }) {
-    if (muted || !ctx) return;
+    if (muted || !ctx || document.hidden) return;
     const len = Math.ceil(ctx.sampleRate * dur);
     const buf = ctx.createBuffer(1, len, ctx.sampleRate);
     const data = buf.getChannelData(0);
@@ -162,7 +163,7 @@ export function createAudio() {
     },
     // A crowd going "waaah": a swell of voice-band noise with clapping scattered through it.
     cheer: () => {
-      if (muted || !ctx) return;
+      if (muted || !ctx || document.hidden) return;
       const dur = 4.5;
       const len = Math.ceil(ctx.sampleRate * dur);
       const buf = ctx.createBuffer(1, len, ctx.sampleRate);
