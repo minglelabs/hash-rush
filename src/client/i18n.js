@@ -2,7 +2,7 @@
 // get their own language; everyone else gets English. `?lang=ja` overrides the
 // browser setting, which is handy for checking a translation.
 
-const TOUCH = (text) => `<span class="touch-only">· ${text}</span>`;
+const TOUCH = (text) => `<span class="touch-only"> · ${text}</span>`;
 
 // Picks the right Korean subject particle for a name: 구름이 / 초코가.
 function koSubject(name) {
@@ -20,8 +20,8 @@ const STRINGS = {
     needOpponent: '상대가 한 명은 있어야 해요',
     howto: '놀이 방법',
     how: [
-      `<b>이동</b> WASD · 방향키 ${TOUCH('화면의 방향키 · 맵을 스와이프하면 그쪽으로 계속, 톡 치면 멈춤')}`,
-      `<b>꿀밤</b> Space ${TOUCH('꿀밤 버튼')}`,
+      `<b>이동</b> WASD · 방향키${TOUCH('화면의 방향키 · 맵을 스와이프하면 그쪽으로 계속, 톡 치면 멈춤')}`,
+      `<b>꿀밤</b> Space${TOUCH('꿀밤 버튼')}`,
       '해바라기 옆에 <b>가만히 2초</b> 서 있으면 씨를 물어요. 한 번에 한 마리만! 움직이거나 꿀밤을 치면 처음부터.',
       '씨를 문 채 집 안으로 들어가면 승리.',
       '해바라기 근처의 <b>🌀 포탈</b>은 집으로 순간이동만 시켜줘요. 집이 아니에요! 씨를 물고는 못 타요. 앞서간 상대를 집 앞에서 막을 때!',
@@ -31,7 +31,7 @@ const STRINGS = {
       '40초가 지나면 <b>연장전</b>! 집이 해바라기 쪽으로 넓어지고, 씨가 점점 빨리 나오고(1초까지), 쓰러지면 둥지에서 1.5초 <b>기절</b>해요. 1분 10초부터는 집이 해바라기까지 빠르게 밀려와서, 거기서 씨를 물면 바로 승리!',
       '<b>팀전</b>에서는 같은 팀끼리 꿀밤이 안 맞고 서로 지나갈 수 있어요. 팀원 한 마리만 씨를 물고 집에 와도 팀 승리! 3:2처럼 인원이 달라도 돼요. 단, 팀원끼리 <b>겹쳐 있다가</b> 한 마리가 맞으면 겹친 팀원이 모두 같이 맞아요!',
       '<b>1분 45초</b>까지 아무도 씨를 못 가져오면 <b>꿀밤을 가장 많이 성공한</b> 햄스터가 그 판을 이겨요. 같으면 덜 맞은 쪽, 그것도 같으면 씨를 더 많이 문 쪽, 그래도 같으면 공동 1승!',
-      `씨를 물고 있을 때 <b>F(또는 K)를 꾹 눌렀다 떼면</b> 바라보는 방향으로 씨를 던져요 ${TOUCH('던지기 버튼을 눌렀다 떼면')}. 햄스터 네 마리 거리 안의 상대가 전부 쓰러져요. 대신 씨는 사라져요!`,
+      `씨를 물고 있을 때 <b>F(또는 K)를 꾹 눌렀다 떼면</b> 바라보는 방향으로 씨를 던져요${TOUCH('던지기 버튼을 눌렀다 떼면')}. 햄스터 네 마리 거리 안의 상대가 전부 쓰러져요. 대신 씨는 사라져요!`,
       '<b>10승</b>을 먼저 채운 햄스터가 <b>🏆 우승</b>! 승수는 팀이 아니라 햄스터별로 세고, 같은 승수로 함께 도달하면 공동 우승이에요. 우승이 나오면 로비로 돌아가 전적이 처음부터 다시 시작되고, 지난 기록은 방이 없어질 때까지 로비에 남아요.',
       '맵마다 길과 위험이 달라요. <b>사막</b> 두더지 함정, <b>공장</b> 씨 대포, <b>해변</b> 파도(젖으면 느려져요), <b>얼음</b> 미끄러운 바닥, <b>묘지</b> 움직이는 철창. 전부 나오기 전에 표시가 먼저 떠요!',
     ],
@@ -129,6 +129,7 @@ const STRINGS = {
     rankStopped: '중도 종료(그 시점 판정)',
     rankNote: '컴퓨터와 한 판도 레이팅에 들어가요. 컴퓨터는 레벨마다 한 줄(초보·중수·고수·초고수·RL)로 묶여요. 판은 모두 셉니다. 중간에 끝낸 판은 그 순간 꿀밤 수 판정으로 반영되고, 사람끼리 한 판은 판에 있던 사람 모두가 결과에 서명해야 반영돼요. 이름이 같은 다른 사람은 랭킹에 들어온 순서대로 이름 뒤에 2, 3…이 붙어요. 기록과 내 열쇠는 이 브라우저에만 저장돼서, 브라우저 데이터를 지우면 새로 시작해요.',
     roomOf: (name) => `${name}의 방`,
+    roomAnon: '햄스터의 방',
     roomWaiting: '대기 중',
     roomMine: '내가 있는 방',
     roomPlaying: '게임 중',
@@ -255,8 +256,8 @@ const STRINGS = {
     needOpponent: 'You need at least one opponent',
     howto: 'How to play',
     how: [
-      `<b>Move</b> WASD · arrow keys ${TOUCH('on-screen arrows · swipe the map to keep going that way, tap to stop')}`,
-      `<b>Bonk</b> Space ${TOUCH('Bonk button')}`,
+      `<b>Move</b> WASD · arrow keys${TOUCH('on-screen arrows · swipe the map to keep going that way, tap to stop')}`,
+      `<b>Bonk</b> Space${TOUCH('Bonk button')}`,
       '<b>Stand still for 2 seconds</b> next to the sunflower to grab a seed. One hamster at a time! Moving or bonking starts you over.',
       'Carry the seed into the burrow to win.',
       'A <b>🌀 portal</b> near the sunflower only warps you back home: it is not home itself, and it does not work while carrying a seed. Use it to cut off whoever is ahead!',
@@ -266,7 +267,7 @@ const STRINGS = {
       'After 40 seconds it is <b>overtime</b>: the burrow spreads towards the sunflower, seeds come loose quicker and quicker (down to a second), and a knock-out leaves you <b>dazed</b> at your nest for 1.5 seconds. From 1:10 the burrow rushes all the way to the sunflower, and a seed picked there wins on the spot!',
       'In <b>team play</b> team-mates cannot bonk each other and can walk through one another. One team-mate bringing a seed home wins it for the whole team. Uneven sides like 3 v 2 are fine. But if team-mates are <b>standing inside each other</b> and one is bonked, everyone overlapping goes down with it!',
       'If nobody brings a seed home by <b>1:45</b>, the hamster with the <b>most bonks</b> wins the round. If level, the one bonked least; then the one who picked the most seeds; still level, they share the win!',
-      `With a seed, <b>hold F (or K) and let go</b> to throw it the way you face ${TOUCH('hold and release the Throw button')}. Every rival within four hamsters goes down, but the seed is gone!`,
+      `With a seed, <b>hold F (or K) and let go</b> to throw it the way you face${TOUCH('hold and release the Throw button')}. Every rival within four hamsters goes down, but the seed is gone!`,
       'The first hamster to <b>10 wins</b> is the <b>🏆 champion</b>! Wins are counted per hamster, not per team, and hamsters who get there level share the title. Then everyone goes back to the lobby and the scores start over; past results stay in the lobby until the room is gone.',
       'Every map has its own lanes and its own trouble: mole pits in the <b>desert</b>, seed cannons in the <b>factory</b>, waves on the <b>beach</b> (wet is slow), slippery floor on the <b>ice</b>, sliding gates in the <b>graveyard</b>. Each gives a warning first!',
     ],
@@ -364,6 +365,7 @@ const STRINGS = {
     rankStopped: 'cut short (judged as it stood)',
     rankNote: 'Games against computers count too; computers are one row per level (Rookie, Skilled, Master, Grandmaster, RL). Every game counts: one cut short is judged as it stood, and a game between people counts once everyone in it has signed the result. Different people with the same name get 2, 3… after it, in the order they joined the ranking. Your record and key live in this browser only: clear its data and you start over.',
     roomOf: (name) => `${name}'s room`,
+    roomAnon: "A hamster's room",
     roomWaiting: 'Waiting',
     roomMine: 'You are here',
     roomPlaying: 'Playing',
@@ -490,8 +492,8 @@ const STRINGS = {
     needOpponent: '相手が1匹は必要です',
     howto: 'あそびかた',
     how: [
-      `<b>移動</b> WASD · 矢印キー ${TOUCH('画面の矢印キー · マップをスワイプでその方向へ進み続け、タップで止まる')}`,
-      `<b>ゲンコツ</b> Space ${TOUCH('ゲンコツボタン')}`,
+      `<b>移動</b> WASD · 矢印キー${TOUCH('画面の矢印キー · マップをスワイプでその方向へ進み続け、タップで止まる')}`,
+      `<b>ゲンコツ</b> Space${TOUCH('ゲンコツボタン')}`,
       'ひまわりのそばで<b>じっと2秒</b>立つと種をくわえます。一度に1匹だけ！動いたりゲンコツを打つと最初から。',
       '種をくわえたまま巣に入れば勝ち。',
       'ひまわりの近くの<b>🌀 ポータル</b>は巣へワープするだけで、巣ではありません（種をくわえていると使えません）。先に行った相手を巣の前で止めよう！',
@@ -501,7 +503,7 @@ const STRINGS = {
       '40秒たつと<b>延長戦</b>！巣がひまわりのほうへ広がり、種がだんだん早く取れるようになり（1秒まで）、倒されると巣で1.5秒<b>気絶</b>します。1分10秒からは巣がひまわりまで一気に押し寄せ、そこで種を取ればその場で勝ち！',
       '<b>チーム戦</b>では味方にゲンコツは当たらず、すり抜けられます。味方の1匹が種を持ち帰ればチームの勝ち。3対2のように人数が違ってもOK。ただし味方同士が<b>重なっている</b>ときに1匹が叩かれると、重なった味方も全員やられます！',
       '<b>1分45秒</b>までに誰も種を持ち帰れなければ、<b>げんこつを一番多く決めた</b>ハムスターの勝ち。同じなら叩かれた回数が少ない方、それも同じなら種を多く取った方、それでも同じなら同点勝利！',
-      `種をくわえているとき、<b>F(またはK)を長押しして離す</b>と向いている方向に種を投げます ${TOUCH('投げるボタンを押して離す')}。ハムスター4匹分の距離にいる相手が全員やられます。ただし種はなくなります！`,
+      `種をくわえているとき、<b>F(またはK)を長押しして離す</b>と向いている方向に種を投げます${TOUCH('投げるボタンを押して離す')}。ハムスター4匹分の距離にいる相手が全員やられます。ただし種はなくなります！`,
       '先に<b>10勝</b>したハムスターが<b>🏆 優勝</b>！勝利数はチームではなくハムスターごとに数え、同じ勝利数で並んだら同時優勝です。優勝が決まるとロビーに戻って成績がリセットされ、過去の記録はルームがなくなるまでロビーに残ります。',
       'マップごとに道と危険が違います。<b>砂漠</b>はモグラの落とし穴、<b>工場</b>は種の大砲、<b>ビーチ</b>は波（ぬれると遅くなる）、<b>氷</b>はすべる床、<b>墓地</b>は動く鉄格子。どれも出る前に予告が出ます！',
     ],
@@ -599,6 +601,7 @@ const STRINGS = {
     rankStopped: '途中終了（その時点で判定）',
     rankNote: 'コンピューターとの試合もレートに入ります。コンピューターはレベルごとに1行（初心者・中級者・上級者・達人・RL）にまとまります。試合はすべて数えます。途中で終えた試合はその時点の判定で反映され、人どうしの試合は全員が結果に署名すると反映されます。同じ名前の別の人は、ランキングに入った順に名前の後ろに2、3…が付きます。記録と鍵はこのブラウザにだけ保存されるので、データを消すと最初からになります。',
     roomOf: (name) => `${name}のルーム`,
+    roomAnon: 'ハムスターのルーム',
     roomWaiting: '待機中',
     roomMine: 'いまいるルーム',
     roomPlaying: 'プレイ中',
@@ -725,8 +728,8 @@ const STRINGS = {
     needOpponent: '至少需要一个对手',
     howto: '玩法',
     how: [
-      `<b>移动</b> WASD · 方向键 ${TOUCH('屏幕上的方向键 · 在地图上滑动就朝那边一直走，点一下停下')}`,
-      `<b>敲头</b> Space ${TOUCH('敲头按钮')}`,
+      `<b>移动</b> WASD · 方向键${TOUCH('屏幕上的方向键 · 在地图上滑动就朝那边一直走，点一下停下')}`,
+      `<b>敲头</b> Space${TOUCH('敲头按钮')}`,
       '在向日葵旁<b>站着不动2秒</b>就能叼到瓜子。一次只能一只！移动或敲头就要重新开始。',
       '叼着瓜子进到窝里就赢。',
       '向日葵附近的<b>🌀 传送门</b>只会把你传送回窝，它本身不是窝（叼着瓜子时不能用）。用它去窝前拦住跑在前面的对手！',
@@ -736,7 +739,7 @@ const STRINGS = {
       '40秒后进入<b>加时赛</b>：窝朝向日葵扩大，瓜子出得越来越快（最快1秒），被敲倒会在窝里<b>晕</b>1.5秒。1分10秒起窝会一路涌到向日葵，在那里拿到瓜子就直接获胜！',
       '<b>团队战</b>中队友之间敲不到，也可以互相穿过。只要一名队友把瓜子带回家，全队获胜。3对2这样人数不同也可以。不过队友<b>叠在一起</b>时只要一只被敲中，叠着的队友会全部一起被敲！',
       '到 <b>1分45秒</b> 还没人把瓜子带回家，就由<b>敲中次数最多</b>的仓鼠赢下这一局。相同则看谁被敲得少，再相同看谁叼到的瓜子多，还相同就并列获胜！',
-      `叼着瓜子时<b>按住 F(或 K)再松开</b>，就会朝面对的方向扔出瓜子 ${TOUCH('按住再松开“扔”按钮')}。四只仓鼠距离内的对手全部倒下，但瓜子也没了！`,
+      `叼着瓜子时<b>按住 F(或 K)再松开</b>，就会朝面对的方向扔出瓜子${TOUCH('按住再松开“扔”按钮')}。四只仓鼠距离内的对手全部倒下，但瓜子也没了！`,
       '最先拿到<b>10胜</b>的仓鼠就是<b>🏆 冠军</b>！胜场按仓鼠计算而不是按队伍，胜场相同一起达成则并列冠军。决出冠军后回到大厅，战绩从头开始，过去的记录会留在大厅直到房间消失。',
       '每张地图的路线和危险都不同：<b>沙漠</b>有鼹鼠陷阱，<b>工厂</b>有瓜子大炮，<b>海滩</b>有海浪（弄湿会变慢），<b>冰原</b>地面打滑，<b>墓地</b>有移动的铁栅栏。出现前都会先有提示！',
     ],
@@ -835,6 +838,7 @@ const STRINGS = {
     rankStopped: '中途结束（按当时判定）',
     rankNote: '和电脑的对局也计入等级分，电脑按难度各占一行（新手、老手、高手、大师、RL）。每局都算：中途结束的对局按当时的情况判定，真人之间的对局要每个人都给结果签名才计入。同名的不同玩家按进入排行榜的先后在名字后加2、3……。战绩和密钥只存在这个浏览器里，清除数据就会重新开始。',
     roomOf: (name) => `${name}的房间`,
+    roomAnon: '仓鼠的房间',
     roomWaiting: '等待中',
     roomMine: '我所在的房间',
     roomPlaying: '游戏中',
@@ -961,8 +965,8 @@ const STRINGS = {
     needOpponent: '至少需要一個對手',
     howto: '玩法',
     how: [
-      `<b>移動</b> WASD · 方向鍵 ${TOUCH('畫面上的方向鍵 · 在地圖上滑動就朝那邊一直走，點一下停下')}`,
-      `<b>敲頭</b> Space ${TOUCH('敲頭按鈕')}`,
+      `<b>移動</b> WASD · 方向鍵${TOUCH('畫面上的方向鍵 · 在地圖上滑動就朝那邊一直走，點一下停下')}`,
+      `<b>敲頭</b> Space${TOUCH('敲頭按鈕')}`,
       '在向日葵旁<b>站著不動2秒</b>就能叼到瓜子。一次只能一隻！移動或敲頭就要重新開始。',
       '叼著瓜子進到窩裡就贏。',
       '向日葵附近的<b>🌀 傳送門</b>只會把你傳送回窩，它本身不是窩（叼著瓜子時不能用）。用它去窩前攔住跑在前面的對手！',
@@ -972,7 +976,7 @@ const STRINGS = {
       '40秒後進入<b>延長賽</b>：窩朝向日葵擴大，瓜子出得越來越快（最快1秒），被敲倒會在窩裡<b>暈</b>1.5秒。1分10秒起窩會一路湧到向日葵，在那裡拿到瓜子就直接獲勝！',
       '<b>團隊戰</b>中隊友之間敲不到，也可以互相穿過。只要一名隊友把瓜子帶回家，全隊獲勝。3對2這樣人數不同也可以。不過隊友<b>疊在一起</b>時只要一隻被敲中，疊著的隊友會全部一起被敲！',
       '到 <b>1分45秒</b> 還沒人把瓜子帶回家，就由<b>敲中次數最多</b>的倉鼠贏下這一局。相同則看誰被敲得少，再相同看誰叼到的瓜子多，還相同就並列獲勝！',
-      `叼著瓜子時<b>按住 F(或 K)再放開</b>，就會朝面對的方向丟出瓜子 ${TOUCH('按住再放開「丟」按鈕')}。四隻倉鼠距離內的對手全部倒下，但瓜子也沒了！`,
+      `叼著瓜子時<b>按住 F(或 K)再放開</b>，就會朝面對的方向丟出瓜子${TOUCH('按住再放開「丟」按鈕')}。四隻倉鼠距離內的對手全部倒下，但瓜子也沒了！`,
       '最先拿到<b>10勝</b>的倉鼠就是<b>🏆 冠軍</b>！勝場按倉鼠計算而不是按隊伍，勝場相同一起達成則並列冠軍。決出冠軍後回到大廳，戰績從頭開始，過去的記錄會留在大廳直到房間消失。',
       '每張地圖的路線和危險都不同：<b>沙漠</b>有鼴鼠陷阱，<b>工廠</b>有瓜子大砲，<b>海灘</b>有海浪（弄濕會變慢），<b>冰原</b>地面打滑，<b>墓地</b>有移動的鐵柵欄。出現前都會先有提示！',
     ],
@@ -1071,6 +1075,7 @@ const STRINGS = {
     rankStopped: '中途結束（按當時判定）',
     rankNote: '和電腦的對局也計入等級分，電腦按難度各佔一行（新手、老手、高手、大師、RL）。每局都算：中途結束的對局按當時的情況判定，真人之間的對局要每個人都給結果簽名才計入。同名的不同玩家按進入排行榜的先後在名字後加2、3……。戰績和金鑰只存在這個瀏覽器裡，清除資料就會重新開始。',
     roomOf: (name) => `${name}的房間`,
+    roomAnon: '倉鼠的房間',
     roomWaiting: '等待中',
     roomMine: '我所在的房間',
     roomPlaying: '遊戲中',

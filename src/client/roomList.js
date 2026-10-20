@@ -1,7 +1,10 @@
 // The list of open rooms, ten a page like the ranking. Used by the room list page
 // and by the list a player can unfold inside a room.
 
-import { t } from './i18n.js';
+import { t, LANGUAGES, stringsFor } from './i18n.js';
+
+// The default name each language gives a player for themself.
+const ME_NAMES = new Set(LANGUAGES.map((code) => stringsFor(code).names[0]));
 import { pager } from './rankPage.js';
 
 const ROOM_PAGE = 10;
@@ -25,7 +28,9 @@ export function createRoomList({ items, status, pages, here = null, base = './' 
   function row(r) {
     const li = document.createElement('li');
     const title = document.createElement('b');
-    title.textContent = `${r.locked ? '🔒 ' : ''}${t('roomOf', r.name || '?')}`;
+    // A host still under the default name for oneself ("Me", "나"…) is nobody's "me" here.
+    const anon = !r.name || ME_NAMES.has(r.name);
+    title.textContent = `${r.locked ? '🔒 ' : ''}${anon ? t('roomAnon') : t('roomOf', r.name)}`;
     const state = document.createElement('span');
     state.className = `badge${r.playing ? ' playing' : ''}`;
     state.textContent = t(r.playing ? 'roomPlaying' : 'roomWaiting');
