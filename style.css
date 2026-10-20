@@ -3076,7 +3076,7 @@ body:not(:has(#stage:not([hidden]))) #chatFab {
 
   #slots li,
   #slotHead {
-    grid-template-columns: 38px 1fr 104px;
+    grid-template-columns: 38px 1fr 120px;
     gap: 4px;
   }
 
@@ -3089,8 +3089,13 @@ body:not(:has(#stage:not([hidden]))) #chatFab {
 
   #slots li.teamed,
   #slotHead.teamed {
-    grid-template-columns: 38px 1fr 30px 92px;
+    grid-template-columns: 38px 1fr 28px 112px;
     gap: 4px;
+  }
+
+  /* The colour dot needs no heading on a phone. */
+  #slotHead.teamed .team {
+    visibility: hidden;
   }
 
   #slotHead {
@@ -3123,4 +3128,22 @@ body:not(:has(#stage:not([hidden]))) #chatFab {
     height: 28px;
     border-radius: 50%;
   }
+}
+
+/* The round's result and the champion's card never run past the screen: a wide
+   table scrolls sideways inside them, and their close buttons stay in reach. */
+#result .card,
+#champ .card {
+  box-sizing: border-box;
+  max-width: calc(100% - 12px);
+}
+
+#result .scoreTable,
+#champStats {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+  overflow-x: auto;
 }
