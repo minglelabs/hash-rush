@@ -2267,11 +2267,26 @@ function updateHud() {
 
 function frame(now) {
   requestAnimationFrame(frame);
+  tick(now);
+}
+
+// A page out of sight gets no animation frames, which would stop the round for
+// everyone in the room the moment its host looked at another tab or app. While
+// hidden, a worker's timer (which browsers do not slow down like the page's own)
+// keeps the round going; nothing is drawn.
+const ticker = new Worker(URL.createObjectURL(new Blob(['let id;onmessage=(e)=>{clearInterval(id);if(e.data)id=setInterval(()=>postMessage(0),16)}'], { type: 'text/javascript' })));
+ticker.onmessage = () => document.hidden && tick(performance.now());
+document.addEventListener('visibilitychange', () => {
+  last = performance.now();
+  ticker.postMessage(document.hidden && net.role !== 'guest');
+});
+
+function tick(now) {
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
   // A round goes on while someone looks in on the lobby; it is only not drawn.
   if (!game) return;
-  const away = $('stage').hidden;
+  const away = $('stage').hidden || document.hidden;
 
   if (net.role === 'guest') {
     // Guests do not simulate the round: send the input, draw the latest snapshot.
