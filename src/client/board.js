@@ -2,7 +2,7 @@
 // ratings it lives on the public broker as retained messages, each signed with
 // the writer's key so nobody can post under somebody else's.
 
-import { identity, publish } from './rank.js';
+import { identity, publish, read, write, heal } from './rank.js';
 import { openBrokers } from './net.js';
 import { pidOf, verify } from './rating.js';
 import { t } from './i18n.js';
@@ -17,38 +17,56 @@ const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2
 
 // ---------- the broker ----------
 
+// What this browser has seen on the board, kept as it came: { topic: payload }.
+// The public brokers forget what they hold now and then (the board was emptied
+// once, as the ranking was); whatever any one browser kept, it puts back.
+const SEEN_STORE = 'hashrush.boardSeen';
+const SEEN_MAX = 1500;
+
 // Everything on the board, checked: posts newest first, each with its comments
 // oldest first and its likes. Rejects if no broker can be reached.
 async function loadBoard() {
   const clients = await openBrokers();
   const raw = new Map();
+  const text = new Map();
+  const had = clients.map(() => new Map());
   const heard = (topic, payload) => {
+    if (!topic.startsWith(`${TOPIC}/`)) return;
+    const said = payload.toString();
     let data;
     try {
-      data = JSON.parse(payload.toString());
+      data = JSON.parse(said);
     } catch {
       return;
     }
     if (typeof data.b !== 'string' || typeof data.s !== 'string') return;
     // The same message off two brokers is one message; a changed like keeps the newest.
     const was = raw.get(topic);
-    if (!was || stamp(data) > stamp(was)) raw.set(topic, data);
+    if (!was || stamp(data) > stamp(was)) {
+      raw.set(topic, data);
+      text.set(topic, said);
+    }
   };
+  for (const [topic, payload] of Object.entries(read(SEEN_STORE, {}))) heard(topic, payload);
   await Promise.all(
-    clients.map((c) => {
-      c.on('message', heard);
+    clients.map((c, i) => {
+      c.on('message', (topic, payload) => {
+        had[i].set(topic, payload.toString());
+        heard(topic, payload);
+      });
       return new Promise((resolve) => c.subscribe(`${TOPIC}/#`, () => setTimeout(resolve, 2500)));
     }),
   );
-  for (const c of clients) c.end(true);
 
   const posts = new Map();
   const comments = [];
   const likes = [];
+  const good = [];
   for (const [topic, data] of raw) {
     const parts = topic.slice(TOPIC.length + 1).split('/');
     const body = await checked(parts, data);
     if (!body) continue;
+    good.push(topic);
     if (parts[0] === 'p') posts.set(`${parts[1]}/${parts[2]}`, { ...body, key: `${parts[1]}/${parts[2]}`, comments: [], likes: new Set() });
     else if (parts[0] === 'c') comments.push({ ...body, post: `${parts[1]}/${parts[2]}` });
     else if (body.on) likes.push({ pid: parts[3], post: `${parts[1]}/${parts[2]}` });
@@ -56,6 +74,10 @@ async function loadBoard() {
   for (const c of comments) posts.get(c.post)?.comments.push(c);
   for (const l of likes) posts.get(l.post)?.likes.add(l.pid);
   for (const p of posts.values()) p.comments.sort((a, b) => a.at - b.at);
+  // What checked out is kept here and put back on whichever broker lacks it.
+  const kept = good.sort((a, b) => stamp(raw.get(a)) - stamp(raw.get(b))).slice(-SEEN_MAX);
+  write(SEEN_STORE, Object.fromEntries(kept.map((topic) => [topic, text.get(topic)])));
+  heal(clients, had, kept.map((topic) => [topic, text.get(topic)]));
   return [...posts.values()].sort((a, b) => b.at - a.at);
 }
 
