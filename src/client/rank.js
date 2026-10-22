@@ -11,14 +11,14 @@ const TOPIC = 'minglelabs/hash-rush/v1/rank';
 const HISTORY_MAX = 200;
 const PID = /^[A-Za-z0-9_-]{16}$/;
 
-const read = (key, fallback) => {
+export const read = (key, fallback) => {
   try {
     return JSON.parse(localStorage.getItem(key)) ?? fallback;
   } catch {
     return fallback;
   }
 };
-const write = (key, value) => {
+export const write = (key, value) => {
   try {
     localStorage.setItem(key, JSON.stringify(value));
   } catch {
@@ -205,7 +205,7 @@ export async function loadRanking() {
 // Puts back on each broker what it was missing, then lets go of it. A few hundred
 // at most per visit; whoever comes next carries on.
 const HEAL_MAX = 300;
-function heal(clients, had, good) {
+export function heal(clients, had, good) {
   clients.forEach((c, i) => {
     // Missing, or holding an older name than the one that counts.
     const missing = good.filter(([topic, payload]) => had[i].get(topic) !== payload).slice(0, HEAL_MAX);
