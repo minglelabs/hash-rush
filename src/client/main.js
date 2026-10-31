@@ -24,7 +24,7 @@ import { createPredictor } from './predict.js';
 import { winRate } from './rankPage.js';
 import { createRoomList } from './roomList.js';
 import { createChat, floatLine, cleanChat, lineLife } from './chatbar.js';
-import { embedMode } from './embed.js';
+import { embedMode, connectApp, phaseOf, bringsKeyboard } from './embed.js';
 
 const $ = (id) => document.getElementById(id);
 const STORE = 'seed-rush-slots';
@@ -193,6 +193,22 @@ const query = new URLSearchParams(location.search);
 const embed = embedMode(query, gameServer(query));
 document.documentElement.classList.toggle('embed', embed);
 const chatName = embed ? String(query.get('name') || '').trim().slice(0, 8) : '';
+// The app hears how things stand here (the page is up, the keyboard, the phase)
+// and says when the page is out of sight, which keeps it quiet as a hidden page
+// is kept, and when a voice call is on, which only the music makes way for.
+const app = embed
+  ? connectApp(window, {
+      visibility: (visible) => {
+        audio.setAway(!visible);
+        if (visible) wakeSound();
+      },
+      voice: (active) => {
+        audio.setVoice(active);
+        wakeSound();
+      },
+    })
+  : null;
+const syncPhase = () => app?.phase(phaseOf(game));
 // The phone controls can be tried out from the address bar, and the phone keeps
 // what it was last given: ?assist=0 turns the lane help off.
 function tuned(name, key) {
@@ -1269,6 +1285,7 @@ function hostData(msg) {
       if (net.mine && meId >= 0) Object.assign(game.players[meId], net.mine);
     }
     for (const ev of msg.ev || []) onEvent(ev);
+    syncPhase();
   } else if (msg.t === 'lobbyscreen') {
     // The host cut the round short: it counts as the host judged it.
     if (Array.isArray(msg.ws) && game && game.phase === 'playing' && !game.rated) {
@@ -1502,6 +1519,13 @@ window.addEventListener('resize', pinHeight);
 window.addEventListener('orientationchange', () => setTimeout(pinHeight, 300));
 // The keyboard may still be on its way down when the box lets go.
 document.addEventListener('focusout', () => setTimeout(pinHeight, 400));
+// Inside the app, the app holds its sheet still while the game's keyboard is up.
+// Focus moving from one box to another passes through the page in between.
+if (app) {
+  const keyboardUp = () => app.keyboard(bringsKeyboard(document.activeElement));
+  document.addEventListener('focusin', keyboardUp);
+  document.addEventListener('focusout', () => setTimeout(keyboardUp, 0));
+}
 
 // ---------- looking in on the lobby ----------
 // Anyone can step out to the lobby and back while the round carries on without
@@ -1650,6 +1674,7 @@ function enterStage() {
   renderer.resize();
   big('3');
   audio.play.count();
+  syncPhase();
 }
 
 function big(text) {
@@ -2573,6 +2598,7 @@ function toLobby() {
   game = null;
   show('lobby');
   announce();
+  syncPhase();
 }
 
 // A room that could not be joined, or was lost, covers the whole page: what is
@@ -2839,6 +2865,13 @@ tryUnlock();
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && !audio.ready()) for (const type of tapEvents) window.addEventListener(type, tryUnlock, true);
 });
+// Inside the app, coming back into sight or a voice call starting or ending can
+// leave the sound asleep the same way: it is woken now if it can be, or by the next tap.
+function wakeSound() {
+  if (audio.ready()) return;
+  for (const type of tapEvents) window.addEventListener(type, tryUnlock, true);
+  tryUnlock();
+}
 
 // iOS ignores user-scalable=no, so stop pinch and double-tap zoom by hand: a zoomed-in
 // page cannot be zoomed back out mid-game.
@@ -2964,6 +2997,9 @@ if (net.role === 'guest') {
   }
   enterRoom(until);
 }
+// Inside the app: the page is up, so the app's loading cover can go.
+app?.ready();
+syncPhase();
 requestAnimationFrame((now) => {
   last = now;
   frame(now);
