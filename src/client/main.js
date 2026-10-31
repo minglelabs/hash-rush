@@ -18,7 +18,7 @@ import { createAudio } from './audio.js';
 import { createHaptics } from './haptics.js';
 import { LOOKS, TEAMS, colorOf, lookOf } from './looks.js';
 import { lang, t, LANGUAGES, stringsFor } from './i18n.js';
-import { hostRoom, joinRoom, announceRoom, watchRooms, randomRoom } from './net.js';
+import { hostRoom, joinRoom, joinServerRoom, gameServer, announceRoom, watchRooms, randomRoom } from './net.js';
 import { identity, shareName, signResult, remember, lastRating, loadRanking } from './rank.js';
 import { createPredictor } from './predict.js';
 import { winRate } from './rankPage.js';
@@ -1099,7 +1099,11 @@ async function enterRoom(until = 0) {
   net.kicked = false;
   renderLobby();
   try {
-    net.host = await joinRoom(joinId, { data: hostData, close: hostGone });
+    // With ?server=… the room runs on the game server (G2); otherwise on a player's browser.
+    const server = gameServer(query);
+    net.host = server
+      ? await joinServerRoom(server, joinId, { data: hostData, close: hostGone })
+      : await joinRoom(joinId, { data: hostData, close: hostGone });
     net.lost = false;
     sayHello();
     net.status = '';
