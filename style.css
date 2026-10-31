@@ -3147,3 +3147,46 @@ body:not(:has(#stage:not([hidden]))) #chatFab {
   margin-right: auto;
   overflow-x: auto;
 }
+
+/* ---------- inside the mingle app (?embed=1, see embed.js) ---------- */
+
+/* The app is the way into the room and out of it, and the page is not a
+   browser's: no room list and no leaving, no home screen, no vibration switch,
+   no pages of its own, no full screen, and no new room when the room is lost.
+   They are gone rather than hidden, so they leave no gap behind. */
+html.embed #roomBtns,
+html.embed #rooms,
+html.embed #menuBtn,
+html.embed #menu,
+html.embed #installBtn,
+html.embed #installGameBtn,
+html.embed #installHelp,
+html.embed #buzz,
+html.embed #full,
+html.embed #quit,
+html.embed #back,
+html.embed #newRoom {
+  display: none !important;
+}
+
+/* With the room lost, connecting again is all there is to do: the one button is a big one. */
+html.embed #retryJoin {
+  font-size: 18px;
+  padding: 0.6em;
+}
+
+/* The player's own name is the chat's: not for typing in, and as plain to read as ever. */
+html.embed #slots li.own input:disabled {
+  opacity: 1;
+  -webkit-text-fill-color: var(--ink);
+}
+
+/* The game screen keeps every touch for the game: no page scrolling or bouncing,
+   no zoom on a double tap, no text picked up and no menu on a long press. */
+html.embed #stage {
+  touch-action: none;
+  overscroll-behavior: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}

@@ -24,6 +24,7 @@ import { createPredictor } from './predict.js';
 import { winRate } from './rankPage.js';
 import { createRoomList } from './roomList.js';
 import { createChat, floatLine, cleanChat, lineLife } from './chatbar.js';
+import { embedMode } from './embed.js';
 
 const $ = (id) => document.getElementById(id);
 const STORE = 'seed-rush-slots';
@@ -185,6 +186,13 @@ try {
 }
 const renderer = createRenderer($('canvas'), MAP);
 const query = new URLSearchParams(location.search);
+// Opened from a mingle chat room (see embed.js), the page lives inside the app.
+// The app is the way into the room and out of it, so the page shows no way out
+// and nothing only a browser needs (style.css, html.embed), and the player goes
+// by the chat's name, which the server takes from the ticket.
+const embed = embedMode(query, gameServer(query));
+document.documentElement.classList.toggle('embed', embed);
+const chatName = embed ? String(query.get('name') || '').trim().slice(0, 8) : '';
 // The phone controls can be tried out from the address bar, and the phone keeps
 // what it was last given: ?assist=0 turns the lane help off.
 function tuned(name, key) {
@@ -349,7 +357,8 @@ function renderLobby() {
     const hostWatching = !guest && i === 0 && slot.kind === 'closed';
     name.placeholder = slot.kind === 'open' ? t(guest ? 'waitingFriend' : 'emptySeat') : hostWatching ? t('spectating') : slot.kind === 'closed' ? t('kinds').closed : '';
     name.maxLength = 8;
-    name.disabled = !mine || empty;
+    // Inside the app the name is the chat's own, not one to type.
+    name.disabled = !mine || empty || embed;
     name.setAttribute('aria-label', t('slotName', i + 1));
     name.addEventListener('input', () => {
       slot.name = name.value;
@@ -590,7 +599,8 @@ function show(screen) {
   $('lobby').hidden = screen !== 'lobby';
   $('stage').hidden = screen !== 'stage';
   syncChat();
-  if (screen === 'stage' && !window.history.state?.stage) window.history.pushState({ stage: true }, '');
+  // (Inside the app the page's history is the app's too: see popstate below.)
+  if (screen === 'stage' && !embed && !window.history.state?.stage) window.history.pushState({ stage: true }, '');
   if (screen === 'lobby') checkUpdate();
   // The round's tune keeps going from one round to the next, result screen included.
   audio.setMusic(screen === 'lobby' ? 'lobby' : 'game');
@@ -1122,7 +1132,7 @@ function sayHello() {
   net.needPw = false;
   net.status = '';
   // The key goes along so the round can be rated; without one it is just not rated.
-  identity().then((me) => net.host && net.host.send({ t: 'hello', name: slots[0].name, watch: watchOnly, pw: net.pw, pid: me?.pid, pub: me?.pub }));
+  identity().then((me) => net.host && net.host.send({ t: 'hello', name: chatName || slots[0].name, watch: watchOnly, pw: net.pw, pid: me?.pid, pub: me?.pub }));
 }
 
 // Lost the host, reloading along with it, or never got in: the cover says so.
@@ -2865,7 +2875,10 @@ document.addEventListener(
   },
   { passive: false },
 );
-window.addEventListener('popstate', () => !$('stage').hidden && window.history.pushState({ stage: true }, ''));
+// Inside the app a frame's history is the app's own as well, and the app keeps the
+// swipe from going back itself: a page held there would leave its back button
+// stuck, so it leaves the history alone.
+if (!embed) window.addEventListener('popstate', () => !$('stage').hidden && window.history.pushState({ stage: true }, ''));
 // Mashing the bonk button must never count as a double tap.
 $('bonk').addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
 window.addEventListener('resize', () => renderer.resize());
