@@ -13,6 +13,8 @@ import { Room, TICK_MS } from './room.js';
 import { verifyTicket } from './ticket.js';
 
 const PORT = Number(process.env.PORT) || 8080;
+// Railway needs every interface; set HOST=127.0.0.1 when running locally behind a tunnel.
+const HOST = process.env.HOST || '0.0.0.0';
 const MAX_ROOMS = Number(process.env.MAX_ROOMS) || 500;
 const MAX_MESSAGE_BYTES = 4096;
 const MAX_MESSAGES_PER_SEC = 120;
@@ -165,4 +167,4 @@ function shutdown() {
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
 
-server.listen(PORT, '0.0.0.0', () => console.log(`[hash-rush] game server on :${PORT}`));
+server.listen(PORT, HOST, () => console.log(`[hash-rush] game server on ${HOST}:${PORT}`));
