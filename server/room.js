@@ -149,7 +149,7 @@ export class Room {
     slot.kind = 'open';
     slot.name = seatName(this.slots.indexOf(slot));
     slot.input = IDLE;
-    slot.pid = slot.pub = '';
+    slot.pid = slot.pub = slot.userId = '';
   }
 
   uniqueName(slot, name) {
@@ -281,6 +281,7 @@ export class Room {
       const slot = active[id].slot;
       p.pid = slot.kind === 'remote' ? slot.pid : '';
       p.pub = slot.kind === 'remote' ? slot.pub : '';
+      p.userId = slot.kind === 'remote' ? slot.userId || '' : '';
       p.seat = active[id].look;
     });
     this.pending = [];
@@ -374,7 +375,8 @@ export class Room {
       teams: this.teams,
       timeout: !!g.timeout,
       winners: g.winners?.length ? [...g.winners] : g.winner != null ? [g.winner] : [],
-      players: g.players.map((p) => ({ id: p.id, name: p.name, kind: p.kind, team: p.team, pid: p.pid || '', seeds: p.seeds, kills: p.kills, deaths: p.deaths })),
+      // userId is the mingle user behind the seat (from the app ticket), for room rankings.
+      players: g.players.map((p) => ({ id: p.id, name: p.name, kind: p.kind, team: p.team, pid: p.pid || '', userId: p.userId || '', seeds: p.seeds, kills: p.kills, deaths: p.deaths })),
     };
   }
 
