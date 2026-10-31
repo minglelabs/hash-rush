@@ -116,3 +116,23 @@ test('nobody in the room means no round starts', () => {
   assert.equal(room.game, null);
   assert.ok(room.empty);
 });
+
+test("a mingle ticket's chat name is the name: the page can neither replace it nor rename it", () => {
+  const { room } = setup();
+  const a = fakeConn('a');
+  a.ticket = { room: 'chan-1', userId: 'u1', name: 'Mia' };
+  room.join(a);
+  room.receive(a, { t: 'hello', name: 'Other' });
+  assert.equal(a.last('lobby').slots[0].name, 'Mia');
+  room.receive(a, { t: 'name', name: 'Zed' });
+  assert.equal(a.last('lobby').slots[0].name, 'Mia');
+  assert.equal(a.last('rename'), undefined);
+
+  // Without a ticket's name, a player still renames as before.
+  const b = fakeConn('b');
+  room.join(b);
+  room.receive(b, { t: 'hello', name: 'Bo' });
+  room.receive(b, { t: 'name', name: 'Bea' });
+  assert.equal(b.last('lobby').slots[1].name, 'Bea');
+  assert.equal(b.last('rename').name, 'Bea');
+});

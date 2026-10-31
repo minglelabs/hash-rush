@@ -109,6 +109,8 @@ export class Room {
       return;
     }
     if (msg.t === 'name') {
+      // A mingle ticket's chat name is the player's name here: the page cannot change it.
+      if (conn.ticket?.name) return;
       slot.name = this.uniqueName(slot, cleanName(msg.name));
       this.sendLobby();
       this.broadcast(() => ({ t: 'rename', who: conn.peer, name: slot.name }));
