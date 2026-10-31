@@ -65,3 +65,54 @@ test('the round playlist plays on from one tune to a different one', () => {
     globalThis.setInterval = real.setInterval;
   }
 });
+
+test('out of sight the music plays nothing new and fades what it had, then goes on with the same tune', () => {
+  // Records where the tune's volume is sent and how many notes start.
+  const targets = [];
+  let started = 0;
+  const param = () => ({ value: 0, setValueAtTime() {}, linearRampToValueAtTime() {}, exponentialRampToValueAtTime() {}, setTargetAtTime: (v) => targets.push(v), cancelScheduledValues() {} });
+  const node = () => ({ frequency: param(), gain: param(), Q: param(), connect: (to) => to, disconnect() {}, start: () => started++, stop() {}, getChannelData: () => new Float32Array(8) });
+  const ctx = { state: 'running', currentTime: 0, sampleRate: 16, destination: node(), createOscillator: node, createGain: node, createBiquadFilter: node, createBufferSource: node, createBuffer: node };
+  const real = { setInterval: globalThis.setInterval };
+  let tick = null;
+  globalThis.setInterval = (fn) => ((tick = fn), 1);
+  try {
+    let away = false;
+    const music = createMusic(() => ctx, () => away);
+    music.set('game');
+    const tune = music.now();
+    assert.ok(started > 0);
+
+    away = true;
+    music.hush(true);
+    assert.equal(targets.at(-1), 0);
+    const before = started;
+    for (let s = 0; s < 5; s++) {
+      ctx.currentTime += 1;
+      tick();
+    }
+    assert.equal(started, before, 'nothing new is played out of sight');
+
+    away = false;
+    music.hush(false);
+    assert.equal(targets.at(-1), 1);
+    ctx.currentTime += 1;
+    tick();
+    assert.ok(started > before);
+    assert.equal(music.now(), tune);
+
+    // The screen changed while out of sight: the old tune stays faded and the new one takes over.
+    away = true;
+    music.hush(true);
+    music.set('lobby');
+    const said = targets.length;
+    away = false;
+    music.hush(false);
+    assert.equal(targets.length, said);
+    ctx.currentTime += 1;
+    tick();
+    assert.equal(music.now(), 'lobby');
+  } finally {
+    globalThis.setInterval = real.setInterval;
+  }
+});
