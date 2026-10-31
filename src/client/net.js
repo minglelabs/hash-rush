@@ -260,6 +260,64 @@ export async function joinRoom(room, on) {
   return { send, fast, route: () => route(conn), close: () => peer.destroy() };
 }
 
+// Joins a room run by the game server (G2) instead of a player's browser. Same
+// shape as joinRoom: { send, fast, route, close }. The server speaks the host's
+// messages, so everything above this layer stays the same. `server` is a ws(s) URL.
+export async function joinServerRoom(server, room, on) {
+  // Opened from a mingle chat room, the page carries the app's entry ticket.
+  const ticket = new URLSearchParams(location.search).get('ticket');
+  const url = `${server.replace(/\/+$/, '')}/rooms/${encodeURIComponent(room)}${ticket ? `?ticket=${encodeURIComponent(ticket)}` : ''}`;
+  const ws = new WebSocket(url);
+  await new Promise((resolve, reject) => {
+    ws.onopen = resolve;
+    ws.onerror = () => reject(Object.assign(new Error('join failed'), { noRoom: false }));
+    setTimeout(() => reject(new Error('timed out')), 15000);
+  });
+  let ms = null;
+  let closed = false;
+  const ping = setInterval(() => ws.readyState === 1 && ws.send(JSON.stringify({ t: 'ping', at: performance.now() })), 2000);
+  ws.onmessage = (e) => {
+    let msg;
+    try {
+      msg = JSON.parse(e.data);
+    } catch {
+      return;
+    }
+    if (msg && msg.t === 'pong') {
+      ms = Math.round(performance.now() - Number(msg.at || 0));
+      return;
+    }
+    on.data(msg);
+  };
+  const gone = () => {
+    if (closed) return;
+    closed = true;
+    clearInterval(ping);
+    on.close();
+  };
+  ws.onclose = gone;
+  ws.onerror = gone;
+  const send = (msg) => ws.readyState === 1 && ws.send(JSON.stringify(msg));
+  // A backed-up socket skips the input; the next one replaces it anyway.
+  const fast = (msg) => ws.readyState === 1 && ws.bufferedAmount < FAST_BACKLOG * 4 && ws.send(JSON.stringify(msg));
+  return {
+    send,
+    fast,
+    route: async () => (ms == null ? null : { relay: false, ms }),
+    close: () => {
+      closed = true;
+      clearInterval(ping);
+      ws.close();
+    },
+  };
+}
+
+// The game server to use, from `?server=wss://…`. Empty means peer-to-peer rooms.
+export function gameServer(query) {
+  const raw = String(query.get('server') || '').trim();
+  return /^wss?:\/\/[^\s/?#]+(\/[^\s?#]*)?$/i.test(raw) ? raw : '';
+}
+
 // ---------- room list ----------
 
 // Connects to the first broker that answers.

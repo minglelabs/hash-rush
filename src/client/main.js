@@ -18,12 +18,13 @@ import { createAudio } from './audio.js';
 import { createHaptics } from './haptics.js';
 import { LOOKS, TEAMS, colorOf, lookOf } from './looks.js';
 import { lang, t, LANGUAGES, stringsFor } from './i18n.js';
-import { hostRoom, joinRoom, announceRoom, watchRooms, randomRoom } from './net.js';
+import { hostRoom, joinRoom, joinServerRoom, gameServer, announceRoom, watchRooms, randomRoom } from './net.js';
 import { identity, shareName, signResult, remember, lastRating, loadRanking } from './rank.js';
 import { createPredictor } from './predict.js';
 import { winRate } from './rankPage.js';
 import { createRoomList } from './roomList.js';
 import { createChat, floatLine, cleanChat, lineLife } from './chatbar.js';
+import { embedMode, connectApp, phaseOf, bringsKeyboard, createChatBubbles } from './embed.js';
 
 const $ = (id) => document.getElementById(id);
 const STORE = 'seed-rush-slots';
@@ -185,6 +186,31 @@ try {
 }
 const renderer = createRenderer($('canvas'), MAP);
 const query = new URLSearchParams(location.search);
+// Opened from a mingle chat room (see embed.js), the page lives inside the app.
+// The app is the way into the room and out of it, so the page shows no way out
+// and nothing only a browser needs (style.css, html.embed), and the player goes
+// by the chat's name, which the server takes from the ticket.
+const embed = embedMode(query, gameServer(query));
+document.documentElement.classList.toggle('embed', embed);
+const chatName = embed ? String(query.get('name') || '').trim().slice(0, 8) : '';
+// The app hears how things stand here (the page is up, the keyboard, the phase)
+// and says when the page is out of sight, which keeps it quiet as a hidden page
+// is kept, and when a voice call is on, which only the music makes way for. The
+// talk is the chat room's (see hearRoom): what is said there comes from the app.
+const app = embed
+  ? connectApp(window, {
+      visibility: (visible) => {
+        audio.setAway(!visible);
+        if (visible) wakeSound();
+      },
+      voice: (active) => {
+        audio.setVoice(active);
+        wakeSound();
+      },
+      chat: (said) => hearRoom(said),
+    })
+  : null;
+const syncPhase = () => app?.phase(phaseOf(game));
 // The phone controls can be tried out from the address bar, and the phone keeps
 // what it was last given: ?assist=0 turns the lane help off.
 function tuned(name, key) {
@@ -349,7 +375,8 @@ function renderLobby() {
     const hostWatching = !guest && i === 0 && slot.kind === 'closed';
     name.placeholder = slot.kind === 'open' ? t(guest ? 'waitingFriend' : 'emptySeat') : hostWatching ? t('spectating') : slot.kind === 'closed' ? t('kinds').closed : '';
     name.maxLength = 8;
-    name.disabled = !mine || empty;
+    // Inside the app the name is the chat's own, not one to type.
+    name.disabled = !mine || empty || embed;
     name.setAttribute('aria-label', t('slotName', i + 1));
     name.addEventListener('input', () => {
       slot.name = name.value;
@@ -590,7 +617,8 @@ function show(screen) {
   $('lobby').hidden = screen !== 'lobby';
   $('stage').hidden = screen !== 'stage';
   syncChat();
-  if (screen === 'stage' && !window.history.state?.stage) window.history.pushState({ stage: true }, '');
+  // (Inside the app the page's history is the app's too: see popstate below.)
+  if (screen === 'stage' && !embed && !window.history.state?.stage) window.history.pushState({ stage: true }, '');
   if (screen === 'lobby') checkUpdate();
   // The round's tune keeps going from one round to the next, result screen included.
   audio.setMusic(screen === 'lobby' ? 'lobby' : 'game');
@@ -1099,7 +1127,11 @@ async function enterRoom(until = 0) {
   net.kicked = false;
   renderLobby();
   try {
-    net.host = await joinRoom(joinId, { data: hostData, close: hostGone });
+    // With ?server=… the room runs on the game server (G2); otherwise on a player's browser.
+    const server = gameServer(query);
+    net.host = server
+      ? await joinServerRoom(server, joinId, { data: hostData, close: hostGone })
+      : await joinRoom(joinId, { data: hostData, close: hostGone });
     net.lost = false;
     sayHello();
     net.status = '';
@@ -1118,7 +1150,7 @@ function sayHello() {
   net.needPw = false;
   net.status = '';
   // The key goes along so the round can be rated; without one it is just not rated.
-  identity().then((me) => net.host && net.host.send({ t: 'hello', name: slots[0].name, watch: watchOnly, pw: net.pw, pid: me?.pid, pub: me?.pub }));
+  identity().then((me) => net.host && net.host.send({ t: 'hello', name: chatName || slots[0].name, watch: watchOnly, pw: net.pw, pid: me?.pid, pub: me?.pub }));
 }
 
 // Lost the host, reloading along with it, or never got in: the cover says so.
@@ -1255,6 +1287,7 @@ function hostData(msg) {
       if (net.mine && meId >= 0) Object.assign(game.players[meId], net.mine);
     }
     for (const ev of msg.ev || []) onEvent(ev);
+    syncPhase();
   } else if (msg.t === 'lobbyscreen') {
     // The host cut the round short: it counts as the host judged it.
     if (Array.isArray(msg.ws) && game && game.phase === 'playing' && !game.rated) {
@@ -1265,7 +1298,8 @@ function hostData(msg) {
     toLobby();
     renderLobby();
   } else if (msg.t === 'chat') {
-    addChat(msg);
+    // Inside the app the talk is the chat room's, not the game's (see hearRoom).
+    if (!embed) addChat(msg);
   } else if (msg.t === 'rename') {
     renameInChat(msg.who, msg.name);
   } else if (msg.t === 'new') {
@@ -1383,6 +1417,15 @@ function showLobbyBubbles() {
   if (next < Infinity) bubbleTimer = setTimeout(showLobbyBubbles, next - now + 20);
 }
 
+// Inside the app nobody talks in the game's own chat: the chat room is the place,
+// and the app passes on what is said there, in this reader's language. It goes up
+// in the same bubbles, over the hamster of the seat the speaker's mingle user
+// sits in, as the lobby has it from the server.
+const roomBubbles = createChatBubbles(bubbles, lineLife);
+function hearRoom(said) {
+  if (roomBubbles(net.lobby, said, performance.now()) >= 0) showLobbyBubbles();
+}
+
 // Somebody coming in or going out: a line with no speaker.
 const sysText = (sys, name) => t(sys === 'join' ? 'chatJoin' : 'chatLeave', String(name || t('spectatorName')).slice(0, 8));
 
@@ -1431,7 +1474,8 @@ function relayChat(msg) {
 
 function sendChat(raw) {
   const text = cleanChat(raw);
-  if (!text) return;
+  // Inside the app nothing goes into the game's chat: nobody there would see it.
+  if (!text || embed) return;
   if (net.role === 'guest') {
     if (net.host) net.host.send({ t: 'chat', text });
   } else if (net.role === 'host') {
@@ -1446,8 +1490,9 @@ const chat = createChat({
   placeholder: t('chatPlaceholder'),
   openers: ['chatBtn', 'lobbyChatBtn'],
   logs: ['gameChat'],
-  // Enter opens the bar anywhere in a room, the way it does in most games.
-  enterOpens: () => !!net.role,
+  // Enter opens the bar anywhere in a room, the way it does in most games; inside
+  // the app there is no bar to open.
+  enterOpens: () => !!net.role && !embed,
 });
 
 // Some phones shrink the page itself when the keyboard comes up, and everything
@@ -1488,6 +1533,13 @@ window.addEventListener('resize', pinHeight);
 window.addEventListener('orientationchange', () => setTimeout(pinHeight, 300));
 // The keyboard may still be on its way down when the box lets go.
 document.addEventListener('focusout', () => setTimeout(pinHeight, 400));
+// Inside the app, the app holds its sheet still while the game's keyboard is up.
+// Focus moving from one box to another passes through the page in between.
+if (app) {
+  const keyboardUp = () => app.keyboard(bringsKeyboard(document.activeElement));
+  document.addEventListener('focusin', keyboardUp);
+  document.addEventListener('focusout', () => setTimeout(keyboardUp, 0));
+}
 
 // ---------- looking in on the lobby ----------
 // Anyone can step out to the lobby and back while the round carries on without
@@ -1636,6 +1688,7 @@ function enterStage() {
   renderer.resize();
   big('3');
   audio.play.count();
+  syncPhase();
 }
 
 function big(text) {
@@ -2559,6 +2612,7 @@ function toLobby() {
   game = null;
   show('lobby');
   announce();
+  syncPhase();
 }
 
 // A room that could not be joined, or was lost, covers the whole page: what is
@@ -2825,6 +2879,13 @@ tryUnlock();
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && !audio.ready()) for (const type of tapEvents) window.addEventListener(type, tryUnlock, true);
 });
+// Inside the app, coming back into sight or a voice call starting or ending can
+// leave the sound asleep the same way: it is woken now if it can be, or by the next tap.
+function wakeSound() {
+  if (audio.ready()) return;
+  for (const type of tapEvents) window.addEventListener(type, tryUnlock, true);
+  tryUnlock();
+}
 
 // iOS ignores user-scalable=no, so stop pinch and double-tap zoom by hand: a zoomed-in
 // page cannot be zoomed back out mid-game.
@@ -2861,7 +2922,10 @@ document.addEventListener(
   },
   { passive: false },
 );
-window.addEventListener('popstate', () => !$('stage').hidden && window.history.pushState({ stage: true }, ''));
+// Inside the app a frame's history is the app's own as well, and the app keeps the
+// swipe from going back itself: a page held there would leave its back button
+// stuck, so it leaves the history alone.
+if (!embed) window.addEventListener('popstate', () => !$('stage').hidden && window.history.pushState({ stage: true }, ''));
 // Mashing the bonk button must never count as a double tap.
 $('bonk').addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
 window.addEventListener('resize', () => renderer.resize());
@@ -2947,6 +3011,9 @@ if (net.role === 'guest') {
   }
   enterRoom(until);
 }
+// Inside the app: the page is up, so the app's loading cover can go.
+app?.ready();
+syncPhase();
 requestAnimationFrame((now) => {
   last = now;
   frame(now);
