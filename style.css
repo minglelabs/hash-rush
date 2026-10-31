@@ -3169,6 +3169,26 @@ html.embed #newRoom {
   display: none !important;
 }
 
+/* The talk is the chat room's own, in the app around the page: none of the game's
+   chat is there, neither its button, the bar with its ready-made lines and the
+   conversation so far, nor the lines floating over the screen, and so neither is
+   the result's button that only asks for another round in it. What somebody says
+   in the chat room goes up in the bubble over their hamster instead. */
+html.embed #chatFab,
+html.embed #chatBar,
+html.embed #chatBtn,
+html.embed #lobbyChatBtn,
+html.embed #lobbyChat,
+html.embed #gameChat,
+html.embed #again {
+  display: none !important;
+}
+
+/* With no buttons under it, the result's table is the foot of its card. */
+html.embed #result .scoreTable {
+  margin-bottom: 0;
+}
+
 /* With the room lost, connecting again is all there is to do: the one button is a big one. */
 html.embed #retryJoin {
   font-size: 18px;

@@ -24,7 +24,7 @@ import { createPredictor } from './predict.js';
 import { winRate } from './rankPage.js';
 import { createRoomList } from './roomList.js';
 import { createChat, floatLine, cleanChat, lineLife } from './chatbar.js';
-import { embedMode, connectApp, phaseOf, bringsKeyboard } from './embed.js';
+import { embedMode, connectApp, phaseOf, bringsKeyboard, createChatBubbles } from './embed.js';
 
 const $ = (id) => document.getElementById(id);
 const STORE = 'seed-rush-slots';
@@ -195,7 +195,8 @@ document.documentElement.classList.toggle('embed', embed);
 const chatName = embed ? String(query.get('name') || '').trim().slice(0, 8) : '';
 // The app hears how things stand here (the page is up, the keyboard, the phase)
 // and says when the page is out of sight, which keeps it quiet as a hidden page
-// is kept, and when a voice call is on, which only the music makes way for.
+// is kept, and when a voice call is on, which only the music makes way for. The
+// talk is the chat room's (see hearRoom): what is said there comes from the app.
 const app = embed
   ? connectApp(window, {
       visibility: (visible) => {
@@ -206,6 +207,7 @@ const app = embed
         audio.setVoice(active);
         wakeSound();
       },
+      chat: (said) => hearRoom(said),
     })
   : null;
 const syncPhase = () => app?.phase(phaseOf(game));
@@ -1296,7 +1298,8 @@ function hostData(msg) {
     toLobby();
     renderLobby();
   } else if (msg.t === 'chat') {
-    addChat(msg);
+    // Inside the app the talk is the chat room's, not the game's (see hearRoom).
+    if (!embed) addChat(msg);
   } else if (msg.t === 'rename') {
     renameInChat(msg.who, msg.name);
   } else if (msg.t === 'new') {
@@ -1414,6 +1417,15 @@ function showLobbyBubbles() {
   if (next < Infinity) bubbleTimer = setTimeout(showLobbyBubbles, next - now + 20);
 }
 
+// Inside the app nobody talks in the game's own chat: the chat room is the place,
+// and the app passes on what is said there, in this reader's language. It goes up
+// in the same bubbles, over the hamster of the seat the speaker's mingle user
+// sits in, as the lobby has it from the server.
+const roomBubbles = createChatBubbles(bubbles, lineLife);
+function hearRoom(said) {
+  if (roomBubbles(net.lobby, said, performance.now()) >= 0) showLobbyBubbles();
+}
+
 // Somebody coming in or going out: a line with no speaker.
 const sysText = (sys, name) => t(sys === 'join' ? 'chatJoin' : 'chatLeave', String(name || t('spectatorName')).slice(0, 8));
 
@@ -1462,7 +1474,8 @@ function relayChat(msg) {
 
 function sendChat(raw) {
   const text = cleanChat(raw);
-  if (!text) return;
+  // Inside the app nothing goes into the game's chat: nobody there would see it.
+  if (!text || embed) return;
   if (net.role === 'guest') {
     if (net.host) net.host.send({ t: 'chat', text });
   } else if (net.role === 'host') {
@@ -1477,8 +1490,9 @@ const chat = createChat({
   placeholder: t('chatPlaceholder'),
   openers: ['chatBtn', 'lobbyChatBtn'],
   logs: ['gameChat'],
-  // Enter opens the bar anywhere in a room, the way it does in most games.
-  enterOpens: () => !!net.role,
+  // Enter opens the bar anywhere in a room, the way it does in most games; inside
+  // the app there is no bar to open.
+  enterOpens: () => !!net.role && !embed,
 });
 
 // Some phones shrink the page itself when the keyboard comes up, and everything
