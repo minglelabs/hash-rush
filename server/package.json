@@ -1,0 +1,17 @@
+{
+  "name": "hash-rush-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Hash Rush G2 game server: rooms run on the server, WebSocket only",
+  "scripts": {
+    "start": "node index.js",
+    "test": "node --test room.test.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
