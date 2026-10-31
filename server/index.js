@@ -10,6 +10,7 @@
 import http from 'node:http';
 import { WebSocketServer } from 'ws';
 import { Room, TICK_MS } from './room.js';
+import { verifyTicket } from './ticket.js';
 
 const PORT = Number(process.env.PORT) || 8080;
 const MAX_ROOMS = Number(process.env.MAX_ROOMS) || 500;
@@ -20,6 +21,8 @@ const ALLOWED = (process.env.ALLOWED_ORIGINS || '').split(',').map((s) => s.trim
 const RESULTS_URL = (process.env.RESULTS_URL || '').trim();
 const RESULTS_SECRET = (process.env.RESULTS_SECRET || '').trim();
 const ROOM_ID = /^[a-z0-9][a-z0-9_-]{2,63}$/i;
+// Same secret as the mingle app's HASH_RUSH_TICKET_SECRET. Unset = open rooms.
+const TICKET_SECRET = (process.env.HASH_RUSH_TICKET_SECRET || '').trim();
 
 const rooms = new Map();
 
@@ -87,6 +90,16 @@ server.on('upgrade', (request, socket, head) => {
     socket.destroy();
     return;
   }
+  // With a ticket secret set, only holders of an app ticket for this room get in.
+  let ticket = null;
+  if (TICKET_SECRET) {
+    ticket = verifyTicket(url.searchParams.get('ticket'), TICKET_SECRET);
+    if (!ticket || ticket.room !== match[1]) {
+      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+  }
   const room = roomFor(match[1], url.searchParams);
   if (!room) {
     socket.write('HTTP/1.1 503 Service Unavailable\r\n\r\n');
@@ -95,6 +108,7 @@ server.on('upgrade', (request, socket, head) => {
   }
   wss.handleUpgrade(request, socket, head, (ws) => {
     const conn = wrap(ws);
+    conn.ticket = ticket;
     room.join(conn);
     room.emptySince = 0;
     let windowStart = Date.now();

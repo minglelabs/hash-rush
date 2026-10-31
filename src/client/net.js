@@ -264,7 +264,9 @@ export async function joinRoom(room, on) {
 // shape as joinRoom: { send, fast, route, close }. The server speaks the host's
 // messages, so everything above this layer stays the same. `server` is a ws(s) URL.
 export async function joinServerRoom(server, room, on) {
-  const url = `${server.replace(/\/+$/, '')}/rooms/${encodeURIComponent(room)}`;
+  // Opened from a mingle chat room, the page carries the app's entry ticket.
+  const ticket = new URLSearchParams(location.search).get('ticket');
+  const url = `${server.replace(/\/+$/, '')}/rooms/${encodeURIComponent(room)}${ticket ? `?ticket=${encodeURIComponent(ticket)}` : ''}`;
   const ws = new WebSocket(url);
   await new Promise((resolve, reject) => {
     ws.onopen = resolve;

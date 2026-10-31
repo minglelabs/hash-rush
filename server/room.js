@@ -180,9 +180,11 @@ export class Room {
       slot.input = IDLE;
       slot.playerId = -1;
       if (this.teams) slot.team = this.smallerTeam();
-      slot.name = this.uniqueName(slot, cleanName(msg.name));
+      // A mingle ticket carries the chat name; it wins over what the page says.
+      slot.name = this.uniqueName(slot, cleanName(conn.ticket?.name || msg.name));
+      slot.userId = conn.ticket?.userId || '';
     } else {
-      conn.watchName = cleanName(msg.name) || 'Watcher';
+      conn.watchName = cleanName(conn.ticket?.name || msg.name) || 'Watcher';
       conn.hello = msg;
       this.watchers.push(conn);
     }

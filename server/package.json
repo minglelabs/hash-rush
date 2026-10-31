@@ -6,7 +6,7 @@
   "description": "Hash Rush G2 game server: rooms run on the server, WebSocket only",
   "scripts": {
     "start": "node index.js",
-    "test": "node --test room.test.js"
+    "test": "node --test room.test.js ticket.test.js"
   },
   "dependencies": {
     "ws": "^8.18.0"
