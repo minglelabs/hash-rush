@@ -37,7 +37,7 @@ In mingle, one chat room is one game room: use the chat room id as `room`.
 | `HOST` | `0.0.0.0` | bind address; use `127.0.0.1` locally behind a tunnel |
 | `ALLOWED_ORIGINS` | any | comma list of page origins allowed to connect |
 | `MAX_ROOMS` | 500 | new rooms beyond this get 503 |
-| `HASH_RUSH_TICKET_SECRET` | unset | same as mingle's; when set, only holders of a mingle entry ticket for that room can join (`?ticket=`), under their chat name |
+| `HASH_RUSH_TICKET_SECRET` | unset | same as mingle's; when set, only holders of a mingle entry ticket for that room can join (`?ticket=`), under their chat name, and each lobby seat carries its ticket's `userId` |
 | `RESULTS_URL` + `RESULTS_SECRET` | unset | POST each finished round (header `x-hash-rush-secret`); unset = log only |
 
 ## Run and test

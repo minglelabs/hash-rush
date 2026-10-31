@@ -136,3 +136,29 @@ test("a mingle ticket's chat name is the name: the page can neither replace it n
   assert.equal(b.last('lobby').slots[1].name, 'Bea');
   assert.equal(b.last('rename').name, 'Bea');
 });
+
+test("each lobby seat carries its mingle user from the ticket, '' without one, and loses it with the seat", () => {
+  const { room } = setup();
+  const a = fakeConn('a');
+  a.ticket = { room: 'chan-1', userId: 'u1', name: 'Mia' };
+  const b = fakeConn('b');
+  room.join(a);
+  room.receive(a, { t: 'hello', name: 'Mia' });
+  room.join(b);
+  room.receive(b, { t: 'hello', name: 'Bo' });
+  const seats = () => b.last('lobby').slots;
+  assert.deepEqual(seats().map((s) => s.userId), ['u1', '', '', '', '', '', '', '']);
+  // The rest of each seat is as it was.
+  assert.deepEqual(Object.keys(seats()[0]).sort(), ['kind', 'name', 'pid', 'team', 'userId']);
+  assert.deepEqual([seats()[0].kind, seats()[0].name], ['remote', 'Mia']);
+
+  // Standing up to watch gives the seat up; sitting down again brings the ticket's user along.
+  room.receive(a, { t: 'stand' });
+  assert.equal(seats()[0].userId, '');
+  assert.equal(seats()[0].kind, 'open');
+  room.receive(a, { t: 'sit' });
+  assert.equal(seats()[0].userId, 'u1');
+
+  room.leave(a);
+  assert.ok(seats().every((s) => s.userId === ''));
+});

@@ -44,7 +44,7 @@ export class Room {
     this.now = now;
     this.random = random;
     this.onResult = onResult;
-    this.slots = Array.from({ length: MAX_SLOTS }, (_, i) => ({ kind: 'open', name: seatName(i), team: i % 2, conn: null, input: IDLE, playerId: -1, pid: '', pub: '' }));
+    this.slots = Array.from({ length: MAX_SLOTS }, (_, i) => ({ kind: 'open', name: seatName(i), team: i % 2, conn: null, input: IDLE, playerId: -1, pid: '', pub: '', userId: '' }));
     this.watchers = [];
     this.game = null;
     this.controllers = [];
@@ -220,8 +220,10 @@ export class Room {
     this.broadcast(() => ({ t: 'chat', ...msg, at: this.now() }));
   }
 
+  // Each seat says which mingle user sits in it (from the app ticket, '' without
+  // one), so the page inside the app knows over whose hamster their chat goes.
   lobbyView() {
-    return this.slots.map((s) => ({ kind: s.kind, name: s.name, team: s.team, pid: s.kind === 'remote' ? s.pid : '' }));
+    return this.slots.map((s) => ({ kind: s.kind, name: s.name, team: s.team, pid: s.kind === 'remote' ? s.pid : '', userId: s.kind === 'remote' ? s.userId || '' : '' }));
   }
 
   sendLobby() {
