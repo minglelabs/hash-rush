@@ -41,6 +41,10 @@ const CHAT_GAP_MS = 400;
 // English default names; each browser shows them in its own language.
 const NAMES = ['Me', 'Cloud', 'Choco', 'Dusty', 'Bean', 'Barley', 'Chestnut', 'Walnut'];
 const IDLE = { mx: 0, my: 0, ax: 0, ay: 0, seq: 0, th: false, sk: false, n: 0 };
+export const BOT_LEVELS = ['easy', 'normal', 'hard', 'ace'];
+// A hosted room's host picks how many hamsters a round has at least (computers
+// fill the rest): at least two, so there is somebody to play against.
+export const FILL_MIN = 2;
 
 export const cleanChat = (raw) => String(raw || '').replace(/\s+/g, ' ').trim().slice(0, 80);
 const cleanName = (raw) => String(raw || '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 8);
@@ -54,11 +58,19 @@ function seatName(i) {
 
 export class Room {
   // `now` and `random` are injectable so a test can play a whole round at once.
-  constructor({ id, map = 'meadow', teams = false, botLevel = 'hard', now = Date.now, random = Math.random, onResult = null } = {}) {
+  // `hosted` (the mingle app's rooms): one person is the host. The host sets the
+  // room up in the lobby (teams, map, computers) and starts each round; nothing
+  // starts by itself. The host can hand the room to somebody else, and when the
+  // host leaves it passes to the next person. Without it the room runs itself.
+  constructor({ id, map = 'meadow', teams = false, botLevel = 'hard', hosted = false, now = Date.now, random = Math.random, onResult = null } = {}) {
     this.id = id;
+    this.hosted = !!hosted;
+    // The host, as a record owner (ownerOf): it follows the person, not the seat.
+    this.host = '';
+    this.fill = MIN_PLAYERS;
     this.mapId = MAP_IDS.includes(map) ? map : 'meadow';
     this.teams = !!teams;
-    this.botLevel = ['easy', 'normal', 'hard', 'ace'].includes(botLevel) ? botLevel : 'hard';
+    this.botLevel = BOT_LEVELS.includes(botLevel) ? botLevel : 'hard';
     this.now = now;
     this.random = random;
     this.onResult = onResult;
@@ -114,6 +126,90 @@ export class Room {
     this.rounds = 0;
   }
 
+  // ---------- the host ----------
+
+  // Every connection in the room, seated first (in seat order), then watching.
+  connections() {
+    return [...this.slots.filter((s) => s.conn).map((s) => s.conn), ...this.watchers];
+  }
+
+  isHost(conn) {
+    return this.hosted && !!this.host && conn.owner === this.host;
+  }
+
+  // The host's seat (-1 when the host watches or there is none).
+  hostSeat() {
+    if (!this.hosted || !this.host) return -1;
+    return this.slots.findIndex((s) => s.conn && s.conn.owner === this.host);
+  }
+
+  hostName() {
+    const conn = this.connections().find((c) => c.owner === this.host);
+    if (!conn) return '';
+    const slot = this.slots.find((s) => s.conn === conn);
+    return slot ? slot.name : conn.watchName || '';
+  }
+
+  // The host is gone: the room passes to the first person seated, else the first watching.
+  passHost() {
+    if (!this.hosted) return;
+    if (this.connections().some((c) => c.owner === this.host)) return;
+    // The lobby says who hosts now (no chat line: the web page knows no such line).
+    const next = this.connections()[0];
+    this.host = next ? next.owner : '';
+  }
+
+  // What only the host may do, in a hosted room's lobby.
+  hostCommand(conn, msg) {
+    if (!this.isHost(conn)) return;
+    if (msg.t === 'host') {
+      const slot = this.slots[msg.seat];
+      if (!Number.isInteger(msg.seat) || !slot || !slot.conn || slot.conn === conn) return;
+      this.host = slot.conn.owner;
+      this.sendLobby();
+      return;
+    }
+    // The rest only between rounds, with the lobby up.
+    if (this.game) return;
+    if (msg.t === 'setup') {
+      if (typeof msg.teams === 'boolean' && msg.teams !== this.teams) {
+        this.teams = msg.teams;
+        // Sides to start from, evened out; everybody can change theirs.
+        if (this.teams) {
+          let k = 0;
+          for (const s of this.slots) if (s.kind === 'remote') s.team = k++ % 2;
+        }
+      }
+      if (typeof msg.map === 'string' && MAP_IDS.includes(msg.map)) this.mapId = msg.map;
+      if (typeof msg.bots === 'string' && BOT_LEVELS.includes(msg.bots)) this.botLevel = msg.bots;
+      if (Number.isInteger(msg.fill)) this.fill = Math.max(FILL_MIN, Math.min(MAX_SLOTS, msg.fill));
+      this.sendLobby();
+      return;
+    }
+    if (msg.t === 'go') {
+      const why = this.cannotStart();
+      if (why) {
+        conn.send({ t: 'nope', why });
+        return;
+      }
+      this.startRound();
+    }
+  }
+
+  // Why the host cannot start a round now, '' when they can.
+  cannotStart() {
+    const people = this.slots.filter((s) => s.kind === 'remote' && s.conn);
+    if (!people.length) return 'nobody';
+    if (this.teams) {
+      // Computers take sides by seat (look % 2), as startRound seats them.
+      const sides = new Set(people.map((s) => s.team));
+      const open = this.slots.map((s, i) => ({ s, i })).filter(({ s }) => !(s.kind === 'remote' && s.conn));
+      for (const { i } of open.slice(0, Math.max(0, this.fill - people.length))) sides.add(i % 2);
+      if (sides.size < 2) return 'needTeams';
+    }
+    return '';
+  }
+
   // ---------- the title ----------
 
   // Each side's wins: a team's (its best seat, as team-mates win together) or one
@@ -146,6 +242,8 @@ export class Room {
   // How long until the next round starts, -1 when none is coming: none while a
   // round is on, and after one the result's wait and then the lobby's.
   untilNextRound() {
+    // A hosted room waits for its host.
+    if (this.hosted) return -1;
     const until = this.nextIn();
     if (!this.game) return until;
     if (this.game.phase !== 'over' || until < 0 || !this.humans.length) return -1;
@@ -180,6 +278,10 @@ export class Room {
       conn.lastChat = at;
       const text = cleanChat(msg.text);
       if (text) this.chat({ name: slot ? slot.name : conn.watchName, look: slot ? this.slots.indexOf(slot) : -1, text, who: conn.peer });
+      return;
+    }
+    if (msg.t === 'host' || msg.t === 'setup' || msg.t === 'go') {
+      this.hostCommand(conn, msg);
       return;
     }
     if (msg.t === 'sit') {
@@ -223,8 +325,9 @@ export class Room {
     const watching = this.watchers.indexOf(conn);
     if (watching >= 0) {
       this.watchers.splice(watching, 1);
-      this.sendLobby();
       this.chat({ sys: 'leave', name: conn.watchName, look: -1, text: '', who: conn.peer });
+      this.passHost();
+      this.sendLobby();
       return;
     }
     const slot = this.slots.find((s) => s.conn === conn);
@@ -232,6 +335,7 @@ export class Room {
     this.chat({ sys: 'leave', name: slot.name, look: -1, text: '', who: conn.peer });
     const id = slot.playerId;
     this.freeSeat(slot);
+    this.passHost();
     // Mid-round a computer takes the hamster over, so the round still ends.
     if (this.game && this.game.phase !== 'over' && id >= 0) {
       const bot = createBot({ difficulty: 'normal', seed: (this.random() * 2 ** 32) >>> 0 });
@@ -276,6 +380,9 @@ export class Room {
     // Back again, a person gets the seat that holds their record; a newcomer one
     // that holds nobody's, so somebody who just left finds theirs still there.
     const who = this.ownerOf(conn, msg);
+    conn.owner = who;
+    // The first one into a hosted room hosts it.
+    if (this.hosted && !this.connections().some((c) => c !== conn && c.owner === this.host)) this.host = who;
     const free = msg.watch ? [] : this.slots.filter((s) => s.kind === 'open');
     const slot = free.find((s) => this.owners[this.slots.indexOf(s)] === who) || free.find((s) => !this.owners[this.slots.indexOf(s)]) || free[0];
     if (slot) {
@@ -297,7 +404,7 @@ export class Room {
       this.watchers.push(conn);
     }
     // Somebody in a seat and no round yet: the next one is on its way.
-    if (!this.game && !this.nextAt && this.humans.length) this.nextAt = this.now() + LOBBY_WAIT_MS;
+    if (!this.hosted && !this.game && !this.nextAt && this.humans.length) this.nextAt = this.now() + LOBBY_WAIT_MS;
     this.sendLobby();
     this.chat({ sys: 'join', name: slot ? slot.name : conn.watchName, look: -1, text: '', who: conn.peer });
     if (sitting) return;
@@ -342,7 +449,19 @@ export class Room {
     const view = this.lobbyView();
     const spect = this.watchers.map((c) => c.watchName);
     const nx = this.untilNextRound();
-    this.broadcast((slot, i) => ({ t: 'lobby', slots: view, spect, teams: this.teams, map: this.mapId, pw: '', you: i, wins: this.wins, tot: this.career, rd: this.rounds, hist: this.hist, nx, fill: MIN_PLAYERS, title: TITLE }));
+    // A hosted room also says who hosts it (`host`: their seat, -1 watching or
+    // none; `hostName`), its computers' level (`bots`), and to each connection
+    // whether it is the host (`me`).
+    const hosted = this.hosted ? { hosted: true, host: this.hostSeat(), hostName: this.hostName(), bots: this.botLevel } : {};
+    const lobby = (you, conn) => ({
+      t: 'lobby', slots: view, spect, teams: this.teams, map: this.mapId, pw: '', you, wins: this.wins, tot: this.career, rd: this.rounds, hist: this.hist, nx, fill: this.fill, title: TITLE,
+      ...hosted,
+      ...(this.hosted ? { me: this.isHost(conn) } : {}),
+    });
+    this.slots.forEach((slot, i) => {
+      if (slot.conn) slot.conn.send(lobby(i, slot.conn));
+    });
+    for (const conn of this.watchers) conn.send(lobby(-1, conn));
   }
 
   roster() {
@@ -367,7 +486,7 @@ export class Room {
     const active = this.slots
       .map((slot, look) => ({ slot, look }))
       .filter(({ slot }) => slot.kind === 'remote' && slot.conn);
-    for (let look = 0; active.length < MIN_PLAYERS && look < MAX_SLOTS; look++) {
+    for (let look = 0; active.length < this.fill && look < MAX_SLOTS; look++) {
       if (active.some((a) => a.look === look)) continue;
       active.push({ slot: { kind: `bot:${this.botLevel}`, name: NAMES[look] || `Bot ${look + 1}`, team: look % 2, input: IDLE }, look });
     }
@@ -530,7 +649,8 @@ export class Room {
       }
       this.broadcast(() => ({ t: 'lobbyscreen' }));
       this.game = null;
-      this.nextAt = this.humans.length ? at + LOBBY_WAIT_MS : 0;
+      // A hosted room stays in the lobby until its host starts the next round.
+      this.nextAt = !this.hosted && this.humans.length ? at + LOBBY_WAIT_MS : 0;
       this.sendLobby();
       return;
     }

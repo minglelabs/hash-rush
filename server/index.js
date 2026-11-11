@@ -42,7 +42,7 @@ function roomFor(id, query) {
   let room = rooms.get(id);
   if (!room) {
     if (rooms.size >= MAX_ROOMS) return null;
-    room = new Room({ id, map: query.get('map') || 'meadow', teams: query.get('teams') === '1', onResult: reportResult });
+    room = new Room({ id, map: query.get('map') || 'meadow', teams: query.get('teams') === '1', hosted: query.get('host') === '1', onResult: reportResult });
     room.emptySince = 0;
     rooms.set(id, room);
   }

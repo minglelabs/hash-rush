@@ -435,3 +435,116 @@ test('team-mates level at the top of the winning side share the title', () => {
   const rows = a.last('lobby').hist[0].rows;
   assert.deepEqual(rows.filter((r) => r.champ).map((r) => r.look).sort(), [0, mate.seat].sort());
 });
+
+// ---------- hosted rooms (the mingle app's) ----------
+
+test('a hosted room: the first one in hosts it, and nothing starts by itself', () => {
+  const { room, advance } = setup({ hosted: true });
+  const a = fakeConn('a');
+  const b = fakeConn('b');
+  room.join(a);
+  room.receive(a, { t: 'hello', name: 'Mia' });
+  room.join(b);
+  room.receive(b, { t: 'hello', name: 'Leo' });
+  const lobbyA = a.last('lobby');
+  assert.equal(lobbyA.hosted, true);
+  assert.equal(lobbyA.host, 0);
+  assert.equal(lobbyA.hostName, 'Mia');
+  assert.equal(lobbyA.me, true);
+  assert.equal(b.last('lobby').me, false);
+  assert.equal(lobbyA.nx, -1);
+  advance(LOBBY_WAIT_MS * 3);
+  room.update();
+  assert.equal(room.game, null);
+});
+
+test('only the host sets the room up and starts it; the round fills with computers up to the fill', () => {
+  const { room } = setup({ hosted: true });
+  const a = fakeConn('a');
+  const b = fakeConn('b');
+  for (const [c, name] of [[a, 'Mia'], [b, 'Leo']]) {
+    room.join(c);
+    room.receive(c, { t: 'hello', name });
+  }
+  room.receive(b, { t: 'setup', map: 'desert', fill: 6 });
+  room.receive(b, { t: 'go' });
+  assert.equal(room.mapId, 'meadow');
+  assert.equal(room.game, null);
+  room.receive(a, { t: 'setup', map: 'desert', fill: 6, bots: 'easy' });
+  assert.equal(a.last('lobby').map, 'desert');
+  assert.equal(a.last('lobby').fill, 6);
+  assert.equal(a.last('lobby').bots, 'easy');
+  room.receive(a, { t: 'go' });
+  assert.ok(room.game);
+  assert.equal(room.game.players.length, 6);
+  assert.equal(a.last('start').players.filter((p) => p.kind === 'bot:easy').length, 4);
+});
+
+test('team play: the host turns it on, sides start even, each picks their own, and one side alone cannot start', () => {
+  const { room } = setup({ hosted: true });
+  const a = fakeConn('a');
+  const b = fakeConn('b');
+  for (const [c, name] of [[a, 'Mia'], [b, 'Leo']]) {
+    room.join(c);
+    room.receive(c, { t: 'hello', name });
+  }
+  room.receive(a, { t: 'setup', teams: true, fill: 2 });
+  assert.deepEqual(a.last('lobby').slots.slice(0, 2).map((s) => s.team), [0, 1]);
+  room.receive(b, { t: 'team', team: 0 });
+  room.receive(a, { t: 'go' });
+  assert.equal(room.game, null);
+  assert.equal(a.last('nope').why, 'needTeams');
+  room.receive(b, { t: 'team', team: 1 });
+  room.receive(a, { t: 'go' });
+  assert.ok(room.game);
+  assert.deepEqual(room.game.players.map((p) => p.team), [0, 1]);
+});
+
+test('the host hands the room over, and when the host leaves it passes to the next person', () => {
+  const { room } = setup({ hosted: true });
+  const [a, b, c] = ['a', 'b', 'c'].map(fakeConn);
+  for (const [conn, name] of [[a, 'Mia'], [b, 'Leo'], [c, 'Ann']]) {
+    room.join(conn);
+    room.receive(conn, { t: 'hello', name });
+  }
+  room.receive(b, { t: 'host', seat: 2 });
+  assert.equal(a.last('lobby').host, 0);
+  room.receive(a, { t: 'host', seat: 2 });
+  assert.equal(a.last('lobby').host, 2);
+  assert.equal(c.last('lobby').me, true);
+  room.leave(c);
+  assert.equal(a.last('lobby').host, 0);
+  assert.equal(a.last('lobby').me, true);
+});
+
+test('after a hosted round the room goes back to the lobby and waits for the host', () => {
+  const { room, advance } = setup({ hosted: true });
+  const a = fakeConn('a');
+  room.join(a);
+  room.receive(a, { t: 'hello', name: 'Mia' });
+  room.receive(a, { t: 'go' });
+  for (let k = 0; k < 60 * 400 && room.game.phase !== 'over'; k += 60) room.update(60);
+  assert.equal(room.game.phase, 'over');
+  assert.equal(a.last('over').nx, -1);
+  advance(TITLE_WAIT_MS);
+  room.update();
+  assert.equal(room.game, null);
+  advance(LOBBY_WAIT_MS * 3);
+  room.update();
+  assert.equal(room.game, null);
+  room.receive(a, { t: 'go' });
+  assert.ok(room.game);
+});
+
+test('a room without hosting still runs itself', () => {
+  const { room, advance } = setup();
+  const a = fakeConn('a');
+  room.join(a);
+  room.receive(a, { t: 'hello', name: 'Mia' });
+  room.receive(a, { t: 'go' });
+  assert.equal(room.game, null);
+  assert.equal(a.last('lobby').hosted, undefined);
+  advance(LOBBY_WAIT_MS);
+  room.update();
+  assert.ok(room.game);
+});
