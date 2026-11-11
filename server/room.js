@@ -155,7 +155,8 @@ export class Room {
     if (!this.hosted) return;
     if (this.connections().some((c) => c.owner === this.host)) return;
     // The lobby says who hosts now (no chat line: the web page knows no such line).
-    const next = this.connections()[0];
+    // Someone with host controls first; the web page has none.
+    const next = this.connections().find((c) => c.canHost !== false) || null;
     this.host = next ? next.owner : '';
   }
 
@@ -381,8 +382,9 @@ export class Room {
     // that holds nobody's, so somebody who just left finds theirs still there.
     const who = this.ownerOf(conn, msg);
     conn.owner = who;
-    // The first one into a hosted room hosts it.
-    if (this.hosted && !this.connections().some((c) => c !== conn && c.owner === this.host)) this.host = who;
+    // The first one into a hosted room who can host hosts it (a web page cannot:
+    // it waits for an app to come in, which then hosts).
+    if (this.hosted && conn.canHost !== false && !this.connections().some((c) => c !== conn && c.owner === this.host && c.canHost !== false)) this.host = who;
     const free = msg.watch ? [] : this.slots.filter((s) => s.kind === 'open');
     const slot = free.find((s) => this.owners[this.slots.indexOf(s)] === who) || free.find((s) => !this.owners[this.slots.indexOf(s)]) || free[0];
     if (slot) {

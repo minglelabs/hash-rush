@@ -265,8 +265,18 @@ export async function joinRoom(room, on) {
 // messages, so everything above this layer stays the same. `server` is a ws(s) URL.
 export async function joinServerRoom(server, room, on) {
   // Opened from a mingle chat room, the page carries the app's entry ticket.
-  const ticket = new URLSearchParams(location.search).get('ticket');
-  const url = `${server.replace(/\/+$/, '')}/rooms/${encodeURIComponent(room)}${ticket ? `?ticket=${encodeURIComponent(ticket)}` : ''}`;
+  const params = new URLSearchParams(location.search);
+  const ticket = params.get('ticket');
+  // An invite link into an app room (`host=1`): the room is a hosted one, and
+  // this page, which has no host controls, joins it as a guest.
+  const query = new URLSearchParams();
+  if (ticket) query.set('ticket', ticket);
+  if (params.get('host') === '1') {
+    query.set('host', '1');
+    query.set('guest', '1');
+  }
+  const qs = query.toString();
+  const url = `${server.replace(/\/+$/, '')}/rooms/${encodeURIComponent(room)}${qs ? `?${qs}` : ''}`;
   const ws = new WebSocket(url);
   await new Promise((resolve, reject) => {
     ws.onopen = resolve;

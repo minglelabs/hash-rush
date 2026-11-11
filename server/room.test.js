@@ -548,3 +548,19 @@ test('a room without hosting still runs itself', () => {
   room.update();
   assert.ok(room.game);
 });
+
+test('a web page from an invite link never hosts while someone who can is in; an app that comes in hosts', () => {
+  const { room } = setup({ hosted: true });
+  const web = Object.assign(fakeConn('web'), { canHost: false });
+  const app = fakeConn('app');
+  room.join(web);
+  room.receive(web, { t: 'hello', name: 'Pc' });
+  assert.equal(web.last('lobby').host, -1);
+  room.join(app);
+  room.receive(app, { t: 'hello', name: 'Mia' });
+  assert.equal(app.last('lobby').me, true);
+  assert.equal(web.last('lobby').me, false);
+  // The app host leaves: the web page does not take the room over.
+  room.leave(app);
+  assert.equal(room.host, '');
+});

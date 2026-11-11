@@ -111,6 +111,9 @@ server.on('upgrade', (request, socket, head) => {
   wss.handleUpgrade(request, socket, head, (ws) => {
     const conn = wrap(ws);
     conn.ticket = ticket;
+    // The web page (opened from an invite link) has no host controls: it
+    // says so with `guest=1`, and never hosts while someone who can is there.
+    conn.canHost = url.searchParams.get('guest') !== '1';
     room.join(conn);
     room.emptySince = 0;
     let windowStart = Date.now();
