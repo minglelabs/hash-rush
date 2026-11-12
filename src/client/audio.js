@@ -8,12 +8,17 @@ export function createAudio() {
   let ctx = null;
   let muted = false;
   let track = null;
+  // Put out of sight by the app around the page (see embed.js), which counts as
+  // a hidden page; and a voice call going on there, which only the music makes way for.
+  let away = false;
+  let voice = false;
   try {
     muted = localStorage.getItem(KEY) === '1';
   } catch {
     // storage unavailable: start unmuted
   }
-  const music = createMusic(() => ctx);
+  const unheard = () => document.hidden || away;
+  const music = createMusic(() => ctx, unheard);
 
   // Browsers only allow audio after a user gesture, so call this from a click.
   // Safe to call on every tap until the context is running.
@@ -39,7 +44,7 @@ export function createAudio() {
 
   // A page out of sight keeps its round going but stays quiet, as the music does.
   function tone({ f, to = f, dur = 0.12, type = 'sine', vol = 0.12, at = 0 }) {
-    if (muted || !ctx || document.hidden) return;
+    if (muted || !ctx || unheard()) return;
     const t0 = ctx.currentTime + at;
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
@@ -54,7 +59,7 @@ export function createAudio() {
   }
 
   function noise({ dur = 0.08, vol = 0.1, cutoff = 800 }) {
-    if (muted || !ctx || document.hidden) return;
+    if (muted || !ctx || unheard()) return;
     const len = Math.ceil(ctx.sampleRate * dur);
     const buf = ctx.createBuffer(1, len, ctx.sampleRate);
     const data = buf.getChannelData(0);
@@ -163,7 +168,7 @@ export function createAudio() {
     },
     // A crowd going "waaah": a swell of voice-band noise with clapping scattered through it.
     cheer: () => {
-      if (muted || !ctx || document.hidden) return;
+      if (muted || !ctx || unheard()) return;
       const dur = 4.5;
       const len = Math.ceil(ctx.sampleRate * dur);
       const buf = ctx.createBuffer(1, len, ctx.sampleRate);
@@ -195,9 +200,12 @@ export function createAudio() {
     lose: () => [440, 370, 311, 262].forEach((f, i) => tone({ f, dur: 0.22, type: 'triangle', vol: 0.09, at: i * 0.15 })),
   };
 
+  // The tune for the screen, unless the sound is off or a voice call is on.
+  const tune = () => music.set(muted || voice ? null : track);
+
   function toggle() {
     muted = !muted;
-    music.set(muted ? null : track);
+    tune();
     try {
       localStorage.setItem(KEY, muted ? '1' : '0');
     } catch {
@@ -208,8 +216,23 @@ export function createAudio() {
   // Which tune suits the screen: 'lobby', 'game' or null. It starts once sound is unlocked.
   function setMusic(name) {
     track = name;
-    music.set(muted ? null : track);
+    tune();
   }
 
-  return { unlock, play, toggle, setMusic, icon: () => (muted ? '🔇' : '🔊'), ready: () => ctx?.state === 'running' };
+  // Out of sight in the app, the page goes as quiet as a hidden one, and the
+  // tune already on its way fades at once instead of playing on for a moment.
+  function setAway(on) {
+    if (away === !!on) return;
+    away = !!on;
+    music.hush(away);
+  }
+
+  // A voice call holds the music, the sound effects go on, and once it ends the
+  // music is back as the player had it (the sound button is the player's own).
+  function setVoice(on) {
+    voice = !!on;
+    tune();
+  }
+
+  return { unlock, play, toggle, setMusic, setAway, setVoice, icon: () => (muted ? '🔇' : '🔊'), ready: () => ctx?.state === 'running' };
 }

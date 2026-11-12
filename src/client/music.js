@@ -413,7 +413,8 @@ export function barsOf(track) {
 export const trackSeconds = (track) => (barsOf(track).length * 240) / track.bpm;
 
 // `getCtx()` returns the AudioContext once the page has been tapped, and null before.
-export function createMusic(getCtx) {
+// `unheard()` says the page is out of sight, when nothing new is played.
+export function createMusic(getCtx, unheard = () => document.hidden) {
   let want = null;
   let playing = null;
   let out = null;
@@ -594,7 +595,7 @@ export function createMusic(getCtx) {
 
   function tick() {
     const ctx = getCtx();
-    if (!ctx || ctx.state !== 'running' || document.hidden) return;
+    if (!ctx || ctx.state !== 'running' || unheard()) return;
     if (want !== playing) {
       // Fade the old tune out; whatever was already scheduled plays into silence.
       if (out) {
@@ -632,6 +633,15 @@ export function createMusic(getCtx) {
       want = name;
       if (!timer) timer = setInterval(tick, 200);
       tick();
+    },
+    // Out of sight: what is already scheduled fades now rather than playing on
+    // for a moment. Back in sight, the tune comes up again where it was, unless
+    // another one is wanted by then, which then takes over as usual.
+    hush(on) {
+      const ctx = getCtx();
+      if (!ctx || !out || (!on && want !== playing)) return;
+      out.gain.cancelScheduledValues(ctx.currentTime);
+      out.gain.setTargetAtTime(on ? 0 : 1, ctx.currentTime, on ? 0.03 : 0.15);
     },
     // The tune playing right now.
     now: () => trackName,
