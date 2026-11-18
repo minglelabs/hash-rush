@@ -25,6 +25,7 @@ import { winRate } from './rankPage.js';
 import { createRoomList } from './roomList.js';
 import { createChat, floatLine, cleanChat, lineLife } from './chatbar.js';
 import { embedMode, connectApp, phaseOf, bringsKeyboard, createChatBubbles } from './embed.js';
+import { isDesktop, linkBase } from './desktop.js';
 
 const $ = (id) => document.getElementById(id);
 const STORE = 'seed-rush-slots';
@@ -191,6 +192,9 @@ const query = new URLSearchParams(location.search);
 // and nothing only a browser needs (style.css, html.embed), and the player goes
 // by the chat's name, which the server takes from the ticket.
 const embed = embedMode(query, gameServer(query));
+// The desktop app (desktop/) updates through Steam, not through the service worker.
+const desktop = isDesktop();
+document.documentElement.classList.toggle('desktop', desktop);
 document.documentElement.classList.toggle('embed', embed);
 const chatName = embed ? String(query.get('name') || '').trim().slice(0, 8) : '';
 // The app hears how things stand here (the page is up, the keyboard, the phase)
@@ -483,7 +487,7 @@ function renderLobby() {
   $('copy').hidden = !net.room;
   $('watchRow').hidden = !net.room;
   if (net.room) {
-    const link = `${location.origin}${location.pathname}?room=${net.room}${roomPw ? `&pw=${encodeURIComponent(roomPw)}` : ''}`;
+    const link = `${linkBase(location, desktop)}?room=${net.room}${roomPw ? `&pw=${encodeURIComponent(roomPw)}` : ''}`;
     $('inviteLink').value = link;
     $('watchLink').value = `${link}&watch`;
     $('watchText').textContent = `${t('watchLink')} · ${t('spectators', net.watchers.length)}`;
@@ -2942,7 +2946,7 @@ const seenTags = new Map();
 let lastCheck = -Infinity;
 
 async function checkUpdate() {
-  if (performance.now() - lastCheck < 60000 || !$('updateBtn').hidden) return;
+  if (desktop || performance.now() - lastCheck < 60000 || !$('updateBtn').hidden) return;
   lastCheck = performance.now();
   const files = performance
     .getEntriesByType('resource')
@@ -2984,7 +2988,7 @@ window.addEventListener('beforeunload', (e) => {
   e.returnValue = '';
 });
 
-if ('serviceWorker' in navigator) {
+if (!desktop && 'serviceWorker' in navigator) {
   // The first visit loads before the worker is in charge and may have run cached
   // scripts. Nothing has happened yet at that point, so load once more through it.
   const fresh = !navigator.serviceWorker.controller;
