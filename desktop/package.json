@@ -1,0 +1,58 @@
+{
+  "name": "hash-rush-desktop",
+  "productName": "Hash Rush",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Hash Rush as a desktop app (for Steam)",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --dir",
+    "dist:win": "electron-builder --win --dir",
+    "dist:mac": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac --dir",
+    "dist:linux": "electron-builder --linux --dir"
+  },
+  "build": {
+    "appId": "io.github.minglelabs.hashrush",
+    "productName": "Hash Rush",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs"
+    ],
+    "extraResources": [
+      {
+        "from": "..",
+        "to": "game",
+        "filter": [
+          "index.html",
+          "rooms.html",
+          "ranking.html",
+          "board.html",
+          "style.css",
+          "og.png",
+          "icons/**",
+          "src/**"
+        ]
+      }
+    ],
+    "icon": "../icons/icon-512.png",
+    "win": {
+      "target": "dir"
+    },
+    "mac": {
+      "target": "dir",
+      "category": "public.app-category.games"
+    },
+    "linux": {
+      "target": "dir",
+      "category": "Game"
+    }
+  },
+  "devDependencies": {
+    "electron": "^45.3.4",
+    "electron-builder": "^26.18.0"
+  }
+}
