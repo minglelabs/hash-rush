@@ -6,10 +6,13 @@
 const { app, BrowserWindow, protocol, net, shell, ipcMain, dialog, Menu } = require('electron');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
+const steam = require('./steam.cjs');
 
 const SCHEME = 'app';
 const HOST = 'hash-rush';
 const ROOT = app.isPackaged ? path.join(process.resourcesPath, 'game') : path.join(__dirname, '..');
+
+if (steam.start({ packaged: app.isPackaged }).quit) app.exit(0);
 
 protocol.registerSchemesAsPrivileged([
   { scheme: SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
@@ -89,6 +92,9 @@ app.whenReady().then(() => {
     win?.setFullScreen(!win.isFullScreen());
   });
   ipcMain.on('quit', () => app.quit());
+  ipcMain.on('steam-info', (e) => (e.returnValue = steam.info()));
+  ipcMain.on('steam-achieve', (_, ids) => steam.achieve(ids));
+  ipcMain.on('steam-presence', (_, text) => steam.presence(text));
   createWindow();
   app.on('activate', () => BrowserWindow.getAllWindows().length === 0 && createWindow());
 });

@@ -50,6 +50,35 @@ function wayOf(a) {
   return { x: r(Math.cos(snap)), y: r(Math.sin(snap)) };
 }
 
+// A game controller (standard mapping): the left stick or the D-pad steers, A
+// (or RB) bonks and B, X or LB throws a seed. The stick points one of 16 ways with
+// the same stickiness as the touch pad. `was` is the previous heading.
+const PAD_DEAD = 0.35;
+export const PAD_BUTTONS = { bonk: [0, 5], throw: [1, 2, 4], up: 12, down: 13, left: 14, right: 15 };
+export function gamepadInput(gp, was = null) {
+  const on = (i) => Boolean(gp.buttons[i]?.pressed);
+  const any = (list) => list.some(on);
+  let x = (on(PAD_BUTTONS.right) ? 1 : 0) - (on(PAD_BUTTONS.left) ? 1 : 0);
+  let y = (on(PAD_BUTTONS.down) ? 1 : 0) - (on(PAD_BUTTONS.up) ? 1 : 0);
+  let stick = false;
+  const ax = gp.axes[0] || 0;
+  const ay = gp.axes[1] || 0;
+  if (!x && !y && Math.hypot(ax, ay) >= PAD_DEAD) {
+    ({ x, y } = stickDir(ax * 100, ay * 100, was));
+    stick = true;
+  }
+  return { x, y, stick, bonk: any(PAD_BUTTONS.bonk), throw: any(PAD_BUTTONS.throw) };
+}
+
+// The controllers plugged in that have the standard layout.
+export function gamepads(nav = globalThis.navigator) {
+  try {
+    return [...(nav?.getGamepads?.() || [])].filter((gp) => gp && gp.connected && gp.mapping === 'standard');
+  } catch {
+    return [];
+  }
+}
+
 // Which of the pad's four keys a heading lights: one along a lane, both next to a diagonal.
 export const padKey = (v) => (v > 0.5 ? 1 : v < -0.5 ? -1 : 0);
 
@@ -91,6 +120,7 @@ export function createInput({ stage, canvas, pad, bonkBtn, throwBtn, toWorldDir,
   // A swipe on the map sets the way to keep going, until the next swipe or a tap.
   let swipe = null;
   let glide = null;
+  let padWas = null;
 
   const held = (name) => KEYS[name].some((code) => down.has(code));
 
@@ -102,6 +132,7 @@ export function createInput({ stage, canvas, pad, bonkBtn, throwBtn, toWorldDir,
     throwHeld = false;
     swipe = null;
     glide = null;
+    padWas = null;
     showPad();
   }
 
@@ -224,6 +255,21 @@ export function createInput({ stage, canvas, pad, bonkBtn, throwBtn, toWorldDir,
       // A move off the pad or a swipe is one the lane help may straighten out.
       out.stick = laneHelp && !!(finger.x || finger.y);
     }
+    // A controller adds to the keys; while it steers it has the say.
+    for (const gp of gamepads()) {
+      const c = gamepadInput(gp, padWas);
+      out.bonk ||= c.bonk;
+      out.throw ||= c.throw;
+      if (c.x || c.y) {
+        out.mx = c.x;
+        out.my = c.y;
+        out.stick = laneHelp && c.stick;
+        padWas = c;
+        stage.classList.add('played');
+        break;
+      }
+      padWas = null;
+    }
     // Keys and the pad point in screen directions; the view may be turned.
     const dir = toWorldDir(out.mx, out.my);
     out.mx = dir.x;
@@ -243,6 +289,7 @@ export function createInput({ stage, canvas, pad, bonkBtn, throwBtn, toWorldDir,
   return {
     read,
     reset,
+    enabled: () => enabled,
     enable: (on) => {
       enabled = on;
       if (!on) reset();

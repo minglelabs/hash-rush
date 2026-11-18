@@ -1,0 +1,14 @@
+"AppBuild"
+{
+	// Replace 480 and the depot ids with Hash Rush's own from the Steamworks site.
+	"AppID" "480"
+	"Desc" "Hash Rush build"
+	"ContentRoot" "../dist/"
+	"BuildOutput" "./output/"
+	"Depots"
+	{
+		"481" "depot_windows.vdf"
+		"482" "depot_mac.vdf"
+		"483" "depot_linux.vdf"
+	}
+}

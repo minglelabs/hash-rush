@@ -8,9 +8,11 @@
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder --dir",
-    "dist:win": "electron-builder --win --dir",
-    "dist:mac": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac --dir",
-    "dist:linux": "electron-builder --linux --dir"
+    "dist:win": "electron-builder --win --x64 --dir",
+    "dist:mac": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac --universal --dir",
+    "dist:linux": "electron-builder --linux --x64 --dir",
+    "dist:all": "npm run dist:win && npm run dist:linux && npm run dist:mac",
+    "steam:upload": "steamcmd +login \"$STEAM_USER\" +run_app_build \"$PWD/steampipe/app_build.vdf\" +quit"
   },
   "build": {
     "appId": "io.github.minglelabs.hashrush",
@@ -20,7 +22,8 @@
     },
     "files": [
       "main.cjs",
-      "preload.cjs"
+      "preload.cjs",
+      "steam.cjs"
     ],
     "extraResources": [
       {
@@ -44,15 +47,22 @@
     },
     "mac": {
       "target": "dir",
-      "category": "public.app-category.games"
+      "category": "public.app-category.games",
+      "x64ArchFiles": "Contents/Resources/app.asar.unpacked/node_modules/steamworks.js/dist/osx/*"
     },
     "linux": {
       "target": "dir",
       "category": "Game"
-    }
+    },
+    "asarUnpack": [
+      "node_modules/steamworks.js/**"
+    ]
   },
   "devDependencies": {
     "electron": "^45.3.4",
     "electron-builder": "^26.18.0"
+  },
+  "dependencies": {
+    "steamworks.js": "^0.4.0"
   }
 }

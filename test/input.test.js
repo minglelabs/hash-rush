@@ -88,3 +88,37 @@ test('throwing has keys of its own, so holding the bonk key only ever bonks', ()
   const all = Object.values(KEYS).flat();
   assert.equal(new Set(all).size, all.length, 'no key does two things');
 });
+
+import { gamepadInput } from '../src/client/input.js';
+import { nearestWay, padWay } from '../src/client/padnav.js';
+
+const pad = (pressed = [], axes = [0, 0]) => ({
+  axes,
+  buttons: Array.from({ length: 17 }, (_, i) => ({ pressed: pressed.includes(i) })),
+});
+
+test('a controller steers with the D-pad or the left stick, bonks with A and throws with B', () => {
+  assert.deepEqual(gamepadInput(pad()), { x: 0, y: 0, stick: false, bonk: false, throw: false });
+  assert.deepEqual(gamepadInput(pad([12, 15])), { x: 1, y: -1, stick: false, bonk: false, throw: false });
+  const s = gamepadInput(pad([0], [0.9, 0]));
+  assert.equal(s.x, 1);
+  assert.equal(s.y, 0);
+  assert.equal(s.stick, true);
+  assert.equal(s.bonk, true);
+  assert.equal(gamepadInput(pad([1])).throw, true);
+  // A stick barely off the middle is no move.
+  assert.equal(gamepadInput(pad([], [0.2, 0.1])).x, 0);
+});
+
+test('the menus move to the nearest button the way the controller points', () => {
+  const r = (left, top) => ({ left, top, width: 10, height: 10 });
+  const from = r(0, 0);
+  const rects = [r(100, 0), r(0, 50), r(30, 40), r(-80, 0)];
+  assert.equal(nearestWay(from, rects, 1, 0), 0);
+  assert.equal(nearestWay(from, rects, 0, 1), 1);
+  assert.equal(nearestWay(from, rects, -1, 0), 3);
+  assert.equal(nearestWay(from, rects, 0, -1), -1);
+  assert.deepEqual(padWay(pad([13])), [0, 1]);
+  assert.deepEqual(padWay(pad([], [-0.8, 0.3])), [-1, 0]);
+  assert.equal(padWay(pad([], [0.2, 0.2])), null);
+});
