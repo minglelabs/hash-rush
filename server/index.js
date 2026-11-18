@@ -9,7 +9,7 @@
 
 import http from 'node:http';
 import { WebSocketServer } from 'ws';
-import { Room, TICK_MS } from './room.js';
+import { Room, roomOptionsFromQuery, TICK_MS } from './room.js';
 import { verifyTicket } from './ticket.js';
 
 const PORT = Number(process.env.PORT) || 8080;
@@ -42,7 +42,7 @@ function roomFor(id, query) {
   let room = rooms.get(id);
   if (!room) {
     if (rooms.size >= MAX_ROOMS) return null;
-    room = new Room({ id, map: query.get('map') || 'meadow', teams: query.get('teams') === '1', hosted: query.get('host') === '1', onResult: reportResult });
+    room = new Room({ id, ...roomOptionsFromQuery(query), onResult: reportResult });
     room.emptySince = 0;
     rooms.set(id, room);
   }

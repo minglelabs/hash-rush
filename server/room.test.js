@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { Room, LOBBY_WAIT_MS, RESULT_WAIT_MS, MIN_PLAYERS, TITLE_WINS, TITLE_LEAD, TITLE_WAIT_MS } from './room.js';
+import { Room, roomOptionsFromQuery, LOBBY_WAIT_MS, RESULT_WAIT_MS, MIN_PLAYERS, TITLE_WINS, TITLE_LEAD, TITLE_WAIT_MS } from './room.js';
 
 function fakeConn(peer) {
   const got = [];
@@ -602,4 +602,19 @@ test('a room not run by the app is not a team game unless asked', () => {
   room.join(a);
   room.receive(a, { t: 'hello', name: 'Mia' });
   assert.equal(a.last('lobby').teams, false);
+});
+
+test('a room made from an app join URL with no teams option is a team game of people against two computers', () => {
+  const options = roomOptionsFromQuery(new URLSearchParams('host=1&ticket=x'));
+  assert.equal(options.teams, undefined);
+  const { room } = setup(options);
+  const a = fakeConn('a');
+  room.join(a);
+  room.receive(a, { t: 'hello', name: 'Mia' });
+  const lobby = a.last('lobby');
+  assert.equal(lobby.teams, true);
+  // Me and two computers, not the old "at least four".
+  assert.equal(lobby.fill, 3);
+  assert.equal(roomOptionsFromQuery(new URLSearchParams('teams=0&host=1')).teams, false);
+  assert.equal(roomOptionsFromQuery(new URLSearchParams('teams=1')).teams, true);
 });

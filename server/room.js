@@ -60,6 +60,16 @@ function seatName(i) {
   return i === 0 ? 'Player 1' : NAMES[i];
 }
 
+// A room's options from its join URL. `teams` is left unset when the URL does
+// not name it, so a hosted room keeps its own default (a team game).
+export function roomOptionsFromQuery(query) {
+  return {
+    map: query.get('map') || 'meadow',
+    teams: query.has('teams') ? query.get('teams') === '1' : undefined,
+    hosted: query.get('host') === '1',
+  };
+}
+
 export class Room {
   // `now` and `random` are injectable so a test can play a whole round at once.
   // `hosted` (the mingle app's rooms): one person is the host. The host sets the
