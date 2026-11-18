@@ -481,7 +481,7 @@ test('only the host sets the room up and starts it; the round fills with compute
 });
 
 test('team play: the host turns it on, sides start even, each picks their own, and one side alone cannot start', () => {
-  const { room } = setup({ hosted: true });
+  const { room } = setup({ hosted: true, teams: false });
   const a = fakeConn('a');
   const b = fakeConn('b');
   for (const [c, name] of [[a, 'Mia'], [b, 'Leo']]) {
@@ -563,4 +563,43 @@ test('a web page from an invite link never hosts while someone who can is in; an
   // The app host leaves: the web page does not take the room over.
   room.leave(app);
   assert.equal(room.host, '');
+});
+
+test('a hosted room starts as a team game of everybody against two computers at the default level', () => {
+  const { room } = setup({ hosted: true });
+  const [a, b, c] = ['a', 'b', 'c'].map(fakeConn);
+  for (const [conn, name] of [[a, 'Mia'], [b, 'Leo'], [c, 'Ann']]) {
+    room.join(conn);
+    room.receive(conn, { t: 'hello', name });
+  }
+  const lobby = a.last('lobby');
+  assert.equal(lobby.teams, true);
+  assert.equal(lobby.bots, 'hard');
+  // Three people and two computers, however many people came in.
+  assert.equal(lobby.fill, 5);
+  assert.deepEqual(lobby.slots.slice(0, 3).map((s) => s.team), [0, 0, 0]);
+  room.receive(a, { t: 'go' });
+  assert.ok(room.game);
+  const teams = room.game.players.map((p) => p.team);
+  assert.deepEqual(teams.filter((t) => t === 0).length, 3);
+  assert.deepEqual(teams.filter((t) => t === 1).length, 2);
+  assert.ok(room.game.players.filter((p) => p.team === 1).every((p) => !p.pid));
+});
+
+test('the host\'s own hamster count ends people against computers', () => {
+  const { room } = setup({ hosted: true });
+  const a = fakeConn('a');
+  room.join(a);
+  room.receive(a, { t: 'hello', name: 'Mia' });
+  assert.equal(a.last('lobby').fill, 3);
+  room.receive(a, { t: 'setup', fill: 6 });
+  assert.equal(a.last('lobby').fill, 6);
+});
+
+test('a room not run by the app is not a team game unless asked', () => {
+  const { room } = setup({});
+  const a = fakeConn('a');
+  room.join(a);
+  room.receive(a, { t: 'hello', name: 'Mia' });
+  assert.equal(a.last('lobby').teams, false);
 });

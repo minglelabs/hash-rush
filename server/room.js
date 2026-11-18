@@ -45,6 +45,10 @@ export const BOT_LEVELS = ['easy', 'normal', 'hard', 'ace'];
 // A hosted room's host picks how many hamsters a round has at least (computers
 // fill the rest): at least two, so there is somebody to play against.
 export const FILL_MIN = 2;
+// A hosted room starts as people against computers: everybody on one team,
+// this many computers (at the default level) on the other, however many
+// people come in, until the host changes the setup.
+export const VS_COMPUTERS = 2;
 
 export const cleanChat = (raw) => String(raw || '').replace(/\s+/g, ' ').trim().slice(0, 80);
 const cleanName = (raw) => String(raw || '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 8);
@@ -62,14 +66,18 @@ export class Room {
   // room up in the lobby (teams, map, computers) and starts each round; nothing
   // starts by itself. The host can hand the room to somebody else, and when the
   // host leaves it passes to the next person. Without it the room runs itself.
-  constructor({ id, map = 'meadow', teams = false, botLevel = 'hard', hosted = false, now = Date.now, random = Math.random, onResult = null } = {}) {
+  constructor({ id, map = 'meadow', teams, botLevel = 'hard', hosted = false, now = Date.now, random = Math.random, onResult = null } = {}) {
     this.id = id;
     this.hosted = !!hosted;
     // The host, as a record owner (ownerOf): it follows the person, not the seat.
     this.host = '';
     this.fill = MIN_PLAYERS;
     this.mapId = MAP_IDS.includes(map) ? map : 'meadow';
-    this.teams = !!teams;
+    // A hosted room is a team game unless asked otherwise.
+    this.teams = teams === undefined ? !!hosted : !!teams;
+    // People against computers (see VS_COMPUTERS); off once the host picks
+    // the teams or the hamster count themselves.
+    this.vsComputers = !!hosted && this.teams;
     this.botLevel = BOT_LEVELS.includes(botLevel) ? botLevel : 'hard';
     this.now = now;
     this.random = random;
@@ -175,6 +183,7 @@ export class Room {
     if (msg.t === 'setup') {
       if (typeof msg.teams === 'boolean' && msg.teams !== this.teams) {
         this.teams = msg.teams;
+        this.vsComputers = false;
         // Sides to start from, evened out; everybody can change theirs.
         if (this.teams) {
           let k = 0;
@@ -183,7 +192,10 @@ export class Room {
       }
       if (typeof msg.map === 'string' && MAP_IDS.includes(msg.map)) this.mapId = msg.map;
       if (typeof msg.bots === 'string' && BOT_LEVELS.includes(msg.bots)) this.botLevel = msg.bots;
-      if (Number.isInteger(msg.fill)) this.fill = Math.max(FILL_MIN, Math.min(MAX_SLOTS, msg.fill));
+      if (Number.isInteger(msg.fill)) {
+        this.fill = Math.max(FILL_MIN, Math.min(MAX_SLOTS, msg.fill));
+        this.vsComputers = false;
+      }
       this.sendLobby();
       return;
     }
@@ -202,10 +214,10 @@ export class Room {
     const people = this.slots.filter((s) => s.kind === 'remote' && s.conn);
     if (!people.length) return 'nobody';
     if (this.teams) {
-      // Computers take sides by seat (look % 2), as startRound seats them.
+      // Computers take sides as startRound seats them.
       const sides = new Set(people.map((s) => s.team));
       const open = this.slots.map((s, i) => ({ s, i })).filter(({ s }) => !(s.kind === 'remote' && s.conn));
-      for (const { i } of open.slice(0, Math.max(0, this.fill - people.length))) sides.add(i % 2);
+      for (const { i } of open.slice(0, Math.max(0, this.roundFill() - people.length))) sides.add(this.computerTeam(i));
       if (sides.size < 2) return 'needTeams';
     }
     return '';
@@ -394,7 +406,7 @@ export class Room {
       slot.pub = validPub(msg.pub);
       slot.input = IDLE;
       slot.playerId = -1;
-      if (this.teams) slot.team = this.smallerTeam();
+      if (this.teams) slot.team = this.vsComputers ? 0 : this.smallerTeam();
       // A mingle ticket carries the chat name; it wins over what the page says.
       slot.name = this.uniqueName(slot, cleanName(conn.ticket?.name || msg.name));
       slot.userId = conn.ticket?.userId || '';
@@ -411,6 +423,19 @@ export class Room {
     this.chat({ sys: 'join', name: slot ? slot.name : conn.watchName, look: -1, text: '', who: conn.peer });
     if (sitting) return;
     if (this.game && this.game.phase !== 'over') conn.send(this.startMessage(-1));
+  }
+
+  // How many hamsters a round has at least: people plus VS_COMPUTERS while
+  // the room is people against computers, else the host's count.
+  roundFill() {
+    if (!this.vsComputers) return this.fill;
+    const people = this.slots.filter((s) => s.kind === 'remote' && s.conn).length;
+    return Math.min(MAX_SLOTS, Math.max(FILL_MIN, people + VS_COMPUTERS));
+  }
+
+  // The side a computer in seat `look` plays on.
+  computerTeam(look) {
+    return this.vsComputers ? 1 : look % 2;
   }
 
   smallerTeam() {
@@ -456,7 +481,7 @@ export class Room {
     // whether it is the host (`me`).
     const hosted = this.hosted ? { hosted: true, host: this.hostSeat(), hostName: this.hostName(), bots: this.botLevel } : {};
     const lobby = (you, conn) => ({
-      t: 'lobby', slots: view, spect, teams: this.teams, map: this.mapId, pw: '', you, wins: this.wins, tot: this.career, rd: this.rounds, hist: this.hist, nx, fill: this.fill, title: TITLE,
+      t: 'lobby', slots: view, spect, teams: this.teams, map: this.mapId, pw: '', you, wins: this.wins, tot: this.career, rd: this.rounds, hist: this.hist, nx, fill: this.roundFill(), title: TITLE,
       ...hosted,
       ...(this.hosted ? { me: this.isHost(conn) } : {}),
     });
@@ -488,9 +513,10 @@ export class Room {
     const active = this.slots
       .map((slot, look) => ({ slot, look }))
       .filter(({ slot }) => slot.kind === 'remote' && slot.conn);
-    for (let look = 0; active.length < this.fill && look < MAX_SLOTS; look++) {
+    const fill = this.roundFill();
+    for (let look = 0; active.length < fill && look < MAX_SLOTS; look++) {
       if (active.some((a) => a.look === look)) continue;
-      active.push({ slot: { kind: `bot:${this.botLevel}`, name: NAMES[look] || `Bot ${look + 1}`, team: look % 2, input: IDLE }, look });
+      active.push({ slot: { kind: `bot:${this.botLevel}`, name: NAMES[look] || `Bot ${look + 1}`, team: this.computerTeam(look), input: IDLE }, look });
     }
     active.sort((a, b) => a.look - b.look);
     // A computer in a seat plays on its own record; a person's who left is put away for them.
