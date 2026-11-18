@@ -3210,3 +3210,20 @@ html.embed #stage {
   -webkit-user-select: none;
   -webkit-touch-callout: none;
 }
+
+/* Moving through menus with a game controller (padnav.js). */
+html.padnav :focus {
+  outline: 3px solid #ffcc33;
+  outline-offset: 3px;
+}
+
+/* The desktop app (desktop/): a PC window, so the fullscreen button shows, and
+   nothing about installing the web page. */
+html.desktop #full {
+  display: inline;
+}
+html.desktop #installBtn,
+html.desktop #installGameBtn,
+html.desktop #installHelp {
+  display: none !important;
+}

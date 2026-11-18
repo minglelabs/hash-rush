@@ -25,7 +25,8 @@ import { winRate } from './rankPage.js';
 import { createRoomList } from './roomList.js';
 import { createChat, floatLine, cleanChat, lineLife } from './chatbar.js';
 import { embedMode, connectApp, phaseOf, bringsKeyboard, createChatBubbles } from './embed.js';
-import { isDesktop, linkBase } from './desktop.js';
+import { isDesktop, linkBase, roundAchievements, steamName } from './desktop.js';
+import { startPadNav } from './padnav.js';
 
 const $ = (id) => document.getElementById(id);
 const STORE = 'seed-rush-slots';
@@ -195,6 +196,38 @@ const embed = embedMode(query, gameServer(query));
 // The desktop app (desktop/) updates through Steam, not through the service worker.
 const desktop = isDesktop();
 document.documentElement.classList.toggle('desktop', desktop);
+// On Steam the player starts out with their Steam name, until they pick another.
+if (desktop) {
+  const name = steamName(window.hashRushDesktop.steamName);
+  if (name && (!slots[0].name || DEFAULT_NAMES.has(slots[0].name))) slots[0].name = name;
+}
+const STEAM_RECORD = 'hash-rush-steam-record';
+// What a round just finished earns on Steam.
+function steamRound() {
+  if (!desktop || meId < 0) return;
+  const me = game.players[meId];
+  let record = null;
+  try {
+    record = JSON.parse(localStorage.getItem(STEAM_RECORD));
+  } catch {
+    // starts over
+  }
+  const people = game.players.filter((p) => p !== me && !String(p.kind || '').startsWith('bot:')).length;
+  const out = roundAchievements(record, { won: won(me), map: game.map.id, team: me.team >= 0, people }, MAP_IDS);
+  try {
+    localStorage.setItem(STEAM_RECORD, JSON.stringify(out.record));
+  } catch {
+    // Steam still keeps what was earned
+  }
+  if (out.got.length) window.hashRushDesktop.achieve(out.got);
+}
+// What friends see on Steam: in the lobby, or playing which map.
+if (desktop) {
+  setInterval(() => {
+    const playing = game && game.phase !== 'over' && !$('stage').hidden;
+    window.hashRushDesktop.presence(playing ? `${t('mapNames')?.[game.map.id] || game.map.id}` : '');
+  }, 15000);
+}
 document.documentElement.classList.toggle('embed', embed);
 const chatName = embed ? String(query.get('name') || '').trim().slice(0, 8) : '';
 // The app hears how things stand here (the page is up, the keyboard, the phase)
@@ -234,6 +267,8 @@ const input = createInput({
   toWorldDir: renderer.toWorldDir,
   laneHelp: tuned('assist', ASSIST_STORE) !== '0',
 });
+// A controller steers in a round and moves through the menus otherwise, the open ⚙️ menu included.
+startPadNav({ busy: () => input.enabled() && !$('tools').classList.contains('open') });
 
 const joinId = query.get('room');
 // Opening the watch link joins as a spectator instead of taking a slot.
@@ -1817,6 +1852,7 @@ function onEvent(ev) {
     for (const p of players) if (won(p)) wins[p.look]++;
     addCareer();
     rateRound();
+    steamRound();
     if (meId < 0 || won(players[meId])) audio.play.win();
     else audio.play.lose();
     input.enable(false);
@@ -2716,6 +2752,9 @@ for (const [id, page] of [['rankBtn', 'ranking.html'], ['feedbackBtn', 'board.ht
     else location.href = url;
   });
 }
+// The desktop app has a way out of the game, as PC games do.
+$('quitApp').hidden = !desktop;
+$('quitApp').addEventListener('click', () => window.hashRushDesktop?.quit());
 $('listed').addEventListener('change', announce);
 $('pwField').addEventListener('input', () => {
   roomPw = cleanPw($('pwField').value);
@@ -2862,9 +2901,11 @@ $('buzz').addEventListener('click', () => {
   if (haptics.toggle()) haptics.buzz(35);
   showBuzz();
 });
-$('full').hidden = !document.documentElement.requestFullscreen;
+$('full').hidden = !desktop && !document.documentElement.requestFullscreen;
 $('full').addEventListener('click', () => {
-  if (document.fullscreenElement) document.exitFullscreen();
+  // The desktop app fills the screen with its window (F11 and Alt+Enter do the same).
+  if (desktop) window.hashRushDesktop.toggleFullscreen();
+  else if (document.fullscreenElement) document.exitFullscreen();
   else document.documentElement.requestFullscreen({ navigationUI: 'hide' }).catch(() => {});
 });
 // Browsers only allow sound after a tap, and a guest never presses Start. Mobile
