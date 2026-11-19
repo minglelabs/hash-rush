@@ -4,7 +4,7 @@
 //   { mx, my, bonk, ax?, ay?, throw? }   move vector, bonk button, optional aim
 //   direction, and whether the throw button is held
 
-import { DT, SPEED, CARRY_SPEED, LAST_STRETCH, HAMSTER_R, gatherTime, COUNTDOWN, BONK, OVERTIME, ALARM_RANGE, THROW, ICE } from './constants.js';
+import { DT, SPEED, CARRY_SPEED, LAST_STRETCH, HAMSTER_R, gatherTime, pickTime, PICK, COUNTDOWN, BONK, OVERTIME, ALARM_RANGE, THROW, ICE } from './constants.js';
 import { MAP, resolveCollisions, segmentClear, segmentHitsRect, pushOutRect } from './map.js';
 import { HAZARD, stepHazards, gatesNow, iceNow } from './hazards.js';
 import { mulberry32 } from './rng.js';
@@ -85,6 +85,12 @@ export function createGame({ slots, map = MAP, seed = 1 }) {
     charge: 0,
     wet: 0,
     dazed: 0,
+    // Pickpocketing: progress on the carrier `pickOn`, and how long until this one
+    // may try again after having its own seed taken.
+    pick: 0,
+    pickOn: -1,
+    pickBlock: 0,
+    steals: 0,
   }));
   return {
     map,
@@ -177,6 +183,8 @@ function sendHome(p) {
   p.charge = 0;
   p.wet = 0;
   p.dazed = 0;
+  p.pick = 0;
+  p.pickOn = -1;
 }
 
 function respawn(g, p) {
@@ -287,6 +295,7 @@ export function step(g, inputs) {
     if (dazed) p.dazed = Math.max(0, p.dazed - DT);
     const inp = dazed ? EMPTY_INPUT : inputs[p.id] || EMPTY_INPUT;
     p.cooldown = Math.max(0, p.cooldown - DT);
+    p.pickBlock = Math.max(0, p.pickBlock - DT);
 
     let mx = +inp.mx || 0;
     let my = +inp.my || 0;
@@ -479,6 +488,8 @@ export function step(g, inputs) {
     }
   }
 
+  pickpocket(g);
+
   if (g.time >= OVERTIME.end) {
     g.phase = 'over';
     g.timeout = true;
@@ -521,4 +532,54 @@ export function step(g, inputs) {
     }
   }
   return g;
+}
+
+// Rubbing up against a rival's seed carrier fills a gauge, moving or not, and a
+// full gauge takes the seed. Only one hamster works on a carrier at a time:
+// whoever got furthest keeps at it, the rest start over. Losing touch, swinging,
+// or the carrier getting home first all reset it.
+function pickpocket(g) {
+  const { players } = g;
+  const need = pickTime(players.length, g.time);
+  const working = new Map();
+  for (const p of players) {
+    let on = null;
+    if (!p.carrying && !p.swing && p.pickBlock <= 0 && p.dazed <= 0 && !inHome(g, p)) {
+      let nearest = PICK.reach;
+      for (const c of players) {
+        if (c === p || !c.carrying || allied(p, c) || inHome(g, c)) continue;
+        const d = Math.hypot(c.x - p.x, c.y - p.y);
+        if (d <= nearest) {
+          on = c;
+          nearest = d;
+        }
+      }
+    }
+    if (!on || on.id !== p.pickOn) p.pick = 0;
+    p.pickOn = on ? on.id : -1;
+    if (!on) continue;
+    const best = working.get(on);
+    if (!best || p.pick > best.pick) working.set(on, p);
+  }
+  for (const p of players) {
+    if (p.pickOn < 0) continue;
+    const c = players[p.pickOn];
+    if (working.get(c) !== p) {
+      p.pick = 0;
+      continue;
+    }
+    p.pick += DT;
+    if (p.pick < need - 1e-9) continue;
+    c.carrying = false;
+    c.charge = 0;
+    c.pickBlock = PICK.block;
+    p.carrying = true;
+    p.pick = 0;
+    p.pickOn = -1;
+    p.steals++;
+    // Taking it right at the door is a super play, as a bonk there is.
+    const close = c.x - g.homeX < ALARM_RANGE;
+    if (close) p.supers++;
+    g.events.push({ type: 'steal', by: p.id, id: c.id, x: c.x, y: c.y, close });
+  }
 }
