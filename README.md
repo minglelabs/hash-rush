@@ -288,6 +288,7 @@ npm run sim    # 봇끼리 100판 돌려 게임 길이·승률 확인
 src/sim/      결정적 시뮬레이션. DOM을 모르고, 매 틱 플레이어별 입력만 받는다
 src/ai/       길 찾기(nav)와 봇. 봇은 사람과 똑같은 입력 객체를 돌려준다
 src/client/   로비, 렌더링, 입력 장치, 효과음
+roblox/       로블록스판 2D 테스트 버전(Luau). 여는 법은 roblox/README.md
 ```
 
 시뮬레이션은 `step(game, inputs)` 하나로 굴러가고, 입력은 `{ mx, my, bonk, ax?, ay? }` 모양입니다.
