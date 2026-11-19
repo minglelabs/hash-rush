@@ -4,6 +4,7 @@
 // scale fitted to all results at once (the steady state Elo updates settle to),
 // with the easy bot pinned at 1000. 400 points apart is 10 to 1 odds.
 //   node rl/elo.js [rounds per mode, 600] RL1=rl/runs/long/policy.json RL2=rl/runs/team/policy.json
+// A path may end in @0.7 to play that policy at that temperature (1 = as trained).
 // Free-for-all: four seats, the winner beats each of the others. Teams: two
 // against two, a team rated as the mean of its members.
 
@@ -12,7 +13,7 @@ import { availableParallelism } from 'node:os';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createEnvs, MAX_P, OBS } from './env.js';
-import { loadPolicy, pacing, seatMove } from './policy.js';
+import { readPolicy, pacing, seatMove, seatViews } from './policy.js';
 
 const args = process.argv.slice(2);
 const ROUNDS = Number(args.find((a) => /^\d+$/.test(a)) || 600);
@@ -39,6 +40,7 @@ function job(policies, mode, seed) {
   const lineup = ids.map((id, i) => ({ level: POOL[id][1], team: mode === 'team' ? i % 2 : -1 }));
   const pace = pacing(lineup.filter(({ level }) => level < 0).map(({ level }) => policies[-1 - level]));
   const envs = createEnvs({ envs: PER_JOB, seed, lineup, botEnv: 1, frameSkip: pace.skip });
+  seatViews(envs, MAX_P, (i) => (lineup[i] && lineup[i].level < 0 ? policies[-1 - lineup[i].level] : null));
   const actions = new Uint8Array(PER_JOB * MAX_P * 3);
   const results = [];
   const done = new Array(PER_JOB).fill(false);
@@ -95,7 +97,7 @@ function fit(results) {
 }
 
 if (process.env.ELO_JOBS) {
-  const policies = named.map(([, path]) => loadPolicy(JSON.parse(readFileSync(path, 'utf8'))));
+  const policies = named.map(([, path]) => readPolicy(path, readFileSync));
   const out = [];
   for (const spec of JSON.parse(process.env.ELO_JOBS)) out.push(...job(policies, spec.mode, spec.seed));
   process.stdout.write(JSON.stringify(out));

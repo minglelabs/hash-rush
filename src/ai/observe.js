@@ -32,7 +32,10 @@ const MATE_F = 10;
 // try again after losing mine, how far a rival is into taking mine, and where the
 // nearest rival carrier is. Added after MATE_F, so older policies read as before.
 const PICK_F = 6;
-export const OBS = BASE_OBS + TEAM_F + MATE_F + PICK_F;
+// A rival at work on a teammate's seed: that there is one, how far along it is
+// and where it is, so the carrier's escort knows whom to knock off it.
+const GUARD_F = 5;
+export const OBS = BASE_OBS + TEAM_F + MATE_F + PICK_F + GUARD_F;
 const HAZARD_KINDS = ['trap', 'cannon', 'wave'];
 export const DIRS = [[0, 0], ...Array.from({ length: 8 }, (_, k) => [Math.cos((k * Math.PI) / 4), Math.sin((k * Math.PI) / 4)])];
 
@@ -197,8 +200,14 @@ const jobsOf = new WeakMap();
 export function jobs(g) {
   const cached = jobsOf.get(g);
   if (cached && cached.tick === g.tick) return cached.out;
-  const players = g.players;
-  const F = fields(g.map);
+  const out = jobsFor(g.map, g.players);
+  jobsOf.set(g, { tick: g.tick, out });
+  return out;
+}
+
+// The same for any line-up of hamsters on a map, as one seat sees them.
+function jobsFor(map, players) {
+  const F = fields(map);
   const far = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
   const out = players.map(() => ({ job: 'solo', mark: null }));
   for (const p of players) {
@@ -208,7 +217,7 @@ export function jobs(g) {
     out[p.id].mark = best;
   }
   const teams = [...new Set(players.filter((p) => p.team >= 0).map((p) => p.team))];
-  const f = g.map.flower;
+  const f = map.flower;
   for (const t of teams) {
     const mates = players.filter((p) => p.team === t);
     const rivals = players.filter((p) => p.team !== t);
@@ -234,12 +243,30 @@ export function jobs(g) {
     for (const q of rivals) if (!q.carrying && (!threat || far(q, f) < far(threat, f))) threat = q;
     for (const p of free) if (!taken.has(p)) out[p.id] = { job: 'guard', mark: threat };
   }
-  jobsOf.set(g, { tick: g.tick, out });
   return out;
 }
 
+// The hamsters as they are right now, kept to be shown to a policy later: it sees
+// the others late (REACTION_TICKS), as the scripted bots do. See observe's `past`.
+export function snapshot(g) {
+  return { tick: g.tick, nibbler: g.nibbler, players: g.players.map((p) => ({ ...p, swing: p.swing ? { ...p.swing } : null })) };
+}
+
+// For practice starts in training: the spot `px` pixels along the way home from
+// `p`, and how far home is from `p` on foot.
+export const towardsHome = (map, p, px) => ahead(fields(map), fields(map).home, p, px);
+export function walkHome(map, p) {
+  const F = fields(map);
+  const i = cellOf(F, p.x, p.y);
+  return i < 0 || F.home[i] === Infinity ? 0 : F.home[i] * CELL;
+}
+
 // Fills one row of OBS numbers per seat, MAX_P rows from `at`; empty seats are zeros.
-export function observe(g, out, at = 0) {
+// With `past` (a snapshot() from a while ago) each seat sees itself and the map
+// as they are now and the other hamsters as they were then, which is how the
+// scripted bots see a round. Without it everything is as it is in `g`.
+// `only` fills just that seat's row.
+export function observe(g, out, at = 0, past = null, only = -1) {
   const teams = new Set(g.players.map((p) => p.team).filter((t) => t >= 0)).size;
   const mapIndex = MAP_IDS.indexOf(g.map.id);
   const F = fields(g.map);
@@ -247,14 +274,17 @@ export function observe(g, out, at = 0) {
   const gates = g.gates || [];
   const night = isNight(g.map, g.time) ? 1 : 0;
   const dusk = g.map.cycle ? Math.min(1, untilNight(g.map, g.time) / 24) : 0;
-  const players = g.players;
-  const need = gatherTime(players.length, g.time);
-  const steal = pickTime(players.length, g.time);
+  const need = gatherTime(g.players.length, g.time);
+  const steal = pickTime(g.players.length, g.time);
+  const nibbler = past ? past.nibbler : g.nibbler;
   for (let i = 0; i < MAX_P; i++) {
+    if (only >= 0 && i !== only) continue;
     const base = at + i * OBS;
     out.fill(0, base, base + OBS);
-    const me = players[i];
+    const me = g.players[i];
     if (!me) continue;
+    const players = past ? past.players.map((p) => (p.id === me.id ? me : p)) : g.players;
+    const all = past ? jobsFor(g.map, players) : jobs(g);
     let o = base;
     const home = inHome(g, me);
     out[o++] = me.x / WORLD.w;
@@ -281,7 +311,7 @@ export function observe(g, out, at = 0) {
     out[o++] = g.time > OVERTIME.start ? 1 : 0;
     out[o++] = g.homeX / WORLD.w;
     out[o++] = g.nibbler === me.id ? 1 : 0;
-    out[o++] = g.nibbler >= 0 && g.nibbler !== me.id ? 1 : 0;
+    out[o++] = nibbler >= 0 && nibbler !== me.id ? 1 : 0;
     out[o++] = players.length / MAX_P;
     out[o++] = me.team >= 0 ? 1 : 0;
     out[o++] = players.some((p) => p !== me && p.carrying && !allied(p, me)) ? 1 : 0;
@@ -367,7 +397,7 @@ export function observe(g, out, at = 0) {
 
     // Team play: my job, who has a seed, and whom I am watching.
     o = base + BASE_OBS;
-    const { job, mark } = jobs(g)[me.id];
+    const { job, mark } = all[me.id];
     out[o] = job === 'attack' ? 1 : 0;
     out[o + 1] = job === 'mark' ? 1 : 0;
     out[o + 2] = job === 'guard' ? 1 : 0;
@@ -398,13 +428,27 @@ export function observe(g, out, at = 0) {
       out[o + 5] = Math.min(1, preyD / (8 * PICK.reach));
     }
 
+    o = base + BASE_OBS + TEAM_F + MATE_F + PICK_F;
+    let robber = null;
+    for (const p of players) {
+      if (p === me || p.pickOn < 0 || allied(p, me)) continue;
+      const c = players[p.pickOn];
+      if (c && c !== me && allied(c, me) && (!robber || p.pick > robber.pick)) robber = p;
+    }
+    if (robber) {
+      out[o] = 1;
+      out[o + 1] = Math.min(1, robber.pick / steal);
+      out[o + 2] = (robber.x - me.x) / WORLD.w;
+      out[o + 3] = (robber.y - me.y) / WORLD.h;
+      out[o + 4] = Math.min(1, Math.hypot(robber.x - me.x, robber.y - me.y) / 1000);
+    }
+
     // The nearest teammate's job and whether it is after the same rival, and the
     // spot ahead of the rival carrier nearest home where its way home can be cut
     // off, with whether a teammate is nearer that carrier: one presses from
     // behind, the other gets in front.
     o = base + BASE_OBS + TEAM_F;
     if (me.team < 0) continue;
-    const all = jobs(g);
     let mate = null;
     for (const p of players) if (p !== me && p.team === me.team && (!mate || Math.hypot(p.x - me.x, p.y - me.y) < Math.hypot(mate.x - me.x, mate.y - me.y))) mate = p;
     if (mate) {

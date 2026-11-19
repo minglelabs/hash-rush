@@ -6,7 +6,8 @@
 // rounds dealt from then on: the percentage of rounds with scripted bots in them,
 // and which bot levels may sit in (bit 0 easy, bit 1 normal, ...).
 // In short: one JSON line of settings, then one frame of actions
-// per decision (envs * MAX_P * 3 bytes: move 0-8, bonk 0/1, throw 0/1). This side
+// per decision (envs * MAX_P * 3 bytes: move 0-8, bonk 0/1, throw 0/1, then
+// envs * MAX_P bytes saying which seats see the round the old way, `stale`). This side
 // answers with a JSON header line and then, per decision, one frame of:
 //   obs    float32  envs * MAX_P * OBS
 //   reward float32  envs * MAX_P
@@ -16,10 +17,10 @@
 //   win    uint8    envs * MAX_P   who won the round that just ended
 // A round that ends is replaced at once; `role` then describes the new one.
 
-import { createGame, step, carrySpeed } from '../src/sim/game.js';
+import { createGame, step, carrySpeed, allied } from '../src/sim/game.js';
 import { MAPS, MAP_IDS, isFree } from '../src/sim/map.js';
-import { HAMSTER_R, SPEED, DT, gatherTime, pickTime } from '../src/sim/constants.js';
-import { MAX_P, OBS, DIRS, REACTION_TICKS, fields, fieldAt, observe, jobs } from '../src/ai/observe.js';
+import { HAMSTER_R, SPEED, DT, gatherTime, pickTime, PICK } from '../src/sim/constants.js';
+import { MAX_P, OBS, DIRS, REACTION_TICKS, fields, fieldAt, observe, jobs, snapshot, towardsHome, walkHome } from '../src/ai/observe.js';
 
 export { MAX_P, OBS };
 import { createBot } from '../src/ai/bot.js';
@@ -40,6 +41,13 @@ export const DEFAULTS = {
   teamCounts: [2, 3, 4], // how many teams a team round has, as far as the head count allows
   botEnv: 0.3, // share of rounds that have scripted bots in them
   botSeat: 0.6, // in such a round, the chance a seat other than the first is a bot
+  // In a team round with bots, the chance the bots sit by side instead of by
+  // seat: the first seat's side is all policy, every other side is all bots of
+  // one level (chance `botSeat`) or all policy, as teams are made up in the game.
+  sideBots: 0,
+  // Share of team rounds played as the game's hosted rooms start: a side of two
+  // against a side of one to six.
+  duo: 0,
   botLevels: [0, 1, 2], // easy, normal, hard
   // Reward: the score table's own weights, and the win on top as the biggest prize.
   scoreWeight: 1,
@@ -71,12 +79,18 @@ export const DEFAULTS = {
   catch: 0,
   // Taking a rival's seed by pickpocketing: what nibbling a seed scores.
   steal: 2,
+  // Bonking a rival off a teammate's seed while it is picking the pocket.
+  save: 0,
   delay: 0,
   role: 0,
   // Share of the policy's seats, in rounds without scripted bots, that start at the
   // flower, half of them already holding a seed, so nibbling and the run home are
   // seen early instead of waiting on luck.
   headStart: 0,
+  // Share of rounds that start with a seed carrier on its way home and a rival
+  // right up against it: pickpocketing takes a second of staying in touch, and
+  // shaking a pickpocket off takes a swing at it, neither of which luck finds.
+  tail: 0,
   allBots: false, // every seat a scripted bot, to record their play (rl/demo.js)
   // A fixed line-up instead of a random one: [{ level: -1 policy or 0..2 bot, team: -1 or a side }].
   lineup: null,
@@ -145,25 +159,40 @@ export function createEnvs(settings = {}) {
   const taught = new Uint8Array(E * MAX_P);
   // Whether the round that just ended ran out of time.
   const timedOut = new Uint8Array(E);
+  // Seats set here see the whole round `reaction` ticks late, themselves included,
+  // as the policies before rl17 learned. The others see themselves as they are
+  // now and only the other hamsters late, which is how the scripted bots see.
+  const stale = new Uint8Array(E * MAX_P);
   const envs = [];
 
   function reset(e) {
-    const n = pick(cfg.players);
+    let n = pick(cfg.players);
     const teamed = rnd() < cfg.teams;
     // At least two sides, and no more teams than hamsters.
-    const teams = teamed ? Math.min(n, pick(cfg.teamCounts)) : 0;
+    let teams = teamed ? Math.min(n, pick(cfg.teamCounts)) : 0;
     const withBots = rnd() < cfg.botEnv;
+    const duo = cfg.duo > 0 && teamed && rnd() < cfg.duo;
+    if (duo) {
+      n = 3 + Math.floor(rnd() * (MAX_P - 2));
+      teams = 2;
+    }
     const slots = [];
     const bots = [];
     for (let i = 0; i < MAX_P; i++) role[e * MAX_P + i] = 0;
     // Teams as even as the head count allows, dealt to the seats in a random order.
-    const sides = Array.from({ length: n }, (_, i) => i % Math.max(1, teams));
+    const sides = Array.from({ length: n }, (_, i) => (duo ? (i < 2 ? 0 : 1) : i % Math.max(1, teams)));
     for (let i = n - 1; i > 0; i--) {
       const j = Math.floor(rnd() * (i + 1));
       [sides[i], sides[j]] = [sides[j], sides[i]];
     }
+    // Bots by side: each side but the first seat's is one level of bot or all policy.
+    let sideLevel = null;
+    if (cfg.sideBots > 0 && teamed && withBots && !cfg.allBots && rnd() < cfg.sideBots) {
+      sideLevel = Array.from({ length: teams }, (_, t) => (t !== sides[0] && rnd() < cfg.botSeat ? pick(cfg.botLevels) : -1));
+      if (sideLevel.every((l) => l < 0)) sideLevel[(sides[0] + 1 + Math.floor(rnd() * (teams - 1))) % teams] = pick(cfg.botLevels);
+    }
     const lineup = cfg.lineup || Array.from({ length: n }, (_, i) => ({
-      level: withBots && (i > 0 || cfg.allBots) && rnd() < cfg.botSeat ? pick(cfg.botLevels) : -1,
+      level: sideLevel ? sideLevel[sides[i]] : withBots && (i > 0 || cfg.allBots) && rnd() < cfg.botSeat ? pick(cfg.botLevels) : -1,
       team: teamed ? sides[i] : -1,
     }));
     for (let i = 0; i < lineup.length; i++) {
@@ -191,6 +220,26 @@ export function createEnvs(settings = {}) {
         }
       }
     }
+    // A carrier part of the way home with a rival at its side, to practise on.
+    if (cfg.tail > 0 && g.players.length > 1 && rnd() < cfg.tail) {
+      const c = pick(g.players);
+      const rivals = g.players.filter((p) => p !== c && !allied(p, c));
+      const f = g.map.flower;
+      for (let t = 0; rivals.length && t < 12; t++) {
+        const a = rnd() * 2 * Math.PI;
+        const d = f.r + HAMSTER_R + rnd() * (f.gatherR - f.r - HAMSTER_R);
+        const from = { x: f.x + Math.cos(a) * d, y: f.y + Math.sin(a) * d };
+        if (!isFree(g.map, from.x, from.y, HAMSTER_R)) continue;
+        const spot = towardsHome(g.map, from, rnd() * 0.75 * walkHome(g.map, from));
+        const b = rnd() * 2 * Math.PI;
+        const x = spot.x + Math.cos(b) * (PICK.reach - 3);
+        const y = spot.y + Math.sin(b) * (PICK.reach - 3);
+        if (spot.x < g.homeX + 60 || x < g.homeX + 30 || !isFree(g.map, spot.x, spot.y, HAMSTER_R) || !isFree(g.map, x, y, HAMSTER_R)) continue;
+        Object.assign(c, { x: spot.x, y: spot.y, carrying: true });
+        Object.assign(pick(rivals), { x, y, carrying: false });
+        break;
+      }
+    }
     const teachers = lineup.map(({ level }) => (level < 0 && cfg.teacher >= 0 ? createBot({ difficulty: BOT_LEVELS[cfg.teacher], seed: Math.floor(rnd() * 1e9) }) : null));
     for (let i = 0; i < MAX_P; i++) taught[e * MAX_P + i] = teachers[i] ? 1 : 0;
     envs[e] = { tick: 0, past: [], g, bots, teachers, home: g.players.map((p) => homeLeft(g, p)), job: g.players.map((p) => jobKey(g, p)), guard: g.players.map((p) => guardPhi(g, p)), caught: g.players.map(() => 0), prev: g.players.map(() => 0), deaths: g.players.map(() => 0), phi: g.players.map((p) => potential(g, p)) };
@@ -206,15 +255,26 @@ export function createEnvs(settings = {}) {
     }
     const want = env.tick - cfg.reaction;
     while (env.past.length > 1 && env.past[1].tick <= want) env.past.shift();
-    const view = env.past.length && env.past[0].tick <= want ? env.past[0].view : null;
-    if (view) obs.set(view, e * MAX_P * OBS);
-    else observe(env.g, obs, e * MAX_P * OBS);
+    const then = env.past.length && env.past[0].tick <= want ? env.past[0] : null;
+    const at = e * MAX_P * OBS;
+    // Each seat as it is now, with the others as they were.
+    observe(env.g, obs, at, then);
+    // The old way: the whole view from back then, the seat itself included.
+    if (then && then.view) for (let i = 0; i < MAX_P; i++) if (stale[e * MAX_P + i]) obs.set(then.view.subarray(i * OBS, (i + 1) * OBS), at + i * OBS);
   }
-  function keepView(env) {
+  function keepView(env, e) {
     if (!cfg.reaction || (env.tick + cfg.reaction) % cfg.frameSkip !== 0) return;
-    const view = new Float32Array(MAX_P * OBS);
-    observe(env.g, view);
-    env.past.push({ tick: env.tick, view });
+    const kept = snapshot(env.g);
+    // The round's own clock: the game's started with the countdown.
+    kept.tick = env.tick;
+    kept.view = null;
+    for (let i = 0; i < MAX_P; i++) {
+      if (!stale[e * MAX_P + i]) continue;
+      kept.view = new Float32Array(MAX_P * OBS);
+      observe(env.g, kept.view);
+      break;
+    }
+    env.past.push(kept);
   }
 
   // actions: Uint8Array, envs * MAX_P * 3
@@ -250,10 +310,13 @@ export function createEnvs(settings = {}) {
           // A press is one tick long, so every decision can start a new swing.
           inputs.push({ mx: dir[0], my: dir[1], bonk: actions[a + 1] === 1 && k === 0, throw: actions[a + 2] === 1 });
         }
+        // Whose pocket each one is picking, before a bonk sends it home.
+        const picking = cfg.save ? g.players.map((p) => p.pickOn) : null;
         step(g, inputs);
         env.tick++;
-        keepView(env);
+        keepView(env, e);
         for (const ev of g.events) {
+          if (ev.type === 'bonk' && picking && picking[ev.id] >= 0 && picking[ev.id] !== ev.by && allied(g.players[picking[ev.id]], g.players[ev.by])) env.caught[ev.by] += cfg.save;
           if (ev.type === 'bonk' && ev.seed && cfg.catch) env.caught[ev.by] += cfg.catch * (1 + 2 * (1 - homeLeft(g, ev)));
           // Taking a seed off a rival: the nibbling's score for winning a seed, and
           // the catch bonus for stopping a carrier.
@@ -326,7 +389,11 @@ export function createEnvs(settings = {}) {
       }
       done[e] = over ? 1 : 0;
       timedOut[e] = over && g.timeout ? 1 : 0;
-      if (over) reset(e);
+      if (over) {
+        // For tools that count what happened in a round (rl/stats.js).
+        if (cfg.onOver) cfg.onOver(g, e);
+        reset(e);
+      }
       observeEnv(e);
     }
   }
@@ -335,7 +402,7 @@ export function createEnvs(settings = {}) {
     reset(e);
     observeEnv(e);
   }
-  return { cfg, obs, reward, final, done, role, win, timedOut, botAct, steer, taught, act };
+  return { cfg, obs, reward, final, done, role, win, timedOut, botAct, steer, taught, stale, act };
 }
 
 // ---------- the pipe ----------
@@ -346,6 +413,7 @@ function serve() {
   let buffered = Buffer.alloc(0);
   let envs = null;
   let frame = 0;
+  let acts = 0;
   const send = () => {
     const parts = [envs.obs, envs.reward, envs.final, envs.done, envs.role, envs.win, envs.botAct, envs.taught].map((a) => Buffer.from(a.buffer, a.byteOffset, a.byteLength));
     process.stdout.write(Buffer.concat(parts));
@@ -357,7 +425,8 @@ function serve() {
       if (nl < 0) return;
       envs = createEnvs(JSON.parse(buffered.subarray(0, nl).toString()));
       buffered = buffered.subarray(nl + 1);
-      frame = HEAD + envs.cfg.envs * MAX_P * 3;
+      acts = envs.cfg.envs * MAX_P * 3;
+      frame = HEAD + acts + envs.cfg.envs * MAX_P;
       process.stdout.write(`${JSON.stringify({ obs: OBS, maxPlayers: MAX_P, envs: envs.cfg.envs })}\n`);
       send();
     }
@@ -365,7 +434,8 @@ function serve() {
       envs.cfg.botEnv = buffered[0] / 100;
       const levels = BOT_LEVELS.map((_, i) => i).filter((i) => buffered[1] & (1 << i));
       if (levels.length) envs.cfg.botLevels = levels;
-      envs.act(new Uint8Array(buffered.subarray(HEAD, frame)));
+      envs.stale.set(buffered.subarray(HEAD + acts, frame));
+      envs.act(new Uint8Array(buffered.subarray(HEAD, HEAD + acts)));
       buffered = buffered.subarray(frame);
       send();
     }

@@ -5,9 +5,9 @@
 
 import { readFileSync } from 'node:fs';
 import { createEnvs, MAX_P, OBS } from './env.js';
-import { loadPolicy } from './policy.js';
+import { readPolicy, seatViews } from './policy.js';
 
-const policy = loadPolicy(JSON.parse(readFileSync(process.argv[2], 'utf8')));
+const policy = readPolicy(process.argv[2], readFileSync);
 const rounds = Number(process.argv[3] || 100);
 const players = Number(process.argv[4] || 4);
 const E = 16;
@@ -16,6 +16,7 @@ const fs = policy.meta.frameSkip || 4;
 console.log(`policy from iteration ${policy.meta.iter}, ${(policy.meta.decisions / 1e6).toFixed(1)}M decisions; ${players} players, even match = ${(100 / players).toFixed(0)}%`);
 for (const [level, name] of [[0, 'easy'], [1, 'normal'], [2, 'hard']]) {
   const envs = createEnvs({ envs: E, seed: 7 + level, players: [players], teams: 0, botEnv: 1, botSeat: 1, botLevels: [level], frameSkip: fs, ...(process.argv[5] ? { maps: [process.argv[5]] } : {}) });
+  seatViews(envs, MAX_P, () => policy);
   const actions = new Uint8Array(E * MAX_P * 3);
   let played = 0;
   let wins = 0;
@@ -24,7 +25,7 @@ for (const [level, name] of [[0, 'easy'], [1, 'normal'], [2, 'hard']]) {
   while (played < rounds) {
     for (let e = 0; e < E; e++) {
       const at = e * MAX_P * OBS;
-      actions.set(policy.act(envs.obs.subarray(at, at + OBS)), e * MAX_P * 3);
+      actions.set(policy.act(envs.obs.subarray(at, at + OBS), policy.meta.temperature ?? 1), e * MAX_P * 3);
     }
     envs.act(actions);
     decisions += E;

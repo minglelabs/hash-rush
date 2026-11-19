@@ -29,6 +29,7 @@ node rl/play.js rl/runs/first/policy.json 200
 - Elo: `node rl/elo.js RL1=rl/runs/long/policy.json RL2=rl/runs/team/policy.json` → 기본 모드당 600판(오차 ±80점 안팎, 정밀하게는 `1600`). 개인전(4인)·팀전(2대2) Elo 따로. 판마다 봇·학습본을 무작위로 앉히고 결과 전체에 맞춰 계산, 초보 = 1000, 400점 차이 = 10:1.
 - RL끼리: `node rl/report.js 새.json 20 기존.json` 하면 초고수·RL'과 개인전·팀전으로 붙는 7줄을 맵마다 봅니다(수 분). 예전 전체 표는 끝에 `--all`. 학습에선 `--rivals rl/runs/long/policy.pt`로 기존 봇을 리그에 고정해, 자기 과거들과 함께 상대·팀원으로 계속 만납니다.
 - RL·RL2하고만 학습: `--rivals A.pt B.pt --league 2 --self-play 0 --no-curriculum --bot-env 0` (리그 크기가 고정 상대 수와 같으면 과거 자신이 안 들어감).
+- 어디서 이기고 지는지: `node rl/stats.js rl/runs/rl16/policy.json 150` → 정해진 구성(RL 2 대 고수 2, RL 2 대 초고수 2 등)마다 편별 승률과 한 판에 한 마리가 한 꿀밤·당한 횟수·씨·훔침·뺏김·저지·던짐. 경로 끝에 `@0.7`을 붙이면 그 온도로 둡니다(`elo.js`, `report.js`, `play.js`도 같음).
 - 초고수(ace)와 붙이는 단계: `--stage 4` (중수·고수·초고수 봇이 판의 절반에 들어옴). 팀전 비중은 `--teams 0.8`.
 - 구성별·맵별 표: `node rl/report.js rl/runs/first/policy.json` (기본은 초고수 상대 3줄, `--all`이면 전체 구성; 구성×맵마다 Node 하나씩 동시에 돌림)
 - `play.js`는 학습된 봇 한 마리를 초보·중수·고수 봇 세 마리와 붙여 승률을 냅니다. 4인전이면 25%가 본전입니다.
@@ -237,3 +238,39 @@ in teams (`--distill 0.2`) for 480 minutes:
 Elo with pickpocketing, 1200 rounds a mode: free-for-all rl16 1216, rl16 best
 1177, rl14 best 1107, ace 1100, rl15 best 1099; teams hard 1250, ace 1234,
 rl16 best 1136, rl15 best 1134, rl16 1130, rl14 best 1008.
+
+### rl17: itself now, the others late, and what else changed with it
+
+Where rl16 stood (`node rl/stats.js`, 150 rounds a line-up): two of it beat two
+hard bots in 66% of rounds and two aces in 59%, on bonks and seeds alone. It
+never once picked a pocket, and the hard bots took 0.1 seeds a round off each
+of its hamsters. What rl17 changes:
+
+- **It sees itself as it is now** and only the other hamsters 0.15 s late, which
+  is how the scripted bots have always seen a round (`me` straight from the game,
+  everyone else from `history`). Until rl16 the whole view was late, its own
+  position and swing included, so it steered by where it had been. `observe()`
+  takes a `snapshot()` from back then as `past`; weights say which view they
+  learned on with `selfNow` in their meta, and the environment shows a seat the
+  old view when its `stale` flag is set, so older policies still play, as rivals
+  in the league and in `elo.js`, exactly as they did.
+- **Practice starts for pickpocketing** (`--tail 0.15`): that share of rounds
+  starts with a seed carrier part of the way home and a rival within reach of
+  its seed. Taking a seed needs a second of staying in touch and shaking a
+  pickpocket off needs a swing at it, and neither turned up by luck in rl16's
+  eight hours.
+- **A teammate's seed being taken** (observation 225 → 230): that a rival is at
+  work on a teammate's seed, how far along, and where that rival is. Bonking it
+  off the seed pays `--save 3`.
+- **Teams as the game makes them up**: in half the team rounds with bots
+  (`--side-bots 0.5`) the bots sit by side, a whole side of one level against a
+  side of policies, instead of seat by seat; and 15% of team rounds (`--duo`)
+  are a side of two against a side of one to six, as hosted rooms start.
+- **Free-for-all and teams told apart**: the log's "alone" and "teams" are how far
+  above a fair share the learner wins against the bots in each (a fair share in
+  a team round is one in so many teams, not one in so many hamsters, which the
+  single figure before overstated), and the best stretch of each is kept in
+  `best-solo.pt` and `best-team.pt`, since the game plays one set of weights for
+  each kind of round.
+
+    python3 rl/train.py --name rl17 --resume rl/runs/rl16/policy.pt --frame-skip 2 --minutes 480 --teams 0.6 --bot-levels 2 3 --bot-env 0.7 --entropy 0.003 --lr 1e-4 --rivals rl/runs/rl14/best.pt rl/runs/rl15/best.pt rl/runs/rl16/policy.pt rl/runs/rl16/best.pt
