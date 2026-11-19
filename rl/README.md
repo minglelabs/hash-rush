@@ -274,3 +274,17 @@ of its hamsters. What rl17 changes:
   each kind of round.
 
     python3 rl/train.py --name rl17 --resume rl/runs/rl16/policy.pt --frame-skip 2 --minutes 480 --teams 0.6 --bot-levels 2 3 --bot-env 0.7 --entropy 0.003 --lr 1e-4 --rivals rl/runs/rl14/best.pt rl/runs/rl15/best.pt rl/runs/rl16/policy.pt rl/runs/rl16/best.pt
+
+rl17 (the command above, 480 minutes, 120M decisions) is in the game for both
+kinds of round. Elo, 1200 rounds a mode: free-for-all rl17 1235, its best
+free-for-all stretch 1231, rl16 1149, ace 1057; teams rl17 1298, ace 1253, its
+best team stretch 1251, hard 1184, rl16 1126. Side against side
+(`rl/stats.js`, 120 rounds): two of it beat two hard bots in 84% of rounds (rl16:
+66%) and two aces in 78% (59%). It still does not pick pockets (0.00 seeds
+taken a round, practice starts or not) and loses fewer of its own to the hard
+bots (0.03 a round each, from 0.11).
+
+Tried and left out: playing below the trained temperature (`rl16@0.4` in
+`elo.js`: free-for-all within the error, teams about 100 points down), the
+network on the GPU (`--device mps`: 3100 decisions a second against 5000 on the
+CPU), and more threads for the learning step (no quicker past 4).
