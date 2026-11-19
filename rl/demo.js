@@ -10,7 +10,7 @@
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createEnvs, MAX_P, OBS } from './env.js';
-import { loadPolicy } from './policy.js';
+import { loadPolicy, seatViews } from './policy.js';
 
 const [out, want = '100000', seed = '1', gamma = '0.997', frameSkip = '4', policyPath = '', share = '0.5', levels = '1,2', teams = '0.5'] = process.argv.slice(2);
 const policy = policyPath ? loadPolicy(JSON.parse(readFileSync(policyPath, 'utf8'))) : null;
@@ -28,6 +28,7 @@ let n = 0;
 const rows = Array.from({ length: E * MAX_P }, () => []);
 const rews = Array.from({ length: E * MAX_P }, () => []);
 
+if (policy) seatViews(envs, MAX_P, () => policy);
 const actions = new Uint8Array(E * MAX_P * 3);
 const cast = (e) => {
   for (let i = 0; i < MAX_P; i++) envs.steer[e * MAX_P + i] = policy && Math.random() < Number(share) ? 1 : 0;

@@ -1,10 +1,12 @@
 // The RL bot: plays with networks trained in rl/, one for free-for-all rounds
 // (rl-solo.bin) and one for team rounds (rl-team.bin), picked by the round it is
-// in. It sees what it saw in training (observe.js) and, like there, picks a move
-// every few ticks and holds it in between.
+// in. It sees what it saw in training (observe.js): itself as it is now and the
+// other hamsters REACTION_TICKS late, as the scripted bots do (weights from before
+// rl17, without `selfNow` in their meta, see themselves late too). Like in
+// training it picks a move every few ticks and holds it in between.
 
 import { mulberry32 } from '../sim/rng.js';
-import { MAX_P, OBS, DIRS, REACTION_TICKS, observe } from './observe.js';
+import { MAX_P, OBS, DIRS, REACTION_TICKS, observe, snapshot } from './observe.js';
 import { decodePolicy, loadPolicy } from './policy.js';
 
 const FILES = { solo: 'rl-solo.bin', team: 'rl-team.bin' };
@@ -26,15 +28,19 @@ export function loadRLPolicy() {
   }
 }
 
-// What the round looked like, tick by tick, shared by every learned bot in it, so
-// each sees it REACTION_TICKS late without working it out more than once a tick.
+// The hamsters as they were, tick by tick, shared by every learned bot in the
+// round, so each sees the others REACTION_TICKS late. For weights that learned on
+// a view late all over, that whole view is kept too.
 const views = new WeakMap();
 function seenLate(g) {
   let v = views.get(g);
   if (!v) views.set(g, (v = { tick: -1, past: [] }));
   if (v.tick !== g.tick) {
-    const now = new Float32Array(MAX_P * OBS);
-    observe(g, now);
+    const now = snapshot(g);
+    if (Object.values(policies).some((p) => !p.meta.selfNow)) {
+      now.view = new Float32Array(MAX_P * OBS);
+      observe(g, now.view);
+    }
     v.past.push(now);
     if (v.past.length > REACTION_TICKS + 1) v.past.shift();
     v.tick = g.tick;
@@ -47,6 +53,7 @@ export function createRLBot({ seed = 1 } = {}) {
   const random = mulberry32(seed);
   let choice = null;
   let tick = 0;
+  const mine = new Float32Array(MAX_P * OBS);
 
   function think(g, id) {
     // Without team weights, the free-for-all ones play team rounds too.
@@ -55,8 +62,12 @@ export function createRLBot({ seed = 1 } = {}) {
     const every = policy.meta.frameSkip || 4;
     const fresh = tick++ % every === 0;
     // Every tick, so the late view has no gaps.
-    const seen = seenLate(g);
-    if (fresh || !choice) choice = policy.act(seen.subarray(id * OBS, (id + 1) * OBS), 1, random);
+    const then = seenLate(g);
+    if (fresh || !choice) {
+      let view = then.view;
+      if (policy.meta.selfNow || !view) observe(g, (view = mine), 0, then, id);
+      choice = policy.act(view.subarray(id * OBS, (id + 1) * OBS), policy.meta.temperature ?? 1, random);
+    }
     const [mx, my] = DIRS[choice[0]];
     // A swing is one press, at the start of a choice, as in training.
     return { mx, my, bonk: fresh && choice[1] === 1, throw: choice[2] === 1 };

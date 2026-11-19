@@ -14,7 +14,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createEnvs, MAX_P, OBS } from './env.js';
 import { MAP_IDS } from '../src/sim/map.js';
-import { loadPolicy, pacing, seatMove } from './policy.js';
+import { readPolicy, pacing, seatMove, seatViews } from './policy.js';
 
 const all = process.argv.includes('--all');
 const [path, roundsArg = '20', vsPath] = process.argv.slice(2).filter((a) => a !== '--all');
@@ -81,6 +81,7 @@ function play(policy, rivalPolicy, lineup, map, seed) {
   const E = Math.min(8, ROUNDS);
   const pace = pacing([policy, rivalPolicy]);
   const envs = createEnvs({ envs: E, seed, lineup, maps: [map], botEnv: 1, frameSkip: pace.skip });
+  seatViews(envs, MAX_P, (i) => (lineup[i] ? (lineup[i].level === RL ? policy : lineup[i].level === RIVAL ? rivalPolicy : null) : null));
   const actions = new Uint8Array(E * MAX_P * 3);
   const rl = lineup.flatMap((s, i) => (s.level === RL ? [i] : []));
   const rival = lineup.flatMap((s, i) => (s.level === RIVAL ? [i] : []));
@@ -109,7 +110,7 @@ function play(policy, rivalPolicy, lineup, map, seed) {
 }
 
 if (only !== undefined) {
-  const load = (file) => (file ? loadPolicy(JSON.parse(readFileSync(file, 'utf8'))) : null);
+  const load = (file) => (file ? readPolicy(file, readFileSync) : null);
   const policy = load(path);
   const rivalPolicy = load(vsPath);
   // One job is one line-up on one map, so every core has work even with few line-ups.

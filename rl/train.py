@@ -38,6 +38,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 HEADS = (9, 2, 2)  # move, bonk, throw
 # Where observe.js puts the attack / mark / guard flags: one is set in a team round, none alone.
 JOB_FLAGS = slice(199, 202)
+# Where it puts how many teams the round has, as a quarter of the count.
+TEAMS_AT = 27
 # The ladder: (share of rounds with scripted bots, bot levels that may sit in).
 STAGES = [(0.7, [0]), (0.7, [0, 1]), (0.6, [0, 1, 2]), (0.35, [0, 1, 2]), (0.5, [0, 1, 2, 3])]
 STAGE_NAMES = ["easy", "easy+normal", "all bots", "mostly self-play", "with the ace bot"]
@@ -92,10 +94,10 @@ class Workers:
     def first(self):
         return self._read()
 
-    def step(self, actions, bot_env, levels):
+    def step(self, actions, stale, bot_env, levels):
         head = bytes([int(round(bot_env * 100)), sum(1 << l for l in levels)])
         for w, p in enumerate(self.procs):
-            p.stdin.write(head + actions[w * self.E : (w + 1) * self.E].tobytes())
+            p.stdin.write(head + actions[w * self.E : (w + 1) * self.E].tobytes() + stale[w * self.E : (w + 1) * self.E].tobytes())
             p.stdin.flush()
         return self._read()
 
@@ -188,6 +190,16 @@ def load_weights(model, path, dev):
     model.load_state_dict(saved)
 
 
+def sees_old_way(path):
+    """Whether a saved policy learned on a view that was late all over, itself
+    included (before rl17), going by the meta in the .json beside it."""
+    try:
+        with open(os.path.splitext(path)[0] + ".json") as f:
+            return not json.load(f)["meta"].get("selfNow", False)
+    except (OSError, ValueError, KeyError):
+        return True
+
+
 def load_policy(path, obs_dim, dev):
     """A saved policy at the size it was trained at, which may not be the learner's."""
     saved = torch.load(path, map_location=dev)
@@ -222,11 +234,12 @@ class League:
         self.members = []  # {model, wins, games, born}
         self.keep = 1  # the first entries are never replaced: rivals, then the oldest self
 
-    def add(self, model, born):
+    def add(self, model, born, old=False):
         # A copy, not a fresh network: rivals may be of another size than the learner.
         clone = copy.deepcopy(model)
         clone.eval()
-        entry = {"model": clone, "wins": 1.0, "games": 2.0, "born": born}
+        # `old`: it learned on the view that was late all over, and is shown that one.
+        entry = {"model": clone, "wins": 1.0, "games": 2.0, "born": born, "old": old}
         # A league no bigger than its rivals holds only them: no past selves join.
         if len(self.members) >= self.size and self.keep >= self.size:
             return
@@ -288,6 +301,10 @@ def main():
     ap.add_argument("--head-start", type=float, default=0.3, help="share of seats in bot-free rounds that start at the flower")
     ap.add_argument("--catch", type=float, default=4, help="extra pay for bonking a rival who has a seed")
     ap.add_argument("--steal", type=float, default=2, help="pay for taking a rival's seed by pickpocketing (catch is added on top)")
+    ap.add_argument("--save", type=float, default=3, help="pay for bonking a rival off a teammate's seed while it is picking the pocket")
+    ap.add_argument("--tail", type=float, default=0.15, help="share of rounds that start with a seed carrier on its way home and a rival right up against it")
+    ap.add_argument("--side-bots", type=float, default=0.5, help="in team rounds with bots, how often the bots sit by side (a whole side of one level) instead of by seat")
+    ap.add_argument("--duo", type=float, default=0.15, help="share of team rounds with a side of two against a side of one to six, as hosted rooms start")
     ap.add_argument("--delay", type=float, default=0.05, help="pay per decision near a rival carrier for the ground it did not cover")
     ap.add_argument("--role", type=float, default=1, help="pay for a team defender closing in on its mark")
     ap.add_argument("--kick", type=float, default=0, help="weight on copying the teacher bot, fading to 0 by the end of the run")
@@ -320,7 +337,7 @@ def main():
             pass
     stage = min(stage, len(STAGES) - 1)
     spar = lambda: (args.bot_env, args.bot_levels) if args.bot_levels else (args.bot_env, [0, 1, 2]) if args.no_curriculum else STAGES[stage]
-    settings = {"botEnv": spar()[0], "botLevels": spar()[1], "win": args.win, "lose": args.lose, "shape": args.shape, "teams": args.teams, "frameSkip": args.frame_skip, "reaction": args.reaction, "headStart": args.head_start, "teamSpirit": args.team_spirit, "catch": args.catch, "steal": args.steal, "delay": args.delay, "role": args.role, "teacher": args.teacher if args.kick else -1}
+    settings = {"botEnv": spar()[0], "botLevels": spar()[1], "win": args.win, "lose": args.lose, "shape": args.shape, "teams": args.teams, "frameSkip": args.frame_skip, "reaction": args.reaction, "headStart": args.head_start, "teamSpirit": args.team_spirit, "catch": args.catch, "steal": args.steal, "save": args.save, "tail": args.tail, "sideBots": args.side_bots, "duo": args.duo, "delay": args.delay, "role": args.role, "teacher": args.teacher if args.kick else -1}
     if args.maps != "all":
         settings["maps"] = args.maps.split(",")
     env = Workers(args.workers, args.envs, args.seed, settings)
@@ -343,8 +360,8 @@ def main():
     # so the learner keeps meeting them as rivals and as teammates.
     for path in args.rivals:
         rival = load_policy(path, D, dev)
-        league.add(rival, -1)
-        print(f"rival {path}")
+        league.add(rival, -1, sees_old_way(path))
+        print(f"rival {path}" + (" (sees itself late)" if league.members[-1]["old"] else ""))
     league.keep = len(args.rivals) + 1
 
     obs, _, _, _, role, _, _, _ = env.first()
@@ -385,22 +402,29 @@ def main():
     b_taught = np.zeros((T, N, P), bool)
 
     recent, best = [], [-1.0]
+    # The same per kind of round: the game plays one set of weights in free-for-all
+    # rounds and one in team rounds, and a run's best stretch for one is rarely its
+    # best for the other.
+    recent_by = {"solo": [], "team": []}
+    best_by = {"solo": -1.0, "team": -1.0}
     log_path = os.path.join(out_dir, "log.csv")
     with open(log_path, "w") as f:
-        f.write("iter,minutes,decisions,sps,stage,episodes,learner_score,win_vs_bots,fair_share,win_vs_league,entropy,value_loss,kl\n")
-    stats = {k: [] for k in ("score", "bot_win", "bot_fair", "league_win")}
+        f.write("iter,minutes,decisions,sps,stage,episodes,learner_score,win_vs_bots,fair_share,win_vs_league,entropy,value_loss,kl,solo_edge,team_edge\n")
+    stats = {k: [] for k in ("score", "bot_win", "bot_fair", "league_win", "solo_edge", "team_edge")}
     start = time.time()
     it = 0
     total = 0
     actions = np.zeros((N, P, 3), np.uint8)
+    stale = np.zeros((N, P), np.uint8)
     # Against the stage's newest bot level: rounds, the learner's wins and seats, the bots' wins and seats.
     judge = np.zeros(5)
-    meta = lambda: {"iter": it, "decisions": total, "obs": D, "width": args.width, "blocks": args.blocks, "stage": stage, "frameSkip": args.frame_skip, "reaction": args.reaction}
+    meta = lambda: {"iter": it, "decisions": total, "obs": D, "width": args.width, "blocks": args.blocks, "stage": stage, "frameSkip": args.frame_skip, "reaction": args.reaction, "selfNow": True}
 
     print(f"{N} rounds on {args.workers} workers, obs {D}, {sum(p.numel() for p in model.parameters())} weights, device {dev}")
     while (time.time() - start) / 60 < args.minutes:
         it += 1
         t0 = time.time()
+        spent = {"game": 0.0, "learning": 0.0}
         for t in range(T):
             learner = assign == 0
             x = torch.from_numpy(obs[learner]).to(dev)
@@ -413,16 +437,23 @@ def main():
             b_logp[t][learner] = logp.cpu().numpy()
             b_val[t] = 0
             b_val[t][learner] = val.cpu().numpy()
+            stale[:] = 0
             for k in np.unique(assign[assign > 0]):
                 sel = assign == k
                 oa, _, _ = league.members[k - 1]["model"].act(torch.from_numpy(obs[sel]).to(dev))
                 actions[sel] = oa.cpu().numpy()
+                if league.members[k - 1]["old"]:
+                    stale[sel] = 1
 
             was = assign.copy()
             had_bots = (role > 1).any(1)
             players = (role > 0).sum(1)
+            # A team round is won by a whole side: a fair share is one in so many teams.
+            sides = np.rint(obs[:, 0, TEAMS_AT] * 4)
             before = role
-            obs, rew, score, done, role, win, teach, taught = env.step(actions, *spar())
+            t1 = time.time()
+            obs, rew, score, done, role, win, teach, taught = env.step(actions, stale, *spar())
+            spent["game"] += time.time() - t1
             # What the teacher would have done from the same spot, for the seats it watched.
             b_teach[t] = teach
             b_taught[t] = taught.astype(bool) & learner
@@ -433,8 +464,10 @@ def main():
                 won = bool(win[n][mine].any())
                 stats["score"].append(float(score[n][mine].mean()))
                 if had_bots[n]:
+                    fair = 1.0 / (sides[n] if sides[n] > 0 else players[n])
                     stats["bot_win"].append(float(win[n][mine].mean()))
-                    stats["bot_fair"].append(1.0 / players[n])
+                    stats["bot_fair"].append(fair)
+                    stats["team_edge" if sides[n] > 0 else "solo_edge"].append(float(win[n][mine].mean()) - fair)
                     top = before[n] == 2 + STAGES[stage][1][-1]
                     if top.any() and mine.any():
                         judge += (1, win[n][mine].sum(), mine.sum(), win[n][top].sum(), top.sum())
@@ -451,6 +484,7 @@ def main():
         b_val[T] = 0
         b_val[T][learner] = last.cpu().numpy()
 
+        t1 = time.time()
         adv = np.zeros((T, N, P), np.float32)
         run = np.zeros((N, P), np.float32)
         for t in reversed(range(T)):
@@ -533,6 +567,7 @@ def main():
             if stop:
                 break
 
+        spent["learning"] = time.time() - t1
         # Up a stage once the learner's seats win as often as the newest bots' seats.
         if not args.no_curriculum and judge[0] >= args.promote_after:
             mine_rate, bot_rate = judge[1] / judge[2], judge[4] and judge[3] / judge[4]
@@ -550,7 +585,7 @@ def main():
         mean = lambda k: float(np.mean(stats[k])) if stats[k] else float("nan")
         minutes = (time.time() - start) / 60
         sps = T * N / (time.time() - t0)
-        row = [it, round(minutes, 2), total, int(sps), stage, len(stats["score"]), round(mean("score"), 2), round(mean("bot_win"), 3), round(mean("bot_fair"), 3), round(mean("league_win"), 3), round(ent_mean, 3), round(v_loss, 4), round(kl, 4)]
+        row = [it, round(minutes, 2), total, int(sps), stage, len(stats["score"]), round(mean("score"), 2), round(mean("bot_win"), 3), round(mean("bot_fair"), 3), round(mean("league_win"), 3), round(ent_mean, 3), round(v_loss, 4), round(kl, 4), round(mean("solo_edge"), 3), round(mean("team_edge"), 3)]
         with open(log_path, "a") as f:
             f.write(",".join(str(v) for v in row) + "\n")
         # The best stretch so far, by how far above a fair share the learner wins
@@ -563,14 +598,22 @@ def main():
                 best[0] = float(np.mean(recent))
                 torch.save(model.state_dict(), os.path.join(out_dir, "best.pt"))
                 export_json(model, os.path.join(out_dir, "best.json"), {**meta(), "edge": round(best[0], 3)})
+        for mode in ("solo", "team"):
+            if it % 5 == 0 and stats[mode + "_edge"]:
+                recent_by[mode].append(mean(mode + "_edge"))
+                del recent_by[mode][:-4]
+                if len(recent_by[mode]) == 4 and np.mean(recent_by[mode]) > best_by[mode]:
+                    best_by[mode] = float(np.mean(recent_by[mode]))
+                    torch.save(model.state_dict(), os.path.join(out_dir, f"best-{mode}.pt"))
+                    export_json(model, os.path.join(out_dir, f"best-{mode}.json"), {**meta(), "edge": round(best_by[mode], 3)})
         if it % 5 == 0 or it == 1:
-            print(f"it {it:4d}  stage {stage}  {minutes:5.1f}m  {total/1e6:6.2f}M decisions  {int(sps):6d}/s  score {mean('score'):5.2f}  win vs bots {mean('bot_win'):.2f} (fair {mean('bot_fair'):.2f})  vs league {mean('league_win'):.2f}  ent {ent_mean:.2f}" + (f"  copies the teacher {copied:.2f}" if kick else "") + (f"  off the teachers {gap:.2f}" if distill else ""), flush=True)
+            print(f"it {it:4d}  stage {stage}  {minutes:5.1f}m  {total/1e6:6.2f}M decisions  {int(sps):6d}/s  score {mean('score'):5.2f}  win vs bots {mean('bot_win'):.2f} (fair {mean('bot_fair'):.2f}; alone {mean('solo_edge'):+.2f}, teams {mean('team_edge'):+.2f})  vs league {mean('league_win'):.2f}  ent {ent_mean:.2f}  (game {spent['game'] / (time.time() - t0):.0%}, learning {spent['learning'] / (time.time() - t0):.0%} of the time)" + (f"  copies the teacher {copied:.2f}" if kick else "") + (f"  off the teachers {gap:.2f}" if distill else ""), flush=True)
             stats = {k: [] for k in stats}
 
     torch.save(model.state_dict(), os.path.join(out_dir, "policy.pt"))
     export_json(model, os.path.join(out_dir, "policy.json"), meta())
     env.close()
-    print(f"saved {out_dir}/policy.pt and policy.json" + (f"; the best stretch (+{best[0]:.3f} over a fair share against the bots) in best.pt and best.json" if best[0] > -1 else ""))
+    print(f"saved {out_dir}/policy.pt and policy.json" + (f"; the best stretch (+{best[0]:.3f} over a fair share against the bots) in best.pt and best.json" if best[0] > -1 else "") + "".join(f"; the best for {name} (+{best_by[mode]:.3f}) in best-{mode}.pt and .json" for mode, name in (("solo", "free-for-all"), ("team", "teams")) if best_by[mode] > -1))
 
 
 if __name__ == "__main__":
