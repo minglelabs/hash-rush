@@ -1468,10 +1468,28 @@ function hearRoom(said) {
 // Somebody coming in or going out: a line with no speaker.
 const sysText = (sys, name) => t(sys === 'join' ? 'chatJoin' : 'chatLeave', String(name || t('spectatorName')).slice(0, 8));
 
+// Comings and goings. A shaky line (a phone on LTE, a second tab of the same
+// browser) leaves and comes back again and again, and each line said nothing
+// new: on a phone they piled up over the whole lobby (2026-11-19 player
+// feedback). The same name coming or going again within PRESENCE_QUIET_MS is
+// neither shown nor kept, and only one such line floats at a time.
+const PRESENCE_QUIET_MS = 20000;
+const lastPresence = new Map();
+
+function quietPresence(sys, name) {
+  if (sys !== 'join' && sys !== 'leave') return false;
+  const key = String(name || '');
+  const now = Date.now();
+  const before = lastPresence.get(key);
+  lastPresence.set(key, now);
+  return before !== undefined && now - before < PRESENCE_QUIET_MS;
+}
+
 function addChat({ name, look, text, sys, who }) {
+  if (quietPresence(sys, name)) return;
   if (sys) text = sysText(sys, name);
-  // A soft chime for what somebody else says.
-  if (look !== (net.role === 'host' ? 0 : net.you)) audio.play.chat();
+  // A soft chime for what somebody else says (not for comings and goings).
+  if (!sys && look !== (net.role === 'host' ? 0 : net.you)) audio.play.chat();
   if (look >= 0) {
     const said = cleanChat(text);
     bubbles.set(look, { name: String(name), text: said, until: performance.now() + lineLife(said) });
@@ -1479,7 +1497,12 @@ function addChat({ name, look, text, sys, who }) {
   }
   syncChat();
   keepChat({ name: String(name || ''), text: cleanChat(text), color: seatColor(look), sys: sys === 'join' || sys === 'leave' ? sys : !!sys, at: Date.now(), who: typeof who === 'string' ? who.slice(0, 64) : '' });
-  for (const id of CHAT_LOGS) floatLine($(id).querySelector('.chatLog'), { name, text: cleanChat(text), color: seatColor(look), sys });
+  for (const id of CHAT_LOGS) {
+    const log = $(id).querySelector('.chatLog');
+    // One coming-or-going line floats at a time: the newest replaces the last.
+    if (sys === 'join' || sys === 'leave') for (const old of log.querySelectorAll('.sys')) old.remove();
+    floatLine(log, { name, text: cleanChat(text), color: seatColor(look), sys });
+  }
 }
 
 // Somebody took another name: everything they said, and their coming in, now
