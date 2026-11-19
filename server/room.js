@@ -187,6 +187,9 @@ export class Room {
     if (msg.t === 'host') {
       const slot = this.slots[msg.seat];
       if (!Number.isInteger(msg.seat) || !slot || !slot.conn || slot.conn === conn) return;
+      // A web page (an invite link, guest=1) has no host controls: handing it
+      // the room left nobody able to set it up or start.
+      if (slot.conn.canHost === false) return;
       this.host = slot.conn.owner;
       this.sendLobby();
       return;
@@ -486,7 +489,7 @@ export class Room {
   // Each seat says which mingle user sits in it (from the app ticket, '' without
   // one), so the page inside the app knows over whose hamster their chat goes.
   lobbyView() {
-    return this.slots.map((s) => ({ kind: s.kind, name: s.name, team: s.team, pid: s.kind === 'remote' ? s.pid : '', userId: s.kind === 'remote' ? s.userId || '' : '' }));
+    return this.slots.map((s) => ({ kind: s.kind, name: s.name, team: s.team, pid: s.kind === 'remote' ? s.pid : '', userId: s.kind === 'remote' ? s.userId || '' : '', web: s.kind === 'remote' && !!s.conn && s.conn.canHost === false }));
   }
 
   // Nobody is the host, so the room says what it is about to do by itself: `nx`,

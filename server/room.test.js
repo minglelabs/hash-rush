@@ -149,7 +149,7 @@ test("each lobby seat carries its mingle user from the ticket, '' without one, a
   const seats = () => b.last('lobby').slots;
   assert.deepEqual(seats().map((s) => s.userId), ['u1', '', '', '', '', '', '', '']);
   // The rest of each seat is as it was.
-  assert.deepEqual(Object.keys(seats()[0]).sort(), ['kind', 'name', 'pid', 'team', 'userId']);
+  assert.deepEqual(Object.keys(seats()[0]).sort(), ['kind', 'name', 'pid', 'team', 'userId', 'web']);
   assert.deepEqual([seats()[0].kind, seats()[0].name], ['remote', 'Mia']);
 
   // Standing up to watch gives the seat up; sitting down again brings the ticket's user along.
@@ -649,4 +649,21 @@ test('a round snapshot carries each hamster\'s pickpocketing', () => {
   const row = snap.p[0];
   assert.equal(row.length, 24);
   assert.deepEqual(row.slice(20), [0, -1, 0, 0]);
+});
+
+test('the host cannot hand the room to a web page, which has no host controls; the lobby marks its seat', () => {
+  const { room } = setup({ hosted: true });
+  const app = fakeConn('app');
+  const web = Object.assign(fakeConn('web'), { canHost: false });
+  room.join(app);
+  room.receive(app, { t: 'hello', name: 'Mia' });
+  room.join(web);
+  room.receive(web, { t: 'hello', name: 'Pc' });
+  const lobby = app.last('lobby');
+  const webSeat = lobby.slots.findIndex((s) => s.name === 'Pc');
+  assert.equal(lobby.slots[webSeat].web, true);
+  assert.equal(lobby.slots[lobby.you].web, false);
+  room.receive(app, { t: 'host', seat: webSeat });
+  assert.equal(app.last('lobby').me, true);
+  assert.equal(web.last('lobby').me, false);
 });
