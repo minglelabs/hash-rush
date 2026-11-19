@@ -19,6 +19,9 @@ import { MAPS, MAP_IDS } from '../src/sim/map.js';
 import { createBot } from '../src/ai/bot.js';
 import { createLaneHelp } from '../src/client/assist.js';
 
+// Sides a team game can have (red, blue, green, purple).
+const TEAM_COUNT = 4;
+
 export const MAX_SLOTS = 8;
 // Seats a round fills with computers when fewer people are in.
 export const MIN_PLAYERS = 4;
@@ -334,7 +337,7 @@ export class Room {
       this.sendLobby();
       this.broadcast(() => ({ t: 'rename', who: conn.peer, name: slot.name }));
     } else if (msg.t === 'team') {
-      if (!this.teams || !Number.isInteger(msg.team) || msg.team < 0 || msg.team > 3) return;
+      if (!this.teams || !Number.isInteger(msg.team) || msg.team < 0 || msg.team >= TEAM_COUNT) return;
       slot.team = msg.team;
       this.sendLobby();
     } else if (msg.t === 'i') {
@@ -443,9 +446,18 @@ export class Room {
     return Math.min(MAX_SLOTS, Math.max(FILL_MIN, people + VS_COMPUTERS));
   }
 
-  // The side a computer in seat `look` plays on.
+  // The side a computer in seat `look` plays on. People against computers: the
+  // computers take the first side no person is on, so a person may pick any
+  // colour (picking blue used to put them on the computers' side, and the
+  // start was turned down with "needTeams").
   computerTeam(look) {
-    return this.vsComputers ? 1 : look % 2;
+    return this.vsComputers ? this.computersSide() : look % 2;
+  }
+
+  computersSide() {
+    const taken = new Set(this.slots.filter((s) => s.kind === 'remote' && s.conn).map((s) => s.team));
+    for (let team = 0; team < TEAM_COUNT; team++) if (!taken.has(team)) return team;
+    return 1;
   }
 
   smallerTeam() {
@@ -491,7 +503,7 @@ export class Room {
     // whether it is the host (`me`).
     const hosted = this.hosted ? { hosted: true, host: this.hostSeat(), hostName: this.hostName(), bots: this.botLevel } : {};
     const lobby = (you, conn) => ({
-      t: 'lobby', slots: view, spect, teams: this.teams, map: this.mapId, pw: '', you, wins: this.wins, tot: this.career, rd: this.rounds, hist: this.hist, nx, fill: this.roundFill(), title: TITLE,
+      t: 'lobby', slots: view, spect, teams: this.teams, map: this.mapId, pw: '', you, wins: this.wins, tot: this.career, rd: this.rounds, hist: this.hist, nx, fill: this.roundFill(), ct: this.teams && this.vsComputers ? this.computersSide() : -1, title: TITLE,
       ...hosted,
       ...(this.hosted ? { me: this.isHost(conn) } : {}),
     });
@@ -598,6 +610,7 @@ export class Room {
       p: g.players.map((p) => [
         r(p.x), r(p.y), r(p.vx), r(p.vy), q(p.fx), q(p.fy), p.carrying ? 1 : 0, q(p.gather), p.queued,
         p.swing ? [p.swing.phase, q(p.swing.t), q(p.swing.dx), q(p.swing.dy)] : 0, q(p.cooldown), p.kills, p.deaths, p.seeds, p.supers, q(p.charge), p.throws, r(p.wet), p.stops, q(p.dazed),
+        q(p.pick), p.pickOn, q(p.pickBlock), p.steals,
       ]),
       hz: g.hazards.map((h) => [h.kind, r(h.x), r(h.y), h.dx || 0, h.dy || 0, Math.round(h.age * 100) / 100]),
       ev: events,

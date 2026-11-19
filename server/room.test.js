@@ -618,3 +618,35 @@ test('a room made from an app join URL with no teams option is a team game of pe
   assert.equal(roomOptionsFromQuery(new URLSearchParams('teams=0&host=1')).teams, false);
   assert.equal(roomOptionsFromQuery(new URLSearchParams('teams=1')).teams, true);
 });
+
+test('people against computers: the computers take a side nobody picked, so any colour starts', () => {
+  const { room } = setup({ hosted: true });
+  const a = fakeConn('a');
+  room.join(a);
+  room.receive(a, { t: 'hello', name: 'Mia' });
+  assert.equal(a.last('lobby').ct, 1);
+  room.receive(a, { t: 'team', team: 1 });
+  assert.equal(a.last('lobby').ct, 0);
+  room.receive(a, { t: 'go' });
+  assert.ok(room.game);
+  const teams = room.game.players.map((p) => p.team);
+  assert.equal(teams[0], 1);
+  assert.ok(teams.slice(1).length >= 2 && teams.slice(1).every((t) => t === 0));
+});
+
+test('a round snapshot carries each hamster\'s pickpocketing', () => {
+  const { room, advance } = setup({ hosted: true });
+  const a = fakeConn('a');
+  room.join(a);
+  room.receive(a, { t: 'hello', name: 'Mia' });
+  room.receive(a, { t: 'go' });
+  for (let i = 0; i < 4; i++) {
+    advance(50);
+    room.tick();
+  }
+  const snap = a.last('s');
+  assert.ok(snap, 'a snapshot went out');
+  const row = snap.p[0];
+  assert.equal(row.length, 24);
+  assert.deepEqual(row.slice(20), [0, -1, 0, 0]);
+});
