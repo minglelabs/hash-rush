@@ -565,13 +565,14 @@ test('a bot does not follow a seed carrier into a tunnel, and bonks it from the 
       place(carrier, w.x + spot[0], w.y + inward * spot[1]);
       carrier.carrying = true;
       const warped = [];
-      for (let i = 0; i < 8 * TICK_RATE && !carrier.deaths; i++) {
+      for (let i = 0; i < 8 * TICK_RATE && !carrier.deaths && carrier.carrying; i++) {
         step(g, [brain.think(g, 0), IDLE]);
-        warped.push(...g.events.filter((ev) => ev.type === 'warp'));
+        warped.push(...g.events.filter((ev) => ev.type === 'warp' && ev.id === 0));
       }
       assert.equal(warped.length, 0, `${difficulty} bot walked into the tunnel`);
-      // Easier bots sometimes let a carrier go, which is their choice to make.
-      if (difficulty === 'hard') assert.equal(carrier.deaths, 1, `bot never reached the carrier at ${spot}`);
+      // Easier bots sometimes let a carrier go, which is their choice to make. From
+      // the rim it can bonk the carrier or pickpocket it.
+      if (difficulty === 'hard') assert.ok(carrier.deaths === 1 || bot.carrying, `bot never reached the carrier at ${spot}`);
     }
   }
 });

@@ -3,7 +3,7 @@
 import { WORLD, gatesAt, isFree } from '../sim/map.js';
 import { HAZARD, SKY, gatesNow, iceNow, isNight, untilNight, shotAt } from '../sim/hazards.js';
 import { DECO, SCENERY } from './deco.js';
-import { BONK, gatherTime, ALARM_RANGE, THROW } from '../sim/constants.js';
+import { BONK, gatherTime, pickTime, ALARM_RANGE, THROW } from '../sim/constants.js';
 import { lastStretch } from '../sim/game.js';
 import { mulberry32 } from '../sim/rng.js';
 import { colorOf, lookOf } from './looks.js';
@@ -724,6 +724,11 @@ export function createRenderer(canvas, firstMap) {
       fx.push({ type: 'text', x: ev.x, y: ev.y - 24, text: tr('throwWord'), color: color(ev.id), t: 0, life: 0.7 });
     } else if (ev.type === 'spawn') {
       fx.push({ type: 'ring', x: ev.x, y: ev.y, color: color(ev.id), t: 0, life: 0.45 });
+    } else if (ev.type === 'steal') {
+      burst(ev.x, ev.y, 7, '#ffd23f', 150);
+      fx.push({ type: 'seed', x: ev.x, y: ev.y, t: 0, life: 0.8 });
+      fx.push({ type: 'text', x: ev.x, y: ev.y - 30, text: tr('stealWord'), color: color(ev.by), t: 0, life: 0.9 });
+      if (ev.id === meId || ev.by === meId) shake = 4;
     } else if (ev.type === 'seed') {
       const p = game.players[ev.id];
       fx.push({ type: 'ring', x: p.x, y: p.y, color: '#ffd23f', t: 0, life: 0.5 });
@@ -1092,6 +1097,19 @@ export function createRenderer(canvas, firstMap) {
           ctx.arc(0, 0, 23, -Math.PI / 2, -Math.PI / 2 + (p.gather / gatherTime(game.players.length, game.time)) * TAU);
           ctx.stroke();
         }
+        // Rubbing up against a seed carrier: the pickpocket gauge, in red.
+        if (p.pick > 0) {
+          ctx.lineCap = 'round';
+          ctx.lineWidth = 5;
+          ctx.strokeStyle = 'rgba(0, 0, 0, 0.22)';
+          ctx.beginPath();
+          ctx.arc(0, 0, 23, 0, TAU);
+          ctx.stroke();
+          ctx.strokeStyle = '#ff5a3c';
+          ctx.beginPath();
+          ctx.arc(0, 0, 23, -Math.PI / 2, -Math.PI / 2 + Math.min(1, p.pick / pickTime(game.players.length, game.time)) * TAU);
+          ctx.stroke();
+        }
         // In the ring but not first in line: waiting for a turn at the flower.
         if (p.queued >= 0 && game.nibbler >= 0 && game.nibbler !== p.id) {
           ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
@@ -1167,13 +1185,13 @@ export function createRenderer(canvas, firstMap) {
         const waiting = p.queued >= 0 && game.nibbler >= 0 && game.nibbler !== p.id;
         // Onto a portal with a seed: it does not warp, and the hamster is told why.
         const warpless = me && p.carrying && game.map.warps.some((w) => Math.hypot(p.x - w.x, p.y - w.y) <= w.r);
-        const note = p.gather > 0 ? 'nibbling' : !me || game.phase !== 'playing' ? '' : warpless ? 'portalNoSeed' : waiting ? 'waitTurn' : game.nibbler === p.id ? 'holdStill' : '';
+        const note = p.pick > 0 ? 'picking' : p.gather > 0 ? 'nibbling' : !me || game.phase !== 'playing' ? '' : warpless ? 'portalNoSeed' : waiting ? 'waitTurn' : game.nibbler === p.id ? 'holdStill' : '';
         if (note) {
           const size = 12 * (portrait ? 1.5 : 1);
           ctx.font = `800 ${size}px ${FONT}`;
           ctx.lineWidth = 3.5;
           ctx.strokeText(tr(note), 0, ly - size * 1.35);
-          ctx.fillStyle = note === 'nibbling' ? '#a86a00' : note === 'holdStill' || note === 'portalNoSeed' ? '#d92d2d' : '#555';
+          ctx.fillStyle = note === 'picking' ? '#d9452a' : note === 'nibbling' ? '#a86a00' : note === 'holdStill' || note === 'portalNoSeed' ? '#d92d2d' : '#555';
           ctx.fillText(tr(note), 0, ly - size * 1.35);
           ctx.fillStyle = look.color;
         }

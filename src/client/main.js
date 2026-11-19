@@ -1148,7 +1148,7 @@ function snapshot(events) {
     to: game.timeout,
     p: game.players.map((p) => [
       r(p.x), r(p.y), r(p.vx), r(p.vy), q(p.fx), q(p.fy), p.carrying ? 1 : 0, q(p.gather), p.queued,
-      p.swing ? [p.swing.phase, q(p.swing.t), q(p.swing.dx), q(p.swing.dy)] : 0, q(p.cooldown), p.kills, p.deaths, p.seeds, p.supers, q(p.charge), p.throws, r(p.wet), p.stops, q(p.dazed),
+      p.swing ? [p.swing.phase, q(p.swing.t), q(p.swing.dx), q(p.swing.dy)] : 0, q(p.cooldown), p.kills, p.deaths, p.seeds, p.supers, q(p.charge), p.throws, r(p.wet), p.stops, q(p.dazed), q(p.pick), p.pickOn, q(p.pickBlock), p.steals,
     ]),
     // What the map is up to: [kind, x, y, dx, dy, age].
     hz: game.hazards.map((h) => [h.kind, r(h.x), r(h.y), h.dx || 0, h.dy || 0, Math.round(h.age * 100) / 100]),
@@ -1291,7 +1291,7 @@ function hostData(msg) {
       timeout: false,
       players: msg.players.map((p, id) => ({
         id, name: String(p.kind || '').startsWith('bot') ? localName(p.name) : p.name, look: p.look, team: p.team ?? -1, kind: p.kind, nest: p.nest, x: p.nest.x, y: p.nest.y, vx: 0, vy: 0, fx: 1, fy: 0,
-        carrying: false, gather: 0, queued: -1, swing: null, cooldown: 0, kills: 0, deaths: 0, seeds: 0, supers: 0, charge: 0, throws: 0, stops: 0,
+        carrying: false, gather: 0, queued: -1, swing: null, cooldown: 0, kills: 0, deaths: 0, seeds: 0, supers: 0, charge: 0, throws: 0, stops: 0, pick: 0, pickOn: -1, pickBlock: 0, steals: 0,
         pid: typeof p.pid === 'string' ? p.pid : '', pub: typeof p.pub === 'string' ? p.pub : '',
       })),
     };
@@ -1355,7 +1355,7 @@ function readPlayer(p, s) {
   p.gather = s[7];
   p.queued = s[8];
   p.swing = s[9] ? { phase: s[9][0], t: s[9][1], dx: s[9][2], dy: s[9][3] } : null;
-  [p.cooldown, p.kills, p.deaths, p.seeds, p.supers = 0, p.charge = 0, p.throws = 0, p.wet = 0, p.stops = 0, p.dazed = 0] = s.slice(10);
+  [p.cooldown, p.kills, p.deaths, p.seeds, p.supers = 0, p.charge = 0, p.throws = 0, p.wet = 0, p.stops = 0, p.dazed = 0, p.pick = 0, p.pickOn = -1, p.pickBlock = 0, p.steals = 0] = s.slice(10);
 }
 
 // Somebody new has sat down: their row in the lobby glows yellow for a while and a
@@ -1836,6 +1836,24 @@ function onEvent(ev) {
     else audio.play.double();
   } else if (ev.type === 'spawn' || ev.type === 'warp') {
     if (ev.id === meId) audio.play.spawn();
+  } else if (ev.type === 'steal') {
+    audio.play.seed();
+    if (ev.by === meId) haptics.buzz([20, 40, 20]);
+    if (ev.id === meId) haptics.buzz([70, 50, 110]);
+    const line = document.createElement('div');
+    line.append(nameTag(players[ev.by]), ` 🌻${t('stealWord')} `, nameTag(players[ev.id]));
+    line.addEventListener('animationend', () => line.remove());
+    $('feed').prepend(line);
+    while ($('feed').children.length > 4) $('feed').lastChild.remove();
+    if (ev.id === meId) banner(t('seedStolen'));
+    else {
+      const mate = meId >= 0 && allied(players[meId], players[ev.by]);
+      banner(ev.by === meId ? t('gotSeedMe') : t(mate ? 'gotSeedMate' : 'gotSeedOther', players[ev.by].name));
+    }
+    if (ev.close) {
+      callout(players[ev.by], [t('superPlay')]);
+      audio.play.superplay();
+    }
   } else if (ev.type === 'seed') {
     audio.play.seed();
     if (ev.id === meId) haptics.buzz([20, 40, 20]);

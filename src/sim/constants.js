@@ -35,6 +35,12 @@ export const gatherTime = (players, time = 0) => {
   return ((GATHER_TIME * 4) / Math.max(4, players)) * (1 - (1 - OVERTIME.nibble) * late);
 };
 
+// Pickpocketing: an empty-handed rival who keeps rubbing up against a seed carrier,
+// moving or not, takes the seed off it in half the time a seed takes to nibble.
+// The one who lost it cannot take it straight back for `block` seconds.
+export const PICK = { reach: 2 * HAMSTER_R + 6, share: 0.5, block: 1 };
+export const pickTime = (players, time = 0) => gatherTime(players, time) * PICK.share;
+
 export const BONK = {
   windup: 0.14, // standing still before the hit lands
   recovery: 0.42, // stuck in place after the hit; a whiff is punishable

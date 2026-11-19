@@ -794,6 +794,28 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       }
       mem.stuck = { x: me.x, y: me.y, at: now };
     }
+    // Pickpocketing: at the heels of a seed carrier a swing falls short, but staying
+    // pressed up against it takes the seed. So a carrier that is not running at me
+    // gets rubbed up against instead of swung at, and once the gauge is going the
+    // bot keeps at it. One coming straight at me is still met with a swing. The
+    // top bot does not: right up against a carrier it is in reach of the carrier's
+    // swing, so it follows out of reach and punishes a swing at nothing (see `trail`).
+    let rubbing = -1;
+    if (!me.carrying && !meHome && me.pickBlock <= 0 && !me.swing && !flinching) {
+      for (const e of seen) {
+        if (!e.carrying || e.home || !clear(me, e)) continue;
+        const dx = e.x - me.x;
+        const dy = e.y - me.y;
+        const d = Math.hypot(dx, dy) || 1;
+        const away = (e.vx * dx + e.vy * dy) / d;
+        if (cfg.trail) continue;
+        if (me.pickOn !== e.id && (d > 110 || away < -0.2 * SPEED)) continue;
+        rubbing = e.id;
+        steerTo({ x: e.x + e.vx * 0.15, y: e.y + e.vy * 0.15 });
+        break;
+      }
+    }
+
     const wantX = out.mx;
     const wantY = out.my;
     if (now < mem.nudge.until) {
@@ -955,7 +977,8 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       const lead = BONK.windup + cfg.reaction * cfg.lead;
       const limit = BONK.reach - cfg.margin + mem.noise;
       for (const e of seen) {
-        if (e.home) continue;
+        // Already rubbing away at it: a swing would only throw the gauge away.
+        if (e.home || (e.id === rubbing && me.pickOn === e.id)) continue;
         const p = predictSwing(me, e, lead);
         if (p.dist > limit || !clear(me, e)) continue;
         const dx = e.x - me.x;
@@ -1018,7 +1041,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
       }
     }
     if (flinching) want = null;
-    if (giveGround && !want && !mem.nibbling && !flinching) {
+    if (giveGround && !want && !mem.nibbling && !flinching && rubbing < 0) {
       out.mx = giveGround.x;
       out.my = giveGround.y;
       // Not into a tunnel, though.
