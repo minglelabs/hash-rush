@@ -5,7 +5,7 @@
 import { inHome, allied, lastStretch } from '../sim/game.js';
 import { MAP_IDS, WORLD, isFree } from '../sim/map.js';
 import { HAZARD, iceNow, isNight, untilNight, inCannonLine } from '../sim/hazards.js';
-import { SPEED, BONK, THROW, OVERTIME, HAMSTER_R, gatherTime } from '../sim/constants.js';
+import { SPEED, BONK, THROW, OVERTIME, HAMSTER_R, gatherTime, pickTime, PICK } from '../sim/constants.js';
 
 // How stale what the learned bot sees is, in game ticks: 0.15 s, the same as the
 // quickest scripted bot and a quick person. It plays and trains on this.
@@ -28,7 +28,11 @@ const TEAM_F = 10;
 // nearest home: added after TEAM_F, so the policies before it read only the
 // numbers they know and carry on as they were.
 const MATE_F = 10;
-export const OBS = BASE_OBS + TEAM_F + MATE_F;
+// Pickpocketing: how far I am into taking a rival's seed, how long until I may
+// try again after losing mine, how far a rival is into taking mine, and where the
+// nearest rival carrier is. Added after MATE_F, so older policies read as before.
+const PICK_F = 6;
+export const OBS = BASE_OBS + TEAM_F + MATE_F + PICK_F;
 const HAZARD_KINDS = ['trap', 'cannon', 'wave'];
 export const DIRS = [[0, 0], ...Array.from({ length: 8 }, (_, k) => [Math.cos((k * Math.PI) / 4), Math.sin((k * Math.PI) / 4)])];
 
@@ -245,6 +249,7 @@ export function observe(g, out, at = 0) {
   const dusk = g.map.cycle ? Math.min(1, untilNight(g.map, g.time) / 24) : 0;
   const players = g.players;
   const need = gatherTime(players.length, g.time);
+  const steal = pickTime(players.length, g.time);
   for (let i = 0; i < MAX_P; i++) {
     const base = at + i * OBS;
     out.fill(0, base, base + OBS);
@@ -374,6 +379,23 @@ export function observe(g, out, at = 0) {
       out[o + 7] = (mark.y - me.y) / WORLD.h;
       out[o + 8] = fieldAt(F, F.home, mark);
       out[o + 9] = Math.min(1, Math.hypot(mark.x - me.x, mark.y - me.y) / 1000);
+    }
+
+    o = base + BASE_OBS + TEAM_F + MATE_F;
+    out[o] = Math.min(1, (me.pick || 0) / steal);
+    out[o + 1] = (me.pickBlock || 0) / PICK.block;
+    for (const p of players) if (p.pickOn === me.id) out[o + 2] = Math.max(out[o + 2], Math.min(1, p.pick / steal));
+    let prey = null;
+    let preyD = Infinity;
+    for (const p of players) {
+      if (p === me || !p.carrying || allied(p, me)) continue;
+      const d = Math.hypot(p.x - me.x, p.y - me.y);
+      if (d < preyD) (prey = p), (preyD = d);
+    }
+    if (prey) {
+      out[o + 3] = (prey.x - me.x) / WORLD.w;
+      out[o + 4] = (prey.y - me.y) / WORLD.h;
+      out[o + 5] = Math.min(1, preyD / (8 * PICK.reach));
     }
 
     // The nearest teammate's job and whether it is after the same rival, and the

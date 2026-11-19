@@ -18,7 +18,7 @@
 
 import { createGame, step, carrySpeed } from '../src/sim/game.js';
 import { MAPS, MAP_IDS, isFree } from '../src/sim/map.js';
-import { HAMSTER_R, SPEED, DT, gatherTime } from '../src/sim/constants.js';
+import { HAMSTER_R, SPEED, DT, gatherTime, pickTime } from '../src/sim/constants.js';
 import { MAX_P, OBS, DIRS, REACTION_TICKS, fields, fieldAt, observe, jobs } from '../src/ai/observe.js';
 
 export { MAX_P, OBS };
@@ -69,6 +69,8 @@ export const DEFAULTS = {
   //   home earns nothing.
   // `role`: pay for a marker or guard closing in on the rival it watches.
   catch: 0,
+  // Taking a rival's seed by pickpocketing: what nibbling a seed scores.
+  steal: 2,
   delay: 0,
   role: 0,
   // Share of the policy's seats, in rounds without scripted bots, that start at the
@@ -89,7 +91,10 @@ export const DEFAULTS = {
 function potential(g, p) {
   const F = fields(g.map);
   if (p.carrying) return 7 + 5 * (1 - fieldAt(F, F.home, p));
-  return 1 - fieldAt(F, F.flower, p) + 6 * Math.min(1, p.gather / gatherTime(g.players.length, g.time));
+  const nibble = 6 * Math.min(1, p.gather / gatherTime(g.players.length, g.time));
+  // Rubbing a rival carrier towards taking its seed counts like nibbling one loose.
+  const pick = p.pickOn >= 0 ? 6 * Math.min(1, p.pick / pickTime(g.players.length, g.time)) : 0;
+  return 1 - fieldAt(F, F.flower, p) + Math.max(nibble, pick);
 }
 
 const score = (g, p) => {
@@ -250,6 +255,9 @@ export function createEnvs(settings = {}) {
         keepView(env);
         for (const ev of g.events) {
           if (ev.type === 'bonk' && ev.seed && cfg.catch) env.caught[ev.by] += cfg.catch * (1 + 2 * (1 - homeLeft(g, ev)));
+          // Taking a seed off a rival: the nibbling's score for winning a seed, and
+          // the catch bonus for stopping a carrier.
+          if (ev.type === 'steal') env.caught[ev.by] += cfg.steal + cfg.catch * (1 + 2 * (1 - homeLeft(g, ev)));
         }
       }
       const over = g.phase === 'over';
