@@ -217,3 +217,13 @@ the ace bots split up. Policies from before read only the first 209 and play as
 they did; a run resumed from one starts the new inputs at zero weight.
 
     python3 rl/train.py --name rl16 --resume rl/runs/rl15/policy.pt --frame-skip 2 --minutes 480 --teams 0.8 --bot-levels 2 3 --bot-env 0.7 --entropy 0.003 --lr 1e-4 --rivals rl/runs/rl10/policy.pt rl/runs/rl13/policy.pt rl/runs/rl14/policy.pt rl/runs/rl15/policy.pt
+
+### Pickpocketing (observation 219 → 225)
+
+A rival carrier can now be robbed by rubbing up against it (`src/sim/game.js`,
+`pickpocket`). Six numbers at the end of each row: how far I am into taking a
+seed, how long until I may try again after losing mine, how far a rival is into
+taking mine, and where the nearest rival carrier is. In the reward, rubbing
+towards a steal counts in the shaping like nibbling a seed loose, and a steal
+pays `--steal 2` (what a nibbled seed scores) plus the `--catch` bonus for
+stopping a carrier. rl16 is the command above, resumed from rl15 with the new inputs.
