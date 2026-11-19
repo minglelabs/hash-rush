@@ -227,3 +227,13 @@ taking mine, and where the nearest rival carrier is. In the reward, rubbing
 towards a steal counts in the shaping like nibbling a seed loose, and a steal
 pays `--steal 2` (what a nibbled seed scores) plus the `--catch` bonus for
 stopping a carrier. rl16 is the command above, resumed from rl15 with the new inputs.
+
+rl16 (in the game for both kinds of round) started from rl15's best stretch
+and, with pickpocketing on, copied rl14's best in free-for-all and rl15's best
+in teams (`--distill 0.2`) for 480 minutes:
+
+    python3 rl/train.py --name rl16 --resume rl/runs/rl15/best.pt --frame-skip 2 --minutes 480 --teams 0.6 --distill 0.2 --distill-solo rl/runs/rl14/best.pt --distill-team rl/runs/rl15/best.pt --bot-levels 2 3 --bot-env 0.7 --entropy 0.003 --lr 1e-4 --rivals rl/runs/rl13/policy.pt rl/runs/rl14/best.pt rl/runs/rl14/policy.pt rl/runs/rl15/best.pt
+
+Elo with pickpocketing, 1200 rounds a mode: free-for-all rl16 1216, rl16 best
+1177, rl14 best 1107, ace 1100, rl15 best 1099; teams hard 1250, ace 1234,
+rl16 best 1136, rl15 best 1134, rl16 1130, rl14 best 1008.
