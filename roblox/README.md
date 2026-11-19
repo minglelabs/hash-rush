@@ -4,15 +4,12 @@
 
 ## Studio에서 열기
 
-[Rojo](https://rojo.space) 7 이상이 필요합니다.
+`HashRush.rbxlx`를 Roblox Studio로 엽니다(더블클릭). 코드와 설정이 모두 들어 있습니다.
 
-```sh
-cd roblox
-rojo build -o HashRush.rbxlx   # 만들어진 파일을 Studio로 열기
-# 또는 rojo serve 후 Studio의 Rojo 플러그인으로 연결
-```
+`src/`를 고친 뒤에는 `python3 build.py`로 이 파일을 다시 만듭니다.
+[Rojo](https://rojo.space) 7 이상을 쓴다면 `rojo build -o HashRush.rbxlx`나 `rojo serve`도 같은 결과입니다.
 
-Rojo 없이 넣으려면 아래 위치에 같은 이름으로 스크립트를 만들어 붙여 넣고,
+손으로 넣으려면 아래 위치에 같은 이름으로 스크립트를 만들어 붙여 넣고,
 Workspace의 `StreamingEnabled`와 Players의 `CharacterAutoLoads`를 끕니다.
 
 | 파일 | Studio 위치 | 종류 |
