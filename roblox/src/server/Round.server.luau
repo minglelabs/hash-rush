@@ -14,6 +14,9 @@ local Sim = require(script.Parent:WaitForChild("Sim"))
 
 Players.CharacterAutoLoads = false
 
+-- In Studio one player is enough, so the game can be looked at with a plain test run.
+local MIN_PLAYERS = if RunService:IsStudio() then 1 else Config.MIN_PLAYERS
+
 local remotes = Instance.new("Folder")
 remotes.Name = "HashRushRemotes"
 local inputRemote = Instance.new("RemoteEvent")
@@ -97,11 +100,11 @@ end
 
 local function sendLobby()
 	local count = #joined
-	local left = if count >= Config.MIN_PLAYERS then math.ceil(timer) else nil
+	local left = if count >= MIN_PLAYERS then math.ceil(timer) else nil
 	if lastLobby and lastLobby.count == count and lastLobby.left == left then
 		return
 	end
-	lastLobby = { kind = "lobby", count = count, need = Config.MIN_PLAYERS, left = left }
+	lastLobby = { kind = "lobby", count = count, need = MIN_PLAYERS, left = left }
 	roundRemote:FireAllClients(lastLobby)
 end
 
@@ -174,7 +177,7 @@ end
 
 local function tick()
 	if state == "lobby" then
-		if #joined >= Config.MIN_PLAYERS then
+		if #joined >= MIN_PLAYERS then
 			timer -= Config.DT
 			if timer <= 0 then
 				startRound()
@@ -189,7 +192,7 @@ local function tick()
 	else
 		timer -= Config.DT
 		if timer <= 0 then
-			if #joined >= Config.MIN_PLAYERS then
+			if #joined >= MIN_PLAYERS then
 				startRound()
 			else
 				toLobby()
@@ -225,7 +228,7 @@ Players.PlayerRemoving:Connect(function(player)
 		simInputs[seat] = nil
 		if state == "round" then
 			Sim.remove(game_, seat)
-			if #game_.players < Config.MIN_PLAYERS then
+			if #game_.players < MIN_PLAYERS then
 				endRound({}, false, true)
 			end
 		end
