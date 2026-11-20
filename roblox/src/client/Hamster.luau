@@ -200,7 +200,7 @@ local function setText(label, value)
 end
 
 -- p: the hamster's line of the snapshot. x, y: where to draw it (already smoothed).
--- view: { nibbler, gather, status } for the tag.
+-- view: { bar, status } for the tag: how full its gauge is (or nil) and the words over it.
 function Hamster:draw(dt, x, y, p, view)
 	local moved = 0
 	if self.x then
@@ -345,11 +345,10 @@ function Hamster:draw(dt, x, y, p, view)
 	-- A carrier close to home sets the alarm off.
 	setText(self.label, (if p.alarm then "🚨 " elseif p.carrying then "🌻 " else "") .. self.name)
 	self.label.TextColor3 = if p.alarm then RED elseif self.me then GOLD else WHITE
-	local nibbling = view.nibbler == p.id
 	setText(self.status, view.status)
-	self.barBack.Visible = nibbling
-	if nibbling then
-		self.bar.Size = UDim2.fromScale(view.gather, 1)
+	self.barBack.Visible = view.bar ~= nil
+	if view.bar then
+		self.bar.Size = UDim2.fromScale(view.bar, 1)
 	end
 end
 

@@ -17,46 +17,109 @@ folder.Name = "HashRushFx"
 folder.Parent = workspace
 
 -- Sounds --------------------------------------------------------------------
--- Only sounds that ship with Roblox are used, pitched to taste, so the place
--- needs no uploaded assets.
+-- Everything here is published by Roblox itself or by APM Music, Roblox's
+-- licensed library, both free for any experience: nothing to upload, nothing
+-- that can be taken down under us. A few come with the client (rbxasset).
 
+local function asset(id)
+	return "rbxassetid://" .. id
+end
+
+-- { sound, playback speed, volume }
 local SOUNDS = {
-	swing = { "action_jump.mp3", 1.7, 0.45 },
-	hit = { "oof.ogg", 1.35, 0.9 },
-	thump = { "impact_explosion_03.mp3", 2.4, 0.3 },
-	whiff = { "action_falling.ogg", 2.2, 0.18 },
-	seed = { "action_get_up.mp3", 1.9, 0.6 },
-	throw = { "action_jump.mp3", 0.9, 0.6 },
-	warp = { "impact_water.mp3", 1.5, 0.4 },
-	tick = { "volume_slider.ogg", 1, 0.7 },
-	go = { "volume_slider.ogg", 1.6, 0.9 },
-	alarm = { "volume_slider.ogg", 2.2, 0.35 },
-	win = { "action_get_up.mp3", 1.2, 0.8 },
-	land = { "action_jump_land.mp3", 1.3, 0.35 },
+	swing = { asset(15675012262), 1.15, 0.5 }, -- Roblox_UI_Whoosh_04
+	hit = { asset(12222054), 1, 0.9 }, -- Kerplunk
+	boing = { asset(12222124), 1.25, 0.55 }, -- Short spring sound
+	thump = { "rbxasset://sounds/impact_explosion_03.mp3", 2.4, 0.22 },
+	ouch = { asset(15675081158), 1, 0.8 }, -- Roblox_UI_Cute_Goodbye: I was the one bonked
+	whiff = { asset(15675024286), 1.5, 0.25 }, -- Roblox_UI_Whoosh_01
+	seed = { asset(17208319162), 1, 0.7 }, -- Roblox GUI - Pickup
+	steal = { asset(15675037413), 1.1, 0.7 }, -- Roblox_UI_Paper_Swipe
+	throw = { asset(15675028888), 1.1, 0.6 }, -- Roblox_UI_Whoosh_02
+	warp = { asset(15675046931), 1, 0.5 }, -- Roblox_UI_Sweep
+	tick = { asset(15675059323), 0.9, 0.7 }, -- Roblox_UI_Bright_Click
+	go = { asset(15675043410), 1, 0.7 }, -- Roblox_UI_Tonal_Stinger
+	click = { asset(15675032796), 1, 0.6 }, -- Roblox_UI_Small_Click
+	pop = { asset(15675055424), 1.1, 0.5 }, -- Roblox_UI_Cute_Pop
+	alarm = { "rbxasset://sounds/volume_slider.ogg", 2.2, 0.3 },
+	win = { asset(1844584698), 1, 0.6 }, -- APM "Winner"
+	over = { asset(1842335078), 1, 0.5 }, -- APM "Cartoon Fanfare (c)"
+}
+
+local MUSIC = {
+	lobby = { asset(1839580471), 0.32 }, -- APM "Happy Forever Ukulele"
+	round = { asset(1841647421), 0.26 }, -- APM "Cartoon Capers"
 }
 
 local sounds = {}
 for name, spec in SOUNDS do
 	local sound = Instance.new("Sound")
 	sound.Name = name
-	sound.SoundId = "rbxasset://sounds/" .. spec[1]
+	sound.SoundId = spec[1]
 	sound.PlaybackSpeed = spec[2]
 	sound.Volume = spec[3]
 	sound.Parent = SoundService
 	sounds[name] = sound
 end
 
+local muted = false
+
 -- `pitch` multiplies the sound's usual speed; a little spread keeps repeats alive.
 function Fx.sound(name, pitch)
 	local sound = sounds[name]
-	if not sound then
+	if not sound or muted then
 		return
 	end
 	local copy = sound:Clone()
 	copy.PlaybackSpeed = sound.PlaybackSpeed * (pitch or 1) * (0.96 + math.random() * 0.08)
 	copy.Parent = SoundService
 	copy:Play()
-	Debris:AddItem(copy, 3)
+	Debris:AddItem(copy, 6)
+end
+
+local tracks = {}
+for name, spec in MUSIC do
+	local track = Instance.new("Sound")
+	track.Name = "Music_" .. name
+	track.SoundId = spec[1]
+	track.Looped = true
+	track.Volume = 0
+	track.Parent = SoundService
+	tracks[name] = track
+end
+local playing = nil
+
+-- Fades over to the named tune; nil fades to silence. `speed` hurries it along.
+function Fx.music(name, speed)
+	for key, track in tracks do
+		local on = key == name and not muted
+		if on and not track.IsPlaying then
+			track.TimePosition = 0
+			track:Play()
+		end
+		if key == name then
+			track.PlaybackSpeed = speed or 1
+		end
+		local tween = TweenService:Create(track, TweenInfo.new(0.8), { Volume = if on then MUSIC[key][2] else 0 })
+		tween:Play()
+		if not on then
+			tween.Completed:Once(function()
+				if track.Volume == 0 then
+					track:Stop()
+				end
+			end)
+		end
+	end
+	playing = name
+end
+
+function Fx.setMuted(want)
+	muted = want
+	Fx.music(playing, playing and tracks[playing].PlaybackSpeed)
+end
+
+function Fx.muted()
+	return muted
 end
 
 -- Camera shake and hit-stop -------------------------------------------------

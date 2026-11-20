@@ -1,4 +1,5 @@
--- Lobby and round flow. The server owns the game: clients only send what they
+-- Lobby and round flow. Empty seats can be filled with bots: the lobby says how
+-- many and how good, and anyone in it may change that. The server owns the game: clients only send what they
 -- are pressing, and get back a snapshot every tick plus the events of that tick.
 --   lobby (everyone presses ready) -> round (3 s countdown, play) -> lobby, showing the result ...
 -- Nothing starts by itself: a round begins once everyone in the server is ready,
@@ -13,14 +14,25 @@ local Config = require(ReplicatedStorage:WaitForChild("Config"))
 local Snapshot = require(ReplicatedStorage:WaitForChild("Snapshot"))
 local Map = require(ReplicatedStorage:WaitForChild("Map"))
 local Sim = require(ReplicatedStorage:WaitForChild("Sim"))
+local Bot = require(script.Parent:WaitForChild("Bot"))
+local RLBot = require(script.Parent:WaitForChild("RLBot"))
 
 Players.CharacterAutoLoads = false
 
 -- In Studio one player is enough, so the game can be looked at with a plain test run.
 local MIN_PLAYERS = if RunService:IsStudio() then 1 else Config.MIN_PLAYERS
--- And whoever plays alone there gets a sparring partner to bonk and be bonked by.
-local PRACTICE = RunService:IsStudio()
-local DUMMY_NAME = "연습 상대"
+
+-- Bot levels, weakest first: the scripted ones the web game has, then the one
+-- that learned the game by playing it.
+local LEVELS = {}
+for _, level in { "easy", "normal", "hard", "ace" } do
+	if Bot.DIFFICULTY[level] then
+		table.insert(LEVELS, level)
+	end
+end
+table.insert(LEVELS, "rl")
+local LEVEL_NAMES = { easy = "쉬움", normal = "보통", hard = "어려움", ace = "고수", rl = "RL" }
+local BOT_NAMES = { "도토리", "콩알", "밤톨", "호두", "땅콩", "쌀알", "잣" }
 
 local remotes = Instance.new("Folder")
 remotes.Name = "HashRushRemotes"
@@ -33,6 +45,9 @@ roundRemote.Parent = remotes
 local readyRemote = Instance.new("RemoteEvent")
 readyRemote.Name = "Ready"
 readyRemote.Parent = remotes
+local lobbyRemote = Instance.new("RemoteEvent")
+lobbyRemote.Name = "Lobby"
+lobbyRemote.Parent = remotes
 local snapRemote = Instance.new("UnreliableRemoteEvent")
 snapRemote.Name = "Snap"
 snapRemote.Parent = remotes
@@ -84,7 +99,9 @@ local timer = Config.LOBBY_COUNTDOWN
 local roundNo = 0
 local game_ = nil -- the Sim game of the running round
 local seats = {} -- [seat number] = player
-local dummy = nil -- seat number of the sparring partner, if there is one
+local bots = {} -- [seat number] = { think, name }
+local botCount = 3 -- how many the lobby has asked for
+local botLevel = "normal"
 local simInputs = {}
 local rng = Random.new()
 
@@ -105,10 +122,19 @@ local function roster()
 			kills = if p then p.kills + p.throws else 0,
 		})
 	end
-	local d = dummy and game_ and game_.byId[dummy]
-	if d then
-		table.insert(list, { id = dummy, userId = -1, name = DUMMY_NAME, wins = 0, kills = d.kills + d.throws })
+	for seat, bot in bots do
+		local p = game_ and game_.byId[seat]
+		table.insert(list, {
+			id = seat,
+			userId = -seat,
+			name = bot.name,
+			wins = wins[bot.name] or 0,
+			kills = if p then p.kills + p.throws else 0,
+		})
 	end
+	table.sort(list, function(a, b)
+		return a.id < b.id
+	end)
 	return list
 end
 
@@ -120,15 +146,43 @@ local function readyCount()
 	return n
 end
 
+-- How many bots a round with this many people in it would get.
+local function botsFor(people)
+	return math.clamp(botCount, 0, Config.MAX_PLAYERS - people)
+end
+
+-- Enough to play: somebody real, and a rival for it, bot or not.
+local function enough(readied)
+	return readied >= 1 and readied + botsFor(readied) >= MIN_PLAYERS
+end
+
 local function sendLobby()
 	local count = #joined
 	local readied = readyCount()
 	-- The count runs only while some, but not all, are ready.
-	local left = if readied >= MIN_PLAYERS and readied < count then math.ceil(timer) else nil
-	if lastLobby and lastLobby.count == count and lastLobby.ready == readied and lastLobby.left == left then
+	local left = if enough(readied) and readied < count then math.ceil(timer) else nil
+	local people = {}
+	local mark = { count, readied, left or -1, botCount, botLevel }
+	for _, player in joined do
+		table.insert(people, { name = player.DisplayName, ready = ready[player] == true })
+		table.insert(mark, if ready[player] then 1 else 0)
+	end
+	local signature = table.concat(mark, ",")
+	if lastLobby and lastLobby.signature == signature then
 		return
 	end
-	lastLobby = { kind = "lobby", count = count, ready = readied, need = MIN_PLAYERS, left = left }
+	lastLobby = {
+		kind = "lobby",
+		signature = signature,
+		count = count,
+		ready = readied,
+		-- How many more people it takes before a round can start at all.
+		short = math.max(0, MIN_PLAYERS - botsFor(count) - count),
+		left = left,
+		people = people,
+		bots = botsFor(math.max(1, readied)),
+		level = LEVEL_NAMES[botLevel] or botLevel,
+	}
 	roundRemote:FireAllClients(lastLobby)
 end
 
@@ -146,11 +200,14 @@ local function startRound()
 		end
 	end
 	table.clear(ready)
-	dummy = nil
-	if PRACTICE and #slots == 1 then
-		dummy = 2
-		simInputs[dummy] = { mx = 0, my = 0, bonk = false, throw = false }
-		slots[dummy] = { id = dummy, name = DUMMY_NAME }
+	table.clear(bots)
+	for k = 1, botsFor(#slots) do
+		local i = #slots + 1
+		local seed = rng:NextInteger(1, 2 ^ 30)
+		local brain = if botLevel == "rl" then RLBot.new({ seed = seed, offset = k }) else Bot.new({ difficulty = botLevel, seed = seed })
+		bots[i] = { brain = brain, name = "🤖 " .. BOT_NAMES[k] }
+		simInputs[i] = { mx = 0, my = 0, bonk = false, throw = false }
+		slots[i] = { id = i, name = bots[i].name }
 	end
 	game_ = Sim.new(Map, slots, function()
 		return rng:NextNumber()
@@ -162,6 +219,11 @@ end
 
 -- winners: seat numbers. `left` is true when the round stopped for want of players.
 local function endRound(winners, timeout, left)
+	for seat, bot in bots do
+		if table.find(winners, seat) then
+			wins[bot.name] = (wins[bot.name] or 0) + 1
+		end
+	end
 	for seat, player in seats do
 		local won = table.find(winners, seat) ~= nil
 		if won then
@@ -178,6 +240,7 @@ local function endRound(winners, timeout, left)
 	timer = Config.LOBBY_COUNTDOWN
 	game_ = nil
 	seats = {}
+	table.clear(bots)
 	lastLobby = nil
 	sendLobby()
 end
@@ -193,24 +256,16 @@ local function stepRound()
 		inp.throw = r.throw
 		r.tapped = false
 	end
-	-- The sparring partner paces up and down just outside home, and swings at
-	-- whoever comes close.
-	local d = dummy and game_.byId[dummy]
-	if d then
-		local inp = simInputs[dummy]
-		local tx = Map.home.x2 + 4
-		local ty = Map.flower.y + math.sin(game_.time * 0.9) * 13
-		local dx, dy = tx - d.x, ty - d.y
-		local far = math.sqrt(dx * dx + dy * dy)
-		inp.mx = if far > 0.6 then dx / far * 0.6 else 0
-		inp.my = if far > 0.6 then dy / far * 0.6 else 0
-		local near = false
-		for _, p in game_.players do
-			if p ~= d and math.abs(p.x - d.x) + math.abs(p.y - d.y) < 4 then
-				near = true
-			end
+	for seat, bot in bots do
+		-- A bot that trips up stands still rather than taking the round down with it.
+		local ok, input = pcall(bot.brain.think, game_, seat)
+		if ok and input then
+			simInputs[seat] = input
+		elseif not bot.broken then
+			bot.broken = true
+			warn("HashRush: " .. bot.name .. " stopped thinking: " .. tostring(input))
+			simInputs[seat] = { mx = 0, my = 0, bonk = false, throw = false }
 		end
-		inp.bonk = near and game_.tick % 90 < 3
 	end
 	Sim.step(game_, simInputs)
 	if #game_.events > 0 then
@@ -227,10 +282,10 @@ end
 local function tick()
 	if state == "lobby" then
 		local readied = readyCount()
-		if readied >= MIN_PLAYERS and readied == #joined then
+		if enough(readied) and readied == #joined then
 			startRound()
 			return
-		elseif readied >= MIN_PLAYERS then
+		elseif enough(readied) then
 			timer -= Config.DT
 			if timer <= 0 then
 				startRound()
@@ -300,6 +355,18 @@ readyRemote.OnServerEvent:Connect(function(player, want)
 		return
 	end
 	ready[player] = if want == true then true else nil
+end)
+
+-- Anyone in the lobby may ask for more or fewer bots, or a different level.
+lobbyRemote.OnServerEvent:Connect(function(player, what, value)
+	if state ~= "lobby" or not raw[player] then
+		return
+	end
+	if what == "bots" and type(value) == "number" then
+		botCount = math.clamp(botCount + (if value > 0 then 1 else -1), 0, Config.MAX_PLAYERS - 1)
+	elseif what == "level" then
+		botLevel = LEVELS[(table.find(LEVELS, botLevel) or 0) % #LEVELS + 1]
+	end
 end)
 
 -- A client says it is ready to draw: tell it where things stand.

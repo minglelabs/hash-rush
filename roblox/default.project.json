@@ -3,38 +3,14 @@
   "tree": {
     "$className": "DataModel",
     "ReplicatedStorage": {
-      "Config": {
-        "$path": "src/shared/Config.luau"
-      },
-      "Snapshot": {
-        "$path": "src/shared/Snapshot.luau"
-      },
-      "Map": {
-        "$path": "src/shared/Map.luau"
-      },
-      "Sim": {
-        "$path": "src/shared/Sim.luau"
-      }
+      "$path": "src/shared"
     },
     "ServerScriptService": {
-      "Round": {
-        "$path": "src/server/Round.server.luau"
-      }
+      "$path": "src/server"
     },
     "StarterPlayer": {
       "StarterPlayerScripts": {
-        "Input": {
-          "$path": "src/client/Input.client.luau"
-        },
-        "View": {
-          "$path": "src/client/View.client.luau"
-        },
-        "Hamster": {
-          "$path": "src/client/Hamster.luau"
-        },
-        "Fx": {
-          "$path": "src/client/Fx.luau"
-        }
+        "$path": "src/client"
       }
     },
     "Workspace": {
