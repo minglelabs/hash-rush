@@ -301,6 +301,7 @@ def main():
     ap.add_argument("--head-start", type=float, default=0.3, help="share of seats in bot-free rounds that start at the flower")
     ap.add_argument("--catch", type=float, default=4, help="extra pay for bonking a rival who has a seed")
     ap.add_argument("--steal", type=float, default=2, help="pay for taking a rival's seed by pickpocketing (catch is added on top)")
+    ap.add_argument("--robbed", type=float, default=3, help="what it costs to have a seed pickpocketed")
     ap.add_argument("--save", type=float, default=3, help="pay for bonking a rival off a teammate's seed while it is picking the pocket")
     ap.add_argument("--tail", type=float, default=0.15, help="share of rounds that start with a seed carrier on its way home and a rival right up against it")
     ap.add_argument("--side-bots", type=float, default=0.5, help="in team rounds with bots, how often the bots sit by side (a whole side of one level) instead of by seat")
@@ -337,7 +338,7 @@ def main():
             pass
     stage = min(stage, len(STAGES) - 1)
     spar = lambda: (args.bot_env, args.bot_levels) if args.bot_levels else (args.bot_env, [0, 1, 2]) if args.no_curriculum else STAGES[stage]
-    settings = {"botEnv": spar()[0], "botLevels": spar()[1], "win": args.win, "lose": args.lose, "shape": args.shape, "teams": args.teams, "frameSkip": args.frame_skip, "reaction": args.reaction, "headStart": args.head_start, "teamSpirit": args.team_spirit, "catch": args.catch, "steal": args.steal, "save": args.save, "tail": args.tail, "sideBots": args.side_bots, "duo": args.duo, "delay": args.delay, "role": args.role, "teacher": args.teacher if args.kick else -1}
+    settings = {"botEnv": spar()[0], "botLevels": spar()[1], "win": args.win, "lose": args.lose, "shape": args.shape, "teams": args.teams, "frameSkip": args.frame_skip, "reaction": args.reaction, "headStart": args.head_start, "teamSpirit": args.team_spirit, "catch": args.catch, "steal": args.steal, "robbed": args.robbed, "save": args.save, "tail": args.tail, "sideBots": args.side_bots, "duo": args.duo, "delay": args.delay, "role": args.role, "teacher": args.teacher if args.kick else -1}
     if args.maps != "all":
         settings["maps"] = args.maps.split(",")
     env = Workers(args.workers, args.envs, args.seed, settings)

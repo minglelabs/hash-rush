@@ -79,6 +79,8 @@ export const DEFAULTS = {
   catch: 0,
   // Taking a rival's seed by pickpocketing: what nibbling a seed scores.
   steal: 2,
+  // What having a seed pickpocketed costs the one who had it.
+  robbed: 0,
   // Bonking a rival off a teammate's seed while it is picking the pocket.
   save: 0,
   delay: 0,
@@ -322,7 +324,10 @@ export function createEnvs(settings = {}) {
           if (ev.type === 'bonk' && ev.seed && cfg.catch) env.caught[ev.by] += cfg.catch * (1 + 2 * (1 - homeLeft(g, ev)));
           // Taking a seed off a rival: the nibbling's score for winning a seed, and
           // the catch bonus for stopping a carrier.
-          if (ev.type === 'steal') env.caught[ev.by] += cfg.steal + cfg.catch * (1 + 2 * (1 - homeLeft(g, ev)));
+          if (ev.type === 'steal') {
+            env.caught[ev.by] += cfg.steal + cfg.catch * (1 + 2 * (1 - homeLeft(g, ev)));
+            env.caught[ev.id] -= cfg.robbed;
+          }
         }
       }
       const over = g.phase === 'over';
