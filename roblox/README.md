@@ -16,11 +16,13 @@ Workspace의 `StreamingEnabled`와 Players의 `CharacterAutoLoads`를 끕니다.
 | --- | --- | --- |
 | `src/shared/Config.luau` | ReplicatedStorage/Config | ModuleScript |
 | `src/shared/Snapshot.luau` | ReplicatedStorage/Snapshot | ModuleScript |
-| `src/server/Sim.luau` | ServerScriptService/Sim | ModuleScript |
-| `src/server/Map.luau` | ServerScriptService/Map | ModuleScript |
+| `src/shared/Sim.luau` | ReplicatedStorage/Sim | ModuleScript |
+| `src/shared/Map.luau` | ReplicatedStorage/Map | ModuleScript |
 | `src/server/Round.server.luau` | ServerScriptService/Round | Script |
 | `src/client/Input.client.luau` | StarterPlayerScripts/Input | LocalScript |
 | `src/client/View.client.luau` | StarterPlayerScripts/View | LocalScript |
+| `src/client/Hamster.luau` | StarterPlayerScripts/Hamster | ModuleScript |
+| `src/client/Fx.luau` | StarterPlayerScripts/Fx | ModuleScript |
 
 ## 테스트
 
@@ -32,17 +34,19 @@ Workspace의 `StreamingEnabled`와 Players의 `CharacterAutoLoads`를 끕니다.
 
 - `Config`: 수치 전부(스터드 단위, 웹판 10px = 1스터드).
 - `Sim`: 틱마다 이동·충돌·꿀밤·던지기·캐기·승리 판정. Instance를 쓰지 않는 순수 로직.
-- `Map`: 울타리·둥지·굴·해바라기 좌표와, 그것을 파트로 까는 `Map.render()`.
+- `Map`: 울타리·둥지·굴·해바라기 좌표와, 그것을 파트로 까고 조명을 잡는 `Map.render()`. 좌표는 클라이언트도 씁니다.
 - `Round`: 로비 → 카운트다운 3초 → 플레이 → 결과 5초 → 반복. 60Hz로 `Sim.step`을 돌리고 매 틱 스냅샷을 보냅니다.
 - `Snapshot`: 스냅샷을 buffer로 묶고 푸는 코드(8명에 139바이트).
 - `Input`: 이동 방향과 꿀밤·던지기 버튼 상태만 서버로 보냅니다.
-- `View`: 카메라 고정, 햄스터 그리기, 화면 문구.
+- `View`: 카메라, 화면 문구(HUD·결과 화면), 이벤트 연출. 내 햄스터는 핑만큼 앞서 그려서 키가 바로 먹습니다(판정은 서버 그대로).
+- `Hamster`: 햄스터 한 마리의 모양과 움직임(뒤뚱 걸음, 꿀밤 휘두르기, 볼 부풀리기, 기절).
+- `Fx`: 효과음, 별·먼지, 튀어나오는 글자, 화면 흔들림, 히트스톱.
 
 ## 웹판과 다른 점
 
 - 씨 훔치기(소매치기), 팀전, 초원 외 맵과 위험 요소, 봇은 없습니다.
 - 던지기는 꿀밤 버튼과 따로 있는 버튼입니다(웹판 PC도 F·K로 같음).
-- 효과음은 아직 없습니다.
+- 효과음은 로블록스에 기본으로 들어 있는 소리만 높낮이를 바꿔 씁니다. 전용 효과음과 음악은 아직 없습니다.
 
 ## 공개 전 할 일
 

@@ -29,14 +29,16 @@ place = "".join([
     service("Lighting", '<bool name="GlobalShadows">false</bool><float name="Brightness">2</float>'
             '<string name="TimeOfDay">15:00:00</string><float name="EnvironmentSpecularScale">0</float>' + colour("Ambient", 0.75) + colour("OutdoorAmbient", 0.75)),
     service("ReplicatedStorage", children=script("ModuleScript", "Config", "src/shared/Config.luau")
-            + script("ModuleScript", "Snapshot", "src/shared/Snapshot.luau")),
-    service("ServerScriptService", children=script("ModuleScript", "Sim", "src/server/Sim.luau")
-            + script("ModuleScript", "Map", "src/server/Map.luau")
-            + script("Script", "Round", "src/server/Round.server.luau")),
+            + script("ModuleScript", "Snapshot", "src/shared/Snapshot.luau")
+            + script("ModuleScript", "Map", "src/shared/Map.luau")
+            + script("ModuleScript", "Sim", "src/shared/Sim.luau")),
+    service("ServerScriptService", children=script("Script", "Round", "src/server/Round.server.luau")),
     service("StarterPlayer", children='<Item class="StarterPlayerScripts"><Properties>'
             '<string name="Name">StarterPlayerScripts</string></Properties>'
             + script("LocalScript", "Input", "src/client/Input.client.luau")
-            + script("LocalScript", "View", "src/client/View.client.luau") + '</Item>'),
+            + script("LocalScript", "View", "src/client/View.client.luau")
+            + script("ModuleScript", "Hamster", "src/client/Hamster.luau")
+            + script("ModuleScript", "Fx", "src/client/Fx.luau") + '</Item>'),
     '</roblox>',
 ])
 (ROOT / "HashRush.rbxlx").write_text(place, encoding="utf-8")

@@ -3,7 +3,7 @@
 --   input = { mx, my, bonk, throw }   move vector and the two buttons, held or not
 -- Ported from the web game's src/sim/game.js (meadow, free-for-all).
 
-local Config = require(game:GetService("ReplicatedStorage"):WaitForChild("Config"))
+local Config = require(script.Parent:WaitForChild("Config"))
 
 local DT = Config.DT
 local R = Config.HAMSTER_R
@@ -156,6 +156,9 @@ local function sight(map, a, b)
 	local f = map.flower
 	return distToSegment(f.x, f.y, a.x, a.y, b.x, b.y) >= f.r
 end
+
+-- The client uses this too, to place its own hamster ahead of the server.
+Sim.collide = collide
 
 -- Rules -------------------------------------------------------------------
 

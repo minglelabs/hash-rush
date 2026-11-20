@@ -112,8 +112,8 @@ pad.Parent = gui
 local base = Instance.new("Frame")
 base.AnchorPoint = Vector2.new(0.5, 0.5)
 base.Size = UDim2.fromOffset(STICK_RADIUS * 2, STICK_RADIUS * 2)
-base.BackgroundColor3 = Color3.new(1, 1, 1)
-base.BackgroundTransparency = 0.75
+base.BackgroundColor3 = Color3.fromRGB(58, 40, 30)
+base.BackgroundTransparency = 0.6
 base.Visible = false
 base.Parent = gui
 round(base)
@@ -164,29 +164,47 @@ local function button(name, text, size, offsetY, color)
 	b.BackgroundTransparency = 0.2
 	b.AutoButtonColor = false
 	b.Text = text
-	b.TextSize = 22
-	b.Font = Enum.Font.GothamBold
+	b.TextSize = math.floor(size * 0.22)
+	b.Font = Enum.Font.FredokaOne
 	b.TextColor3 = Color3.new(1, 1, 1)
 	b.Parent = gui
 	round(b)
+	local rim = Instance.new("UIStroke")
+	rim.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	rim.Thickness = 4
+	rim.Color = Color3.fromRGB(58, 40, 30)
+	rim.Parent = b
+	local outline = Instance.new("UIStroke")
+	outline.Thickness = 2.5
+	outline.Color = Color3.fromRGB(58, 40, 30)
+	outline.Parent = b
+	local shine = Instance.new("UIGradient")
+	shine.Rotation = 90
+	shine.Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(205, 205, 205))
+	shine.Parent = b
+	local press = Instance.new("UIScale")
+	press.Name = "Press"
+	press.Parent = b
 	b.InputBegan:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
 			held[name] = input
 			b.BackgroundTransparency = 0
+			press.Scale = 0.9
 		end
 	end)
 	return b
 end
 
-local bonkButton = button("Bonk", "꿀밤", 112, -28, Color3.fromRGB(230, 90, 70))
+local bonkButton = button("Bonk", "👊\n꿀밤", 124, -28, Color3.fromRGB(240, 96, 76))
 -- Only there while there is a seed to throw. View keeps the attribute up to date.
-local throwButton = button("Throw", "던지기", 92, -160, Color3.fromRGB(235, 170, 40))
+local throwButton = button("Throw", "🌻\n던지기", 100, -172, Color3.fromRGB(240, 176, 44))
 throwButton.Visible = false
 player:GetAttributeChangedSignal("HRCarrying"):Connect(function()
 	throwButton.Visible = player:GetAttribute("HRCarrying") == true
 	if not throwButton.Visible then
 		held.Throw = nil
 		throwButton.BackgroundTransparency = 0.2
+		throwButton.Press.Scale = 1
 	end
 end)
 
@@ -206,6 +224,7 @@ UserInputService.InputEnded:Connect(function(input)
 		if pressing == input or (input.UserInputType == Enum.UserInputType.MouseButton1 and pressing.UserInputType == Enum.UserInputType.MouseButton1) then
 			held[name] = nil
 			gui[name].BackgroundTransparency = 0.2
+			gui[name].Press.Scale = 1
 		end
 	end
 end)
@@ -238,12 +257,24 @@ end
 local sent = { mx = 0, my = 0, bonk = false, throw = false }
 local sentAt = 0
 
+local bonks = 0
+local wasBonk = false
+
 RunService.Heartbeat:Connect(function()
 	local move = moveVector()
 	local mx = math.round(move.X * 100) / 100
 	local my = math.round(move.Y * 100) / 100
 	local bonk = bonkKey or held.Bonk ~= nil
 	local throw = throwKey or held.Throw ~= nil
+	-- View draws the player's own hamster from these without waiting for the server.
+	if player:GetAttribute("HRMove") ~= move then
+		player:SetAttribute("HRMove", move)
+	end
+	if bonk and not wasBonk then
+		bonks += 1
+		player:SetAttribute("HRBonk", bonks)
+	end
+	wasBonk = bonk
 	local buttons = bonk ~= sent.bonk or throw ~= sent.throw
 	local moved = mx ~= sent.mx or my ~= sent.my
 	-- Buttons go out at once; a stick being rolled around goes out 30 times a second.
