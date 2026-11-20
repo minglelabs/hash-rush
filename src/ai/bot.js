@@ -86,7 +86,14 @@ export const DIFFICULTY = {
 //   there who sets off to swing just as it crosses. Walking on is walking into
 //   that swing, so it goes straight back the way it came for this many seconds:
 //   the swing lands on nothing, and the bot is on whoever is stuck after it.
-DIFFICULTY.ace = { ...DIFFICULTY.hard, search: true, dance: true, poach: 1, wary: 0.5, clock: 0.15, toss: 0, boxed: 120, trail: 78, lure: 54, pincer: 60, gatewise: 300, ambush: 0.2, dodge: 0.3, flinch: 0.15 };
+// margin 7, hold 0: it swings only once a rival is well inside reach, and does not
+//   stand its ground against a charge. A swing roots whoever starts it, so one that
+//   falls short is a free hit for the other side; against a player who keeps just
+//   at the edge of reach, most of its old swings did.
+// crowd: in a free-for-all it does not swing at a rival without a seed while
+//   another one is within this many pixels and ready to swing: that one would hit
+//   it while it is stuck after the swing.
+DIFFICULTY.ace = { ...DIFFICULTY.hard, margin: 7, hold: 0, crowd: 110, search: true, dance: true, poach: 1, wary: 0.5, clock: 0.15, toss: 0, boxed: 120, trail: 78, rubAfter: 1, rubHome: true, lure: 54, pincer: 60, gatewise: 300, ambush: 0.2, dodge: 0.3, flinch: 0.15 };
 
 const TOUCH = 2 * HAMSTER_R;
 const DANGER_R = 110;
@@ -832,8 +839,8 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
           const unanswered = free + BONK.windup > left + 0.03;
           // Waiting for a swing only pays while there is time for one: not this close
           // to home, nor behind one that has run on for a second without turning.
-          const runner = mem.flee.id === e.id && now - mem.flee.since >= 1;
-          if (!unanswered && !runner && !lastStandFor(e)) continue;
+          const runner = mem.flee.id === e.id && now - mem.flee.since >= cfg.rubAfter;
+          if (!unanswered && !runner && !(cfg.rubHome && lastStandFor(e))) continue;
         }
         if (me.pickOn !== e.id && (d > 110 || away < -0.2 * SPEED)) continue;
         rubbing = e.id;
@@ -1007,6 +1014,11 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
         if (e.home || (e.id === rubbing && me.pickOn === e.id)) continue;
         const p = predictSwing(me, e, lead);
         if (p.dist > limit || !clear(me, e)) continue;
+        // A swing roots me through the hit and after it. In a free-for-all, with another
+        // rival close by and ready to swing, that is a free hit for it, so only a seed
+        // is worth it then. On a team the one close by is the target's team-mate,
+        // and mine are about too.
+        if (cfg.crowd && me.team < 0 && !e.carrying && !me.carrying && seen.some((o) => o.id !== e.id && !o.home && o.swing !== 'recovery' && Math.hypot(o.x - me.x, o.y - me.y) < cfg.crowd)) continue;
         const dx = e.x - me.x;
         const dy = e.y - me.y;
         const d = Math.hypot(dx, dy) || 1;

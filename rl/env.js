@@ -313,6 +313,8 @@ export function createEnvs(settings = {}) {
         // Whose pocket each one is picking, before a bonk sends it home.
         const picking = cfg.save ? g.players.map((p) => p.pickOn) : null;
         step(g, inputs);
+        // For tools that look at what happens tick by tick.
+        if (cfg.onTick) cfg.onTick(g, e);
         env.tick++;
         keepView(env, e);
         for (const ev of g.events) {

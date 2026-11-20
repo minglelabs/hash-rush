@@ -17,7 +17,13 @@ const game = (kinds, seed, map = MAPS.meadow) => {
 };
 
 test('the top bot has the hard bot\'s hands and adds looking ahead and footwork', () => {
-  const { search, dance, poach, wary, clock, boxed, toss, trail, lure, pincer, gatewise, ambush, dodge, flinch, ...hands } = DIFFICULTY.ace;
+  const { search, dance, poach, wary, clock, boxed, toss, trail, lure, pincer, gatewise, ambush, dodge, flinch, margin, hold, crowd, rubAfter, rubHome, ...hands } = DIFFICULTY.ace;
+  // When it swings, not how fast it sees: further inside reach than the hard bot,
+  // without standing its ground, and in a free-for-all not with another rival by.
+  assert.ok(margin > DIFFICULTY.hard.margin && margin < BONK.reach - 2 * 15, 'a swing waits for the rival to be well in reach, short of touching');
+  assert.equal(hold, 0);
+  assert.ok(crowd > BONK.reach);
+  assert.ok(rubAfter > 0 && rubHome === true);
   assert.ok(flinch >= DIFFICULTY.hard.reaction, 'it sees a swing no sooner than anything else');
   assert.equal(DIFFICULTY.hard.reaction, 0.15, 'no bot reacts quicker than 0.15 s');
   assert.ok(dodge > 0);
@@ -30,7 +36,7 @@ test('the top bot has the hard bot\'s hands and adds looking ahead and footwork'
   assert.ok(boxed > 0);
   assert.equal(toss, 0, 'no seed gambled on a single rival');
   delete hands.toss;
-  const { toss: hardToss, ...hardHands } = DIFFICULTY.hard;
+  const { toss: hardToss, margin: hardMargin, hold: hardHold, ...hardHands } = DIFFICULTY.hard;
   assert.ok(hardToss > 0);
   assert.equal(search, true);
   assert.equal(dance, true);
