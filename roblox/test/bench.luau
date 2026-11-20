@@ -1,5 +1,6 @@
 -- What the learned bot costs a server: milliseconds per decision, and per game
--- tick with 1, 3 and 7 of them in a round of eight.
+-- tick with 1, 3 and 7 of them in a round of eight, everyone for themselves and
+-- four against four (where a bot also works out its team's jobs).
 --   node roblox/tools/wrap.mjs
 --   luau --codegen roblox/test/bench.luau     (as Roblox runs a --!native module)
 --   luau roblox/test/bench.luau               (interpreted)
@@ -33,15 +34,16 @@ local function middle(list)
 	return list[(#list + 1) // 2], list[1]
 end
 
--- A round of eight with `count` learned bots; the rest stand still. Bots made
+-- A round of eight with `count` learned bots, in two teams if `teams`; the rest
+-- stand still. Bots made
 -- together decide on the same ticks: every other tick carries all of their
 -- decisions and the one between carries none. Returns what the bots cost on a
 -- tick of each kind, in milliseconds.
-local function round(count)
+local function round(count, teams)
 	local slots = {}
 	local bots = {}
 	for id = 1, SEATS do
-		slots[id] = { id = id, name = `h{id}` }
+		slots[id] = { id = id, name = `h{id}`, team = if teams then id % 2 else nil }
 		if id <= count then
 			bots[id] = RLBot.new({ seed = id })
 		end
@@ -69,10 +71,13 @@ local function round(count)
 	return deciding, holding
 end
 
-print("bots   a tick they decide on (middle, quickest)   share of a 16.7 ms tick   a tick between   averaged over both")
-for _, count in { 1, 3, 7 } do
-	local deciding, holding = round(count)
-	local busy, quickest = middle(deciding)
-	local quiet = middle(holding)
-	print(string.format("%4d   %18.3f ms  %8.3f ms   %21.1f%%   %11.3f ms   %9.3f ms  %5.1f%%", count, busy, quickest, busy / TICK * 100, quiet, (busy + quiet) / 2, (busy + quiet) / 2 / TICK * 100))
+for _, teams in { false, true } do
+	print(if teams then "four against four" else "free-for-all")
+	print("bots   a tick they decide on (middle, quickest)   share of a 16.7 ms tick   a tick between   averaged over both")
+	for _, count in { 1, 3, 7 } do
+		local deciding, holding = round(count, teams)
+		local busy, quickest = middle(deciding)
+		local quiet = middle(holding)
+		print(string.format("%4d   %18.3f ms  %8.3f ms   %21.1f%%   %11.3f ms   %9.3f ms  %5.1f%%", count, busy, quickest, busy / TICK * 100, quiet, (busy + quiet) / 2, (busy + quiet) / 2 / TICK * 100))
+	end
 end

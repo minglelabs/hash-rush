@@ -213,7 +213,7 @@ ContextActionService:BindAction("HashRushReady", function(_, inputState)
 end, false, Enum.KeyCode.Return, Enum.KeyCode.KeypadEnter, Enum.KeyCode.ButtonStart)
 
 -- The lobby's bots: how many, and how good. Anyone may change them.
-local botBar = panel({ AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -134), Size = UDim2.fromOffset(430, 46), Visible = false }, hud, 23)
+local botBar = panel({ AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -134), Size = UDim2.fromOffset(546, 46), Visible = false }, hud, 23)
 local botLabel = text({ Position = UDim2.fromOffset(16, 9), Size = UDim2.fromOffset(120, 28), TextXAlignment = Enum.TextXAlignment.Left }, botBar, false)
 local function barButton(label, x, width, action)
 	local button = make("TextButton", { Position = UDim2.fromOffset(x, 6), Size = UDim2.fromOffset(width, 34), BackgroundColor3 = Color3.fromRGB(110, 78, 48), BorderSizePixel = 0, AutoButtonColor = false, Font = FONT, TextSize = 20, TextColor3 = CREAM, Text = label }, botBar)
@@ -233,6 +233,9 @@ barButton("+", 192, 40, function()
 end)
 local levelButton = barButton("", 246, 170, function()
 	lobbyRemote:FireServer("level")
+end)
+local modeButton = barButton("", 424, 108, function()
+	lobbyRemote:FireServer("teams")
 end)
 
 -- How to play and who is here, shown while waiting in the lobby.
@@ -331,7 +334,8 @@ local function drawScores()
 		if info then
 			local chip = make("Frame", { LayoutOrder = seat, AutomaticSize = Enum.AutomaticSize.X, Size = UDim2.fromOffset(0, 30), BackgroundColor3 = PANEL, BorderSizePixel = 0 }, scoreRow)
 			make("UICorner", { CornerRadius = UDim.new(0.5, 0) }, chip)
-			make("UIStroke", { Thickness = if seat == mySeat then 3 else 2, Color = if seat == mySeat then GOLD else INK }, chip)
+			local side = info.team and Hamster.TEAM_COLORS[info.team]
+			make("UIStroke", { Thickness = if seat == mySeat or side then 3 else 2, Color = side or (if seat == mySeat then GOLD else INK) }, chip)
 			make("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, VerticalAlignment = Enum.VerticalAlignment.Center, Padding = UDim.new(0, 6) }, chip)
 			make("UIPadding", { PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 12) }, chip)
 			local dot = make("Frame", { Size = UDim2.fromOffset(20, 20), BackgroundColor3 = seatColor(seat), BorderSizePixel = 0 }, chip)
@@ -491,7 +495,18 @@ local function showResult(msg)
 		table.insert(names, nameOf(seat))
 		iWon = iWon or seat == mySeat
 	end
-	resultTitle.Text = if #names > 0 then "🏆 " .. table.concat(names, " · ") .. " 승리!" else "판이 끝났어요"
+	local winner = roster[msg.winners[1]]
+	local wholeTeam = winner and winner.team ~= nil
+	for _, seat in msg.winners do
+		wholeTeam = wholeTeam and roster[seat] and roster[seat].team == winner.team
+	end
+	if wholeTeam then
+		resultTitle.Text = (if winner.team == 0 then "🏆 빨강 팀" else "🏆 파랑 팀") .. " 승리!"
+		resultTitle.TextColor3 = Hamster.TEAM_COLORS[winner.team]
+	else
+		resultTitle.Text = if #names > 0 then "🏆 " .. table.concat(names, " · ") .. " 승리!" else "판이 끝났어요"
+		resultTitle.TextColor3 = GOLD
+	end
 	resultWhy.Text = if msg.left then "상대가 나가서 판이 끝났어요" elseif msg.timeout then "시간 종료 · 꿀밤 횟수로 정했어요" else "해씨를 물고 집에 돌아왔어요"
 	local sorted = table.clone(msg.roster)
 	table.sort(sorted, function(a, b)
@@ -564,6 +579,7 @@ roundRemote.OnClientEvent:Connect(function(msg)
 		botBar.Visible = true
 		botLabel.Text = ("🤖 봇 %d"):format(msg.bots)
 		levelButton.Text = "난이도 " .. msg.level
+		modeButton.Text = if msg.teams then "⚔ 팀전" else "👤 개인전"
 		showPeople(msg)
 		if msg.left then
 			notice(("%d초 뒤 시작해요 · 준비 %d/%d명"):format(msg.left, msg.ready, msg.count))

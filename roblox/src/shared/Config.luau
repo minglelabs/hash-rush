@@ -48,7 +48,8 @@ Config.BONK = {
 	assist = 8, -- auto-aim picks the nearest rival inside this radius
 }
 
-Config.THROW = { charge = 0.4, max = 1.6, range = 12, width = 2.1 }
+-- `friendlyFire` decides whether a thrown seed takes team-mates in its way down too.
+Config.THROW = { charge = 0.4, max = 1.6, range = 12, width = 2.1, friendlyFire = false }
 
 -- Lobby and round flow.
 Config.MIN_PLAYERS = 2

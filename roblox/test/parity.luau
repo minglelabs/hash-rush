@@ -60,6 +60,8 @@ same("THROW.charge", Config.THROW.charge, c.THROW.charge)
 same("THROW.max", Config.THROW.max, c.THROW.max)
 same("THROW.range", Config.THROW.range * PX, c.THROW.range)
 same("THROW.width", Config.THROW.width * PX, c.THROW.width)
+-- Whether a thrown seed takes the thrower's team-mates down too.
+same("THROW.friendlyFire", Config.THROW.friendlyFire, c.THROW.friendlyFire)
 for _, row in web.gatherTime do
 	same(`gatherTime({row[1]}, {row[2]})`, Config.gatherTime(row[1], row[2]), row[3])
 	same(`pickTime({row[1]}, {row[2]})`, Config.pickTime(row[1], row[2]), row[4])
