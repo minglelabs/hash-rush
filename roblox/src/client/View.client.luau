@@ -5,6 +5,7 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ContextActionService = game:GetService("ContextActionService")
 local RunService = game:GetService("RunService")
 local StarterGui = game:GetService("StarterGui")
 local TweenService = game:GetService("TweenService")
@@ -19,6 +20,7 @@ local Hamster = require(script.Parent:WaitForChild("Hamster"))
 local player = Players.LocalPlayer
 local remotes = ReplicatedStorage:WaitForChild("HashRushRemotes")
 local roundRemote = remotes:WaitForChild("Round")
+local readyRemote = remotes:WaitForChild("Ready")
 local snapRemote = remotes:WaitForChild("Snap")
 local mapFolder = workspace:WaitForChild("HashRushMap")
 
@@ -152,12 +154,52 @@ local bigLabel = text({ AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fr
 local bigScale = make("UIScale", {}, bigLabel)
 local bannerLabel = text({ AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.24), Size = UDim2.fromOffset(860, 76), TextColor3 = GOLD, Visible = false }, hud, 5)
 local bannerScale = make("UIScale", {}, bannerLabel)
-local noticePanel = panel({ AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -18), Size = UDim2.fromOffset(520, 46), Visible = false }, hud, 23)
+local noticePanel = panel({ AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -14), Size = UDim2.fromOffset(520, 40), Visible = false }, hud, 20)
 local noticeLabel = text({ Size = UDim2.new(1, -30, 1, -14), Position = UDim2.fromOffset(15, 7) }, noticePanel, false)
 local function notice(message)
 	noticeLabel.Text = message
 	noticePanel.Visible = message ~= ""
 end
+
+-- Nothing starts until the players say so: this is the button that says so.
+local readyButton = make("TextButton", {
+	AnchorPoint = Vector2.new(0.5, 1),
+	Position = UDim2.new(0.5, 0, 1, -62),
+	Size = UDim2.fromOffset(300, 64),
+	BackgroundColor3 = Color3.fromRGB(96, 196, 96),
+	BorderSizePixel = 0,
+	AutoButtonColor = false,
+	Font = FONT,
+	TextSize = 30,
+	TextColor3 = WHITE,
+	Text = "",
+	Visible = false,
+}, hud)
+make("UICorner", { CornerRadius = UDim.new(0, 26) }, readyButton)
+make("UIStroke", { ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Thickness = 4, Color = INK }, readyButton)
+make("UIStroke", { Thickness = 3, Color = INK }, readyButton)
+local readyScale = make("UIScale", {}, readyButton)
+local myReady = false
+local function showReady()
+	readyButton.Text = if myReady then "✅ 준비 완료!" else "▶ 준비! (Enter)"
+	readyButton.BackgroundColor3 = if myReady then Color3.fromRGB(120, 130, 140) else Color3.fromRGB(96, 196, 96)
+end
+local function setReady(want)
+	myReady = want
+	showReady()
+	pop(readyScale, 0.8)
+	readyRemote:FireServer(want)
+end
+readyButton.Activated:Connect(function()
+	setReady(not myReady)
+end)
+ContextActionService:BindAction("HashRushReady", function(_, inputState)
+	if inputState ~= Enum.UserInputState.Begin or not readyButton.Visible then
+		return Enum.ContextActionResult.Pass
+	end
+	setReady(not myReady)
+	return Enum.ContextActionResult.Sink
+end, false, Enum.KeyCode.Return, Enum.KeyCode.KeypadEnter, Enum.KeyCode.ButtonStart)
 
 -- How to play, shown while waiting in the lobby.
 local helpPanel = panel({ AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.47), Size = UDim2.fromOffset(560, 330), Visible = false }, hud, 28)
@@ -177,17 +219,12 @@ do
 	end
 end
 
-local resultPanel = panel({ AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.48), Size = UDim2.fromOffset(600, 430), Visible = false }, hud, 30)
+local resultPanel = panel({ AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.45), Size = UDim2.fromOffset(600, 400), Visible = false }, hud, 30)
 local resultScale = make("UIScale", {}, resultPanel)
 local resultTitle = text({ Position = UDim2.fromOffset(24, 18), Size = UDim2.new(1, -48, 0, 66), TextColor3 = GOLD }, resultPanel, 4)
 local resultWhy = text({ Position = UDim2.fromOffset(24, 86), Size = UDim2.new(1, -48, 0, 26), TextColor3 = CREAM }, resultPanel, false)
 local resultRows = make("Frame", { Position = UDim2.fromOffset(28, 126), Size = UDim2.new(1, -56, 0, 250), BackgroundTransparency = 1 }, resultPanel)
 make("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, resultRows)
-local nextBack = make("Frame", { BackgroundColor3 = INK, BorderSizePixel = 0, Position = UDim2.new(0, 28, 1, -42), Size = UDim2.new(1, -56, 0, 24) }, resultPanel)
-make("UICorner", { CornerRadius = UDim.new(0.5, 0) }, nextBack)
-local nextBar = make("Frame", { BackgroundColor3 = GOLD, BorderSizePixel = 0, Size = UDim2.fromScale(1, 1) }, nextBack)
-make("UICorner", { CornerRadius = UDim.new(0.5, 0) }, nextBar)
-local resultNext = text({ Size = UDim2.new(1, 0, 1, -4), Position = UDim2.fromOffset(0, 2), ZIndex = 2 }, nextBack, 2)
 
 local bannerShown = 0
 local function banner(message, color)
@@ -213,8 +250,6 @@ local roster = {} -- [seat] = { id, userId, name, wins, kills }
 local hamsters = {} -- [seat] = Hamster
 local mySeat = nil
 local latest = nil -- the newest snapshot of this round
-local resultUntil = nil
-local resultFor = 1
 local flowerKick = 0 -- the sunflower shakes when a seed comes loose
 
 local function seatColor(seat)
@@ -412,8 +447,6 @@ local function showResult(msg)
 		text({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -100, 0, 6), Size = UDim2.new(0, 84, 1, -12), Text = ("⭐ %d승"):format(info.wins), TextColor3 = GOLD }, row, false)
 		text({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -10, 0, 6), Size = UDim2.new(0, 80, 1, -12), Text = ("👊 %d"):format(info.kills), TextColor3 = CREAM }, row, false)
 	end
-	resultFor = msg.next
-	resultUntil = os.clock() + msg.next
 	resultPanel.Visible = true
 	pop(resultScale, 0.6)
 	bigLabel.Visible = false
@@ -426,20 +459,30 @@ end
 
 roundRemote.OnClientEvent:Connect(function(msg)
 	if msg.kind == "lobby" then
-		round = -1
-		latest = nil
-		clearHamsters()
-		setRoster({})
-		resultPanel.Visible = false
+		-- After a round the result stays up, with the hamsters where they stood.
+		if not resultPanel.Visible then
+			round = -1
+			latest = nil
+			clearHamsters()
+			setRoster({})
+			helpPanel.Visible = true
+		end
 		bigLabel.Visible = false
 		alarmRim.Visible = false
-		helpPanel.Visible = true
 		timerLabel.Text = "🌻 대기 중"
 		timerLabel.TextColor3 = WHITE
+		timerScale.Scale = 1
+		if not readyButton.Visible then
+			myReady = false
+			showReady()
+			readyButton.Visible = true
+		end
 		if msg.left then
-			notice(("%d초 뒤 시작해요 (%d명)"):format(msg.left, msg.count))
-		else
+			notice(("%d초 뒤 시작해요 · 준비 %d/%d명"):format(msg.left, msg.ready, msg.count))
+		elseif msg.count < msg.need then
 			notice(("다른 햄스터를 기다리는 중… (%d/%d명)"):format(msg.count, msg.need))
+		else
+			notice(("모두 준비하면 시작해요 · 준비 %d/%d명"):format(msg.ready, msg.count))
 		end
 	elseif msg.kind == "start" then
 		round = msg.round
@@ -451,7 +494,8 @@ roundRemote.OnClientEvent:Connect(function(msg)
 		end
 		resultPanel.Visible = false
 		helpPanel.Visible = false
-		notice(if mySeat then "" else "관전 중 · 다음 판부터 참가해요")
+		readyButton.Visible = false
+		notice(if mySeat then "" else "관전 중 · 판이 끝나면 준비를 눌러 참가해요")
 	elseif msg.kind == "events" then
 		if msg.round == round then
 			for _, e in msg.list do
@@ -541,12 +585,6 @@ RunService:BindToRenderStep("HashRushView", Enum.RenderPriority.Camera.Value + 1
 	time += dt
 	fitHud()
 	placeCamera(dt)
-	if resultPanel.Visible and resultUntil then
-		local left = math.max(0, resultUntil - os.clock())
-		resultNext.Text = ("%d초 뒤 다음 판"):format(math.ceil(left))
-		nextBar.Size = UDim2.fromScale(math.clamp(left / resultFor, 0, 1), 1)
-	end
-
 	-- The sunflower nods in the breeze, and shakes when it is being nibbled.
 	flowerKick = math.max(0, flowerKick - dt * 2.5)
 	local busy = if latest and latest.nibbler ~= 0 then 1 else 0

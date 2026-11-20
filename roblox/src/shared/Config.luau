@@ -45,8 +45,8 @@ Config.THROW = { charge = 0.4, max = 1.6, range = 12, width = 2.1 }
 -- Lobby and round flow.
 Config.MIN_PLAYERS = 2
 Config.MAX_PLAYERS = 8
+-- Once enough players are ready, the rest get this long to join in.
 Config.LOBBY_COUNTDOWN = 10
-Config.RESULT_TIME = 5
 
 -- One colour per seat, as { r, g, b } 0..255.
 Config.COLORS = {
