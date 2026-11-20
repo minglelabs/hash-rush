@@ -4,7 +4,7 @@ import { createGame, step } from '../src/sim/game.js';
 import { createBot, DIFFICULTY } from '../src/ai/bot.js';
 import { getNav } from '../src/ai/nav.js';
 import { HAZARD, SKY, gatesNow, kindsNow, iceNow, hazardCost } from '../src/sim/hazards.js';
-import { COUNTDOWN, HAMSTER_R, ICE, SPEED, TICK_RATE } from '../src/sim/constants.js';
+import { COUNTDOWN, HAMSTER_R, ICE, OVERTIME, SPEED, TICK_RATE } from '../src/sim/constants.js';
 import { MAPS, MAP_IDS, MAP, gatesAt, isFree } from '../src/sim/map.js';
 
 const IDLE = { mx: 0, my: 0, bonk: false };
@@ -231,7 +231,7 @@ test('a gate the burrow has grown over in overtime is gone', () => {
   assert.ok(grown.every((r) => r.x + r.w / 2 >= strip.x + strip.w + 1));
   // In a round: a hamster walks straight across where the gate was.
   const g = playing(map, 1);
-  g.time = 60;
+  g.time = OVERTIME.start + 20;
   const p = g.players[0];
   for (let i = 0; i < 20 * TICK_RATE && g.homeX < strip.x + strip.w + 20; i++) step(g, []);
   p.x = strip.x - 30;
