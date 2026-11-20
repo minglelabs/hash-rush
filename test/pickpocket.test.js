@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createGame, step } from '../src/sim/game.js';
-import { COUNTDOWN, PICK, TICK_RATE, gatherTime, pickTime } from '../src/sim/constants.js';
+import { COUNTDOWN, OVERTIME, PICK, TICK_RATE, pickTime } from '../src/sim/constants.js';
 import { MAP } from '../src/sim/map.js';
 import { createBot } from '../src/ai/bot.js';
 
@@ -18,9 +18,12 @@ function run(g, seconds, inputs) {
   for (let i = 0; i < Math.round(seconds * TICK_RATE); i++) step(g, inputs);
 }
 
-test('pickpocketing takes a third as long as nibbling a seed', () => {
-  assert.ok(Math.abs(pickTime(2, 0) - gatherTime(2, 0) / 3) < 1e-12);
-  assert.ok(Math.abs(pickTime(8, 80) - gatherTime(8, 80) / 3) < 1e-12);
+test('pickpocketing takes the same time however many are in the round, and less in overtime', () => {
+  assert.equal(pickTime(2, 0), PICK.time);
+  assert.equal(pickTime(8, 0), PICK.time);
+  assert.equal(pickTime(4, OVERTIME.start), PICK.time);
+  assert.ok(Math.abs(pickTime(8, OVERTIME.rush) - PICK.time * OVERTIME.nibble) < 1e-9);
+  assert.ok(pickTime(4, (OVERTIME.start + OVERTIME.rush) / 2) < PICK.time);
 });
 
 test('rubbing up against a carrier that is standing still takes its seed', () => {
@@ -103,10 +106,10 @@ test('two at once: only the one furthest along keeps going', () => {
   const [a, b, c] = g.players;
   Object.assign(b, { x: 600, y: 300, carrying: true });
   Object.assign(a, { x: 570, y: 300 });
-  run(g, 0.3, [IDLE, IDLE, IDLE]);
+  run(g, 0.2, [IDLE, IDLE, IDLE]);
   Object.assign(c, { x: 630, y: 300 });
   run(g, 0.2, [IDLE, IDLE, IDLE]);
-  assert.ok(a.pick > 0.4);
+  assert.ok(a.pick > 0.3);
   assert.equal(c.pick, 0);
 });
 

@@ -24,22 +24,25 @@ export const COUNTDOWN = 3;
 // - From `rush` on the edge comes on at `rushSpeed`. It is over the flower well
 //   before `end`, and there a seed is home the moment it is nibbled loose.
 // At `end` the round is called on bonks instead; that should now be rare.
-export const OVERTIME = { start: 40, speed: 6.5, rush: 70, rushSpeed: 20, nibble: 0.45, daze: 1.5, end: 105 };
+export const OVERTIME = { start: 80, speed: 6.5, rush: 110, rushSpeed: 20, nibble: 0.45, daze: 1.5, end: 145 };
 
 export const GATHER_TIME = 2.2;
 // The more hamsters crowd the flower, the quicker a seed comes loose: four is
 // the baseline, and eight nibble in half the time. In overtime it gets quicker
 // still as the clock runs.
-export const gatherTime = (players, time = 0) => {
+// How far overtime has sped things up: 1 until it starts, down to `nibble` by `rush`.
+const hurry = (time) => {
   const late = Math.max(0, Math.min(1, (time - OVERTIME.start) / (OVERTIME.rush - OVERTIME.start)));
-  return ((GATHER_TIME * 4) / Math.max(4, players)) * (1 - (1 - OVERTIME.nibble) * late);
+  return 1 - (1 - OVERTIME.nibble) * late;
 };
+export const gatherTime = (players, time = 0) => ((GATHER_TIME * 4) / Math.max(4, players)) * hurry(time);
 
 // Pickpocketing: an empty-handed rival who keeps rubbing up against a seed carrier,
-// moving or not, takes the seed off it in a third of the time a seed takes to nibble.
+// moving or not, takes the seed off it after `time` seconds, however many are in
+// the round. In overtime it gets quicker as the clock runs, as nibbling does.
 // The one who lost it cannot take it straight back for `block` seconds.
-export const PICK = { reach: 2 * HAMSTER_R + 6, share: 1 / 3, block: 1 };
-export const pickTime = (players, time = 0) => gatherTime(players, time) * PICK.share;
+export const PICK = { reach: 2 * HAMSTER_R + 6, time: 0.5, block: 1 };
+export const pickTime = (players, time = 0) => PICK.time * hurry(time);
 
 export const BONK = {
   windup: 0.14, // standing still before the hit lands
