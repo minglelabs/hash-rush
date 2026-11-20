@@ -21,6 +21,7 @@ local player = Players.LocalPlayer
 local remotes = ReplicatedStorage:WaitForChild("HashRushRemotes")
 local roundRemote = remotes:WaitForChild("Round")
 local readyRemote = remotes:WaitForChild("Ready")
+local lobbyRemote = remotes:WaitForChild("Lobby")
 local snapRemote = remotes:WaitForChild("Snap")
 local mapFolder = workspace:WaitForChild("HashRushMap")
 
@@ -145,6 +146,15 @@ local timerScale = make("UIScale", {}, timerPanel)
 local scoreRow = make("Frame", { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 68), Size = UDim2.new(1, -24, 0, 30), BackgroundTransparency = 1 }, hud)
 make("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Center, VerticalAlignment = Enum.VerticalAlignment.Center, Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }, scoreRow)
 
+-- Sound on and off.
+local muteButton = make("TextButton", { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -14, 0, 12), Size = UDim2.fromOffset(46, 46), BackgroundColor3 = PANEL, BorderSizePixel = 0, AutoButtonColor = false, Font = FONT, TextSize = 24, TextColor3 = WHITE, Text = "🔊" }, hud)
+make("UICorner", { CornerRadius = UDim.new(0.5, 0) }, muteButton)
+make("UIStroke", { ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Thickness = 3, Color = INK }, muteButton)
+muteButton.Activated:Connect(function()
+	Fx.setMuted(not Fx.muted())
+	muteButton.Text = if Fx.muted() then "🔇" else "🔊"
+end)
+
 -- Who bonked whom, newest at the top.
 local feed = make("Frame", { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -14, 0, 112), Size = UDim2.fromOffset(300, 200), BackgroundTransparency = 1 }, hud)
 make("UIListLayout", { HorizontalAlignment = Enum.HorizontalAlignment.Right, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, feed)
@@ -188,6 +198,7 @@ local function setReady(want)
 	myReady = want
 	showReady()
 	pop(readyScale, 0.8)
+	Fx.sound("click")
 	readyRemote:FireServer(want)
 end
 readyButton.Activated:Connect(function()
@@ -201,8 +212,53 @@ ContextActionService:BindAction("HashRushReady", function(_, inputState)
 	return Enum.ContextActionResult.Sink
 end, false, Enum.KeyCode.Return, Enum.KeyCode.KeypadEnter, Enum.KeyCode.ButtonStart)
 
--- How to play, shown while waiting in the lobby.
-local helpPanel = panel({ AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.47), Size = UDim2.fromOffset(560, 330), Visible = false }, hud, 28)
+-- The lobby's bots: how many, and how good. Anyone may change them.
+local botBar = panel({ AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -134), Size = UDim2.fromOffset(430, 46), Visible = false }, hud, 23)
+local botLabel = text({ Position = UDim2.fromOffset(16, 9), Size = UDim2.fromOffset(120, 28), TextXAlignment = Enum.TextXAlignment.Left }, botBar, false)
+local function barButton(label, x, width, action)
+	local button = make("TextButton", { Position = UDim2.fromOffset(x, 6), Size = UDim2.fromOffset(width, 34), BackgroundColor3 = Color3.fromRGB(110, 78, 48), BorderSizePixel = 0, AutoButtonColor = false, Font = FONT, TextSize = 20, TextColor3 = CREAM, Text = label }, botBar)
+	make("UICorner", { CornerRadius = UDim.new(0.5, 0) }, button)
+	make("UIStroke", { ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Thickness = 2, Color = INK }, button)
+	button.Activated:Connect(function()
+		Fx.sound("click")
+		action()
+	end)
+	return button
+end
+barButton("−", 146, 40, function()
+	lobbyRemote:FireServer("bots", -1)
+end)
+barButton("+", 192, 40, function()
+	lobbyRemote:FireServer("bots", 1)
+end)
+local levelButton = barButton("", 246, 170, function()
+	lobbyRemote:FireServer("level")
+end)
+
+-- How to play and who is here, shown while waiting in the lobby.
+local helpPanel = panel({ AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.43), Size = UDim2.fromOffset(800, 330), Visible = false }, hud, 28)
+local peopleList = make("Frame", { Position = UDim2.fromOffset(520, 90), Size = UDim2.fromOffset(252, 226), BackgroundColor3 = Color3.fromRGB(48, 32, 24), BorderSizePixel = 0 }, helpPanel)
+make("UICorner", { CornerRadius = UDim.new(0, 14) }, peopleList)
+make("UIListLayout", { Padding = UDim.new(0, 2), SortOrder = Enum.SortOrder.LayoutOrder }, peopleList)
+make("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10), PaddingTop = UDim.new(0, 6) }, peopleList)
+local function showPeople(msg)
+	for _, child in peopleList:GetChildren() do
+		if child:IsA("TextLabel") then
+			child:Destroy()
+		end
+	end
+	local function line(order, message, color)
+		make("TextLabel", { LayoutOrder = order, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 24), Font = FONT, TextSize = 18, TextColor3 = color, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Text = message }, peopleList)
+	end
+	for i, person in msg.people do
+		if i <= 8 then
+			line(i, (if person.ready then "✅ " else "⏳ ") .. person.name, if person.ready then CREAM else Color3.fromRGB(190, 170, 150))
+		end
+	end
+	if msg.bots > 0 and #msg.people < 8 then
+		line(20, ("🤖 봇 %d마리 · %s"):format(msg.bots, msg.level), GOLD)
+	end
+end
 text({ Position = UDim2.fromOffset(30, 18), Size = UDim2.new(1, -60, 0, 56), Text = "🐹 Hash Rush", TextColor3 = GOLD }, helpPanel, 4)
 do
 	local lines = {
@@ -212,7 +268,7 @@ do
 		{ "💨", "해씨를 던져서 줄지어 선 상대를 쓰러뜨려요" },
 	}
 	for i, line in lines do
-		local row = make("Frame", { BackgroundColor3 = Color3.fromRGB(88, 62, 46), BorderSizePixel = 0, Position = UDim2.fromOffset(28, 34 + i * 56), Size = UDim2.new(1, -56, 0, 46) }, helpPanel)
+		local row = make("Frame", { BackgroundColor3 = Color3.fromRGB(88, 62, 46), BorderSizePixel = 0, Position = UDim2.fromOffset(28, 34 + i * 56), Size = UDim2.fromOffset(476, 46) }, helpPanel)
 		make("UICorner", { CornerRadius = UDim.new(0, 14) }, row)
 		text({ Position = UDim2.fromOffset(8, 5), Size = UDim2.fromOffset(40, 36), Text = line[1] }, row, false)
 		text({ Position = UDim2.fromOffset(56, 9), Size = UDim2.new(1, -68, 0, 28), Text = line[2], TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = CREAM }, row, false)
@@ -357,7 +413,11 @@ local function showEvent(e)
 		Fx.words(e.x, e.y, "뿅!", RED, 9)
 		Fx.tumble(e.x, e.y, dx, dy, seatColor(e.id))
 		Fx.sound("hit")
+		Fx.sound("boing")
 		Fx.sound("thump")
+		if e.id == mySeat then
+			Fx.sound("ouch")
+		end
 		Fx.shake(if mine then 0.75 else 0.4)
 		Fx.hitStop(if mine then 0.1 else 0.05)
 		punch = if mine then 1 else 0.5
@@ -388,6 +448,18 @@ local function showEvent(e)
 		end
 		Fx.sound("seed")
 		flowerKick = 1
+	elseif e.type == "steal" then
+		local by = hamsters[e.by]
+		Fx.stars(e.x, e.y, CREAM, 10)
+		Fx.words(e.x, e.y, "슬쩍!", CREAM, 8)
+		Fx.sound("steal")
+		if by then
+			by:squash(-4)
+		end
+		addFeed(("%s 🤏 %s 🌻"):format(nameOf(e.by), nameOf(e.id)))
+		if e.close then
+			banner(nameOf(e.by) .. " 슈퍼플레이!")
+		end
 	elseif e.type == "spawn" then
 		Fx.dust(e.x, e.y, 6, 8)
 	elseif e.type == "warp" then
@@ -401,9 +473,11 @@ local function showEvent(e)
 	elseif e.type == "overtime" then
 		banner("연장전! 집이 넓어져요", RED)
 		Fx.sound("alarm", 0.7)
+		Fx.music("round", 1.08)
 	elseif e.type == "rush" then
 		banner("집이 빠르게 밀려와요!", RED)
 		Fx.sound("alarm", 0.7)
+		Fx.music("round", 1.18)
 	end
 end
 
@@ -451,10 +525,19 @@ local function showResult(msg)
 	pop(resultScale, 0.6)
 	bigLabel.Visible = false
 	alarmRim.Visible = false
-	Fx.sound("win")
+	Fx.music(nil)
 	if iWon then
+		Fx.sound("win")
 		Fx.confetti(screen)
+	else
+		Fx.sound("over")
 	end
+	-- The lobby tune comes back once the sting has had its say.
+	task.delay(4, function()
+		if resultPanel.Visible then
+			Fx.music("lobby")
+		end
+	end)
 end
 
 roundRemote.OnClientEvent:Connect(function(msg)
@@ -466,6 +549,7 @@ roundRemote.OnClientEvent:Connect(function(msg)
 			clearHamsters()
 			setRoster({})
 			helpPanel.Visible = true
+			Fx.music("lobby")
 		end
 		bigLabel.Visible = false
 		alarmRim.Visible = false
@@ -477,10 +561,14 @@ roundRemote.OnClientEvent:Connect(function(msg)
 			showReady()
 			readyButton.Visible = true
 		end
+		botBar.Visible = true
+		botLabel.Text = ("🤖 봇 %d"):format(msg.bots)
+		levelButton.Text = "난이도 " .. msg.level
+		showPeople(msg)
 		if msg.left then
 			notice(("%d초 뒤 시작해요 · 준비 %d/%d명"):format(msg.left, msg.ready, msg.count))
-		elseif msg.count < msg.need then
-			notice(("다른 햄스터를 기다리는 중… (%d/%d명)"):format(msg.count, msg.need))
+		elseif msg.short > 0 then
+			notice(("상대가 필요해요 · 햄스터 %d마리를 더 기다리거나 봇을 넣어요"):format(msg.short))
 		else
 			notice(("모두 준비하면 시작해요 · 준비 %d/%d명"):format(msg.ready, msg.count))
 		end
@@ -495,6 +583,8 @@ roundRemote.OnClientEvent:Connect(function(msg)
 		resultPanel.Visible = false
 		helpPanel.Visible = false
 		readyButton.Visible = false
+		botBar.Visible = false
+		Fx.music("round")
 		notice(if mySeat then "" else "관전 중 · 판이 끝나면 준비를 눌러 참가해요")
 	elseif msg.kind == "events" then
 		if msg.round == round then
@@ -622,10 +712,15 @@ RunService:BindToRenderStep("HashRushView", Enum.RenderPriority.Camera.Value + 1
 
 			local status = ""
 			local nibbling = latest.nibbler == p.id
+			local bar = if nibbling then latest.gather else nil
 			if p.dazed then
 				status = "💫 기절"
 			elseif nibbling then
 				status = "해씨 캐는 중"
+			elseif p.pick > 0 then
+				-- Rubbing up against a carrier to take its seed.
+				status = "슬쩍하는 중"
+				bar = p.pick
 			end
 			-- Hints only its own player sees.
 			if h.me and not p.carrying and not p.dazed then
@@ -636,7 +731,7 @@ RunService:BindToRenderStep("HashRushView", Enum.RenderPriority.Camera.Value + 1
 					status = "앞 햄스터가 캐는 중… 대기"
 				end
 			end
-			h:draw(dt, x, y, p, { nibbler = latest.nibbler, gather = latest.gather, status = status })
+			h:draw(dt, x, y, p, { bar = bar, status = status })
 
 			-- Dust under running feet.
 			if h.pace > Config.SPEED * 0.5 then

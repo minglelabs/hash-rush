@@ -29,6 +29,14 @@ function Config.gatherTime(players: number, time: number?): number
 	return (Config.GATHER_TIME * 4 / math.max(4, players)) * (1 - (1 - ot.nibble) * late)
 end
 
+-- Pickpocketing: an empty-handed rival who keeps rubbing up against a seed
+-- carrier, moving or not, takes the seed in a third of the time a seed takes to
+-- nibble. Whoever lost it cannot take it straight back for `block` seconds.
+Config.PICK = { reach = 2 * Config.HAMSTER_R + 0.6, share = 1 / 3, block = 1 }
+function Config.pickTime(players: number, time: number?): number
+	return Config.gatherTime(players, time) * Config.PICK.share
+end
+
 Config.BONK = {
 	windup = 0.14, -- standing still before the hit lands
 	recovery = 0.42, -- stuck after the hit; a whiff is punishable

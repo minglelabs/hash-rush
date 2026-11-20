@@ -10,6 +10,7 @@ local R = Config.HAMSTER_R
 local BONK = Config.BONK
 local THROW = Config.THROW
 local OVERTIME = Config.OVERTIME
+local PICK = Config.PICK
 
 local Sim = {}
 
@@ -207,6 +208,12 @@ function Sim.new(map, slots, rng)
 			bonkHeld = false,
 			charge = 0,
 			dazed = 0,
+			-- Pickpocketing: progress on the carrier `pickOn` (-1 for nobody), and how
+			-- long until this one may try again after having its own seed taken.
+			pick = 0,
+			pickOn = -1,
+			pickBlock = 0,
+			steals = 0,
 			chain = 0,
 			chainUntil = 0,
 			kills = 0,
@@ -320,6 +327,8 @@ local function sendHome(p)
 	p.cooldown = 0
 	p.charge = 0
 	p.dazed = 0
+	p.pick = 0
+	p.pickOn = -1
 end
 
 local function respawn(g, p)
@@ -391,6 +400,7 @@ local function stepPlayer(g, p, inp, landing, throwing)
 		inp = EMPTY_INPUT
 	end
 	p.cooldown = math.max(0, p.cooldown - DT)
+	p.pickBlock = math.max(0, p.pickBlock - DT)
 
 	local mx = inp.mx or 0
 	local my = inp.my or 0
@@ -515,6 +525,62 @@ local function stepFlower(g)
 		nibbler.seeds += 1
 		g.nibbler = nil
 		table.insert(g.events, { type = "seed", id = nibbler.id })
+	end
+end
+
+-- Rubbing up against a rival's seed carrier fills a gauge, moving or not, and a
+-- full gauge takes the seed. Only one hamster works on a carrier at a time:
+-- whoever got furthest keeps at it, the rest start over. Losing touch, swinging,
+-- or the carrier getting home first all reset it.
+local function pickpocket(g)
+	local players = g.players
+	local need = Config.pickTime(#players, g.time)
+	local working = {} -- [carrier] = whoever is furthest along on it
+	for _, p in players do
+		local on = nil
+		if not p.carrying and not p.swing and p.pickBlock <= 0 and p.dazed <= 0 and not inHome(g, p) then
+			local nearest = PICK.reach
+			for _, c in players do
+				if c ~= p and c.carrying and not inHome(g, c) then
+					local d = hypot(c.x - p.x, c.y - p.y)
+					if d <= nearest then
+						on = c
+						nearest = d
+					end
+				end
+			end
+		end
+		if not on or on.id ~= p.pickOn then
+			p.pick = 0
+		end
+		p.pickOn = if on then on.id else -1
+		if on then
+			local best = working[on]
+			if not best or p.pick > best.pick then
+				working[on] = p
+			end
+		end
+	end
+	for _, p in players do
+		local c = if p.pickOn >= 0 then g.byId[p.pickOn] else nil
+		if c then
+			if working[c] ~= p then
+				p.pick = 0
+			else
+				p.pick += DT
+				if p.pick >= need - 1e-9 then
+					c.carrying = false
+					c.charge = 0
+					c.pickBlock = PICK.block
+					p.carrying = true
+					p.pick = 0
+					p.pickOn = -1
+					p.steals += 1
+					-- Taking it right at the door is a super play, as a bonk there is.
+					table.insert(g.events, { type = "steal", by = p.id, id = c.id, x = c.x, y = c.y, close = c.x - g.homeX < Config.ALARM_RANGE })
+				end
+			end
+		end
 	end
 end
 
@@ -649,6 +715,8 @@ function Sim.step(g, inputs)
 			return g
 		end
 	end
+
+	pickpocket(g)
 
 	if g.time >= OVERTIME.finish then
 		finish(g, timeoutWinners(players), true)
