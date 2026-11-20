@@ -102,6 +102,7 @@ local seats = {} -- [seat number] = player
 local bots = {} -- [seat number] = { think, name }
 local botCount = 3 -- how many the lobby has asked for
 local botLevel = "normal"
+local teams = false -- two sides instead of everyone for themselves
 local simInputs = {}
 local rng = Random.new()
 
@@ -120,6 +121,7 @@ local function roster()
 			name = player.DisplayName,
 			wins = wins[player.UserId] or 0,
 			kills = if p then p.kills + p.throws else 0,
+			team = if p and p.team >= 0 then p.team else nil,
 		})
 	end
 	for seat, bot in bots do
@@ -130,6 +132,7 @@ local function roster()
 			name = bot.name,
 			wins = wins[bot.name] or 0,
 			kills = if p then p.kills + p.throws else 0,
+			team = if p and p.team >= 0 then p.team else nil,
 		})
 	end
 	table.sort(list, function(a, b)
@@ -162,7 +165,7 @@ local function sendLobby()
 	-- The count runs only while some, but not all, are ready.
 	local left = if enough(readied) and readied < count then math.ceil(timer) else nil
 	local people = {}
-	local mark = { count, readied, left or -1, botCount, botLevel }
+	local mark = { count, readied, left or -1, botCount, botLevel, if teams then 1 else 0 }
 	for _, player in joined do
 		table.insert(people, { name = player.DisplayName, ready = ready[player] == true })
 		table.insert(mark, if ready[player] then 1 else 0)
@@ -182,6 +185,7 @@ local function sendLobby()
 		people = people,
 		bots = botsFor(math.max(1, readied)),
 		level = LEVEL_NAMES[botLevel] or botLevel,
+		teams = teams,
 	}
 	roundRemote:FireAllClients(lastLobby)
 end
@@ -208,6 +212,13 @@ local function startRound()
 		bots[i] = { brain = brain, name = "🤖 " .. BOT_NAMES[k] }
 		simInputs[i] = { mx = 0, my = 0, bonk = false, throw = false }
 		slots[i] = { id = i, name = bots[i].name }
+	end
+	-- Sides by turns down the seats: people are seated first, so they are spread
+	-- over both teams and the bots fill each side up.
+	if teams then
+		for i, slot in slots do
+			slot.team = (i - 1) % 2
+		end
 	end
 	game_ = Sim.new(Map, slots, function()
 		return rng:NextNumber()
@@ -364,6 +375,8 @@ lobbyRemote.OnServerEvent:Connect(function(player, what, value)
 	end
 	if what == "bots" and type(value) == "number" then
 		botCount = math.clamp(botCount + (if value > 0 then 1 else -1), 0, Config.MAX_PLAYERS - 1)
+	elseif what == "teams" then
+		teams = not teams
 	elseif what == "level" then
 		botLevel = LEVELS[(table.find(LEVELS, botLevel) or 0) % #LEVELS + 1]
 	end

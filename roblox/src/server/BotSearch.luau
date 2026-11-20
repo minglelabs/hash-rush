@@ -15,6 +15,7 @@ local PX = Nav.PX
 local R = Config.HAMSTER_R
 local BONK = Config.BONK
 local inHome = Sim.inHome
+local allied = Sim.allied
 
 -- How far ahead a plan is played out, and how often the bot thinks again.
 -- `edge` is how much better than the rule book's own plan another plan has to
@@ -100,7 +101,7 @@ local function withBonk(c, p, out)
 		return
 	end
 	for _, e in c.players do
-		if e ~= p and not inHome(c, e) and dist(e, p) <= BONK.reach - 2 * PX then
+		if e ~= p and not allied(p, e) and not inHome(c, e) and dist(e, p) <= BONK.reach - 2 * PX then
 			out.bonk = true
 			return
 		end
@@ -119,7 +120,7 @@ local function judge(c, id, before, used)
 	local span = f.x - c.map.home.x2
 	local s = 0
 	for _, p in c.players do
-		local side = if p == me then 1 else -1
+		local side = if p == me or allied(p, me) then 1 else -1
 		local was = before[p.id]
 		if p.carrying then
 			-- How far along the way home the seed is, 0 at the flower and 1 at the door.
@@ -311,7 +312,7 @@ function Search.new(seed: number, stepsPerThink: number?)
 			end
 
 			-- What everybody else is taken to be doing: a carrier runs home, the rest
-			-- go for the nearest seed somebody is carrying, or else for the flower.
+			-- go for the nearest seed a rival of theirs is carrying, or else for the flower.
 			-- These drivers keep their place on a path from one daydream to the next,
 			-- as in the web game, so that both bots come to the same choices.
 			local drivers = {}
@@ -329,7 +330,7 @@ function Search.new(seed: number, stepsPerThink: number?)
 				local prey = nil
 				local preyD = math.huge
 				for _, c in g.players do
-					if c.carrying and not inHome(g, c) and dist(p, c) < preyD then
+					if c.carrying and not allied(c, p) and not inHome(g, c) and dist(p, c) < preyD then
 						prey = c
 						preyD = dist(p, c)
 					end
@@ -388,7 +389,7 @@ function Search.new(seed: number, stepsPerThink: number?)
 					for _, s in nav.gatherSpots do
 						local taken = false
 						for _, e in g.players do
-							if e ~= me and dist(e, s) < 2 * R then
+							if e ~= me and not allied(e, me) and dist(e, s) < 2 * R then
 								taken = true
 								break
 							end
@@ -408,7 +409,7 @@ function Search.new(seed: number, stepsPerThink: number?)
 
 				local carriers = {}
 				for _, c in g.players do
-					if c ~= me and c.carrying and not inHome(g, c) then
+					if c ~= me and not allied(c, me) and c.carrying and not inHome(g, c) then
 						table.insert(carriers, c)
 					end
 				end
@@ -434,18 +435,40 @@ function Search.new(seed: number, stepsPerThink: number?)
 						add("tunnel:" .. c.id, { mode = "deny", targetId = c.id, path = toTunnel }, walker(toTunnel))
 					end
 				end
-				-- Clear somebody out: whoever is nearest.
+				-- Clear somebody out: whoever is nearest, and whoever threatens a
+				-- team-mate's seed.
 				if not defending then
 					local near = nil
 					local nearD = 220 * PX
+					local ward = nil
 					for _, e in g.players do
-						if e ~= me and not e.carrying and not inHome(g, e) and dist(me, e) < nearD then
+						if e == me or inHome(g, e) then
+							continue
+						end
+						if allied(e, me) then
+							if e.carrying and not ward then
+								ward = e
+							end
+						elseif not e.carrying and dist(me, e) < nearD then
 							near = e
 							nearD = dist(me, e)
 						end
 					end
 					if near then
 						add("hunt:" .. near.id, { mode = "hunt", targetId = near.id, path = nil }, chaser(near.id, nil))
+					end
+					if ward then
+						local threat = nil
+						local threatD = math.huge
+						for _, e in g.players do
+							if e ~= me and not allied(e, me) and not e.carrying and not inHome(g, e) and dist(ward, e) < threatD then
+								threat = e
+								threatD = dist(ward, e)
+							end
+						end
+						if threat and threat ~= near then
+							add("guard:" .. threat.id, { mode = "hunt", targetId = threat.id, path = nil }, chaser(threat.id, (nav.findPath(me, threat))))
+						end
 					end
 				end
 			end

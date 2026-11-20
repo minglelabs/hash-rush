@@ -1,8 +1,8 @@
 -- What the trained policy sees of a round: 230 numbers for one hamster. Ported
--- from the web game's src/ai/observe.js for the one kind of round Roblox has:
--- the meadow, everyone for themselves, no trouble on the map. The numbers have to
--- be the ones the policy learned from, so what a meadow free-for-all leaves at
--- zero in the web game is left at zero here, in the same places.
+-- from the web game's src/ai/observe.js for the rounds Roblox has: the meadow,
+-- everyone for themselves or in teams, no trouble on the map. The numbers have to
+-- be the ones the policy learned from, so what a meadow round leaves at zero in
+-- the web game is left at zero here, in the same places.
 -- Most of it is a share of something (of the map's width, of full speed), which
 -- is the same in studs as in pixels. The walking distances are not: the policy
 -- learned them on the web game's 8 pixel grid, so that part works in pixels.
@@ -21,16 +21,24 @@ RLObserve.OBS = OBS
 
 -- Where each part starts, counted from 1: me, the round, the three ways to walk,
 -- the walls around me, then (after the map's trouble and gates, which the meadow
--- has none of) everyone else, whom I am after, and pickpocketing. The parts for
--- teams are skipped: nobody has a team.
+-- has none of) everyone else, my job and whom I am after, my nearest team-mate
+-- and where to cut a rival's seed off, pickpocketing, and a team-mate's pocket
+-- being picked.
 local ROUND = 20
 local MEADOW = 31
 local NAV = 38
 local RAYS = 47
 local OTHERS = 109
 local OTHER = 13
-local MARK = 200
+local TEAM = 200
+local MATE = 210
 local PICK = 220
+local GUARD = 226
+
+-- The jobs of a team round; on its own a hamster has none.
+local ATTACK = 1
+local MARKING = 2
+local GUARDING = 3
 
 -- The moves a policy picks from: standing still, then eight directions.
 local DIRS = { { 0, 0 } }
@@ -283,6 +291,40 @@ local function hint(F, dist, x, y, out, at)
 	out[at + 2] = math.min(1, here * CELL / 1000)
 end
 
+-- Where a hamster at a spot in pixels will be after walking `reach` pixels down
+-- `dist`'s slope: a carrier's way home a little ahead of it, the spot to cut it
+-- off at.
+local function ahead(F, dist, x, y, reach)
+	local i = cellOf(F, x, y)
+	if i < 0 or buffer.readf32(dist, i * 4) == INF then
+		return x, y
+	end
+	for _ = 1, math.ceil(reach / CELL) do
+		local c = i % F.cols
+		local r = i // F.cols
+		local best = buffer.readf32(dist, i * 4)
+		local down = i
+		for dr = -1, 1 do
+			for dc = -1, 1 do
+				local nc = c + dc
+				local nr = r + dr
+				if (dr ~= 0 or dc ~= 0) and nc >= 0 and nr >= 0 and nc < F.cols and nr < F.rows then
+					local d = buffer.readf32(dist, (nr * F.cols + nc) * 4)
+					if d < best then
+						best = d
+						down = nr * F.cols + nc
+					end
+				end
+			end
+		end
+		if down == i then
+			break
+		end
+		i = down
+	end
+	return (i % F.cols + 0.5) * CELL, (i // F.cols + 0.5) * CELL
+end
+
 -- The others, seen late ------------------------------------------------------
 
 local views = setmetatable({}, { __mode = "k" })
@@ -308,6 +350,7 @@ function RLObserve.seenLate(g)
 				now.players[i] = q
 			end
 			q.id = p.id
+			q.team = p.team
 			q.x = p.x
 			q.y = p.y
 			q.px, q.py = place(F, p)
@@ -331,8 +374,102 @@ end
 
 -- The observation ------------------------------------------------------------
 
+-- Everyone as one seat sees them, in seat order: itself as it is now (`mine`),
+-- the rest as they were. `gap` is how far each is from it, in pixels.
+local line = table.create(MAX_P)
+local gap = table.create(MAX_P)
+local mine = {}
 local others = table.create(MAX_P)
 local far = table.create(MAX_P)
+local sides = {}
+
+-- The jobs of one team, worked out from the line-up alone so the bot plays the
+-- job it trained for:
+--   attack: carries the team's seed home, or with no seed on the team, is the one
+--           nearest the flower (by walking) and goes for it;
+--   mark:   each rival seed carrier gets its own marker, the nearest team-mate not
+--           attacking, so two carriers are never both left to one hamster;
+--   guard:  the rest watch the rival nearest the flower, the next seed's way.
+-- Fills job[k] and markOf[k] for the team's places in `line`.
+local job = table.create(MAX_P)
+local markOf = table.create(MAX_P)
+local taken = table.create(MAX_P)
+
+local function teamJobs(F, map, count, team)
+	local seed = false
+	for k = 1, count do
+		local p = line[k]
+		job[k] = 0
+		markOf[k] = nil
+		taken[k] = false
+		if p.team == team and p.carrying then
+			job[k] = ATTACK
+			seed = true
+		end
+	end
+	if not seed then
+		local best = nil
+		local bestD = INF
+		for k = 1, count do
+			local p = line[k]
+			if p.team == team then
+				local d = fieldAt(F, F.flower, p.px, p.py)
+				if not best or d < bestD then
+					best = k
+					bestD = d
+				end
+			end
+		end
+		job[best] = ATTACK
+	end
+	-- Nearest pairs first, each carrier and each marker used once. Of pairs as
+	-- near as each other the earlier carrier, then the earlier marker, goes first.
+	while true do
+		local marker = nil
+		local carrier = nil
+		local nearest = INF
+		for c = 1, count do
+			local rival = line[c]
+			if rival.team ~= team and rival.carrying and not taken[c] then
+				for k = 1, count do
+					if line[k].team == team and job[k] == 0 then
+						local d = hypot(rival.px - line[k].px, rival.py - line[k].py)
+						if d < nearest then
+							marker = k
+							carrier = c
+							nearest = d
+						end
+					end
+				end
+			end
+		end
+		if not marker then
+			break
+		end
+		taken[carrier] = true
+		job[marker] = MARKING
+		markOf[marker] = line[carrier]
+	end
+	local fx, fy = px(map.flower.x), px(map.flower.y)
+	local threat = nil
+	local threatD = INF
+	for k = 1, count do
+		local p = line[k]
+		if p.team ~= team and not p.carrying then
+			local d = hypot(p.px - fx, p.py - fy)
+			if not threat or d < threatD then
+				threat = p
+				threatD = d
+			end
+		end
+	end
+	for k = 1, count do
+		if line[k].team == team and job[k] == 0 then
+			job[k] = GUARDING
+			markOf[k] = threat
+		end
+	end
+end
 
 -- Fills out[1..OBS] with what the hamster `id` sees: itself and the map as they
 -- are now, the others as they were in `past` (from seenLate). A hamster that has
@@ -356,23 +493,54 @@ function RLObserve.observe(g, past, id, out)
 	if nibbler and not g.byId[nibbler] then
 		nibbler = nil
 	end
+	local team = me.team
+	local teams = 0
+	table.clear(sides)
+	for _, p in g.players do
+		if p.team >= 0 and not sides[p.team] then
+			sides[p.team] = true
+			teams += 1
+		end
+	end
 
 	-- Everyone else, nearest first, in pixels; whoever is as near as another
-	-- keeps its seat's place. `prey` is the nearest of them with a seed.
+	-- keeps its seat's place. `prey` is the nearest rival with a seed.
 	local x, y = place(F, me)
+	mine.id = id
+	mine.team = team
+	mine.x = me.x
+	mine.y = me.y
+	mine.px = x
+	mine.py = y
+	mine.carrying = me.carrying
+	local count = 0
+	local myPlace = 0
 	local n = 0
 	local prey = nil
 	local preyD = INF
 	local seeds = 0
+	local mateSeed = false
 	local robbed = 0
 	for _, p in past.players do
-		if p.id ~= id and g.byId[p.id] then
+		if p.id == id then
+			count += 1
+			line[count] = mine
+			gap[count] = 0
+			myPlace = count
+		elseif g.byId[p.id] then
 			local d = hypot(p.px - x, p.py - y)
+			count += 1
+			line[count] = p
+			gap[count] = d
 			if p.carrying then
-				seeds += 1
-				if d < preyD then
-					prey = p
-					preyD = d
+				if team >= 0 and p.team == team then
+					mateSeed = true
+				else
+					seeds += 1
+					if d < preyD then
+						prey = p
+						preyD = d
+					end
 				end
 			end
 			if p.pickOn == id then
@@ -415,10 +583,11 @@ function RLObserve.observe(g, past, id, out)
 	out[ROUND + 2] = g.homeX / W
 	out[ROUND + 3] = if g.nibbler == id then 1 else 0
 	out[ROUND + 4] = if nibbler and nibbler ~= id then 1 else 0
-	out[ROUND + 5] = (n + 1) / MAX_P
-	-- Then whether I am in a team.
+	out[ROUND + 5] = count / MAX_P
+	out[ROUND + 6] = if team >= 0 then 1 else 0
 	out[ROUND + 7] = if seeds > 0 then 1 else 0
-	-- Then how many teams, night and dusk, and which of the seven maps this is.
+	out[ROUND + 8] = teams / 4
+	-- Then night and dusk, and which of the seven maps this is.
 	out[MEADOW] = 1
 
 	hint(F, F.flower, x, y, out, NAV)
@@ -450,7 +619,7 @@ function RLObserve.observe(g, past, id, out)
 		out[o + 4] = p.vx / Config.SPEED
 		out[o + 5] = p.vy / Config.SPEED
 		out[o + 6] = if p.carrying then 1 else 0
-		-- o + 7 is whether it is on my team.
+		out[o + 7] = if team >= 0 and p.team == team then 1 else 0
 		out[o + 8] = if p.windup then 1 else 0
 		out[o + 9] = if p.recovery then 1 else 0
 		out[o + 10] = p.cooldown / Config.BONK.cooldown
@@ -458,16 +627,24 @@ function RLObserve.observe(g, past, id, out)
 		out[o + 12] = (p.x - g.homeX) / W
 	end
 
-	-- Whom I am after. On my own that is the nearest rival with a seed; the three
-	-- numbers before these say which job I have in a team, and the fourth whether
-	-- a teammate has a seed.
-	out[MARK + 4] = seeds / 4
-	if prey then
-		out[MARK + 5] = 1
-		out[MARK + 6] = (prey.x - me.x) / W
-		out[MARK + 7] = (prey.y - me.y) / H
-		out[MARK + 8] = fieldAt(F, F.home, prey.px, prey.py)
-		out[MARK + 9] = math.min(1, preyD / 1000)
+	-- My job, who has a seed, and whom I am watching. On my own I have no job and
+	-- watch the nearest hamster with a seed.
+	local mark = prey
+	if team >= 0 then
+		teamJobs(F, map, count, team)
+		mark = markOf[myPlace]
+		out[TEAM] = if job[myPlace] == ATTACK then 1 else 0
+		out[TEAM + 1] = if job[myPlace] == MARKING then 1 else 0
+		out[TEAM + 2] = if job[myPlace] == GUARDING then 1 else 0
+	end
+	out[TEAM + 3] = if mateSeed then 1 else 0
+	out[TEAM + 4] = seeds / 4
+	if mark then
+		out[TEAM + 5] = 1
+		out[TEAM + 6] = (mark.x - me.x) / W
+		out[TEAM + 7] = (mark.y - me.y) / H
+		out[TEAM + 8] = fieldAt(F, F.home, mark.px, mark.py)
+		out[TEAM + 9] = math.min(1, hypot(mark.px - x, mark.py - y) / 1000)
 	end
 
 	-- Pickpocketing: how far I am into taking a seed, how long until I may try
@@ -480,6 +657,75 @@ function RLObserve.observe(g, past, id, out)
 		out[PICK + 3] = (prey.x - me.x) / W
 		out[PICK + 4] = (prey.y - me.y) / H
 		out[PICK + 5] = math.min(1, preyD / (8 * Config.PICK.reach * PX))
+	end
+
+	if team < 0 then
+		return
+	end
+
+	-- The rival furthest into a team-mate's seed, for its escort to knock off it.
+	local robber = nil
+	for k = 1, count do
+		local p = line[k]
+		if p.team ~= team and p.pickOn >= 0 and (not robber or p.pick > robber.pick) then
+			for c = 1, count do
+				if line[c].id == p.pickOn and c ~= myPlace and line[c].team == team then
+					robber = p
+				end
+			end
+		end
+	end
+	if robber then
+		out[GUARD] = 1
+		out[GUARD + 1] = math.min(1, robber.pick / steal)
+		out[GUARD + 2] = (robber.x - me.x) / W
+		out[GUARD + 3] = (robber.y - me.y) / H
+		out[GUARD + 4] = math.min(1, hypot(robber.px - x, robber.py - y) / 1000)
+	end
+
+	-- The nearest team-mate's job and whether it is after the same rival, and the
+	-- spot ahead of the rival carrier nearest home where its way home can be cut
+	-- off, with whether a team-mate is nearer that carrier: one presses from
+	-- behind, the other gets in front.
+	local mate = nil
+	local carrier = nil
+	local carrierD = INF
+	for k = 1, count do
+		local p = line[k]
+		if p.team ~= team then
+			if p.carrying then
+				local d = fieldAt(F, F.home, p.px, p.py)
+				if not carrier or d < carrierD then
+					carrier = k
+					carrierD = d
+				end
+			end
+		elseif k ~= myPlace and (not mate or gap[k] < gap[mate]) then
+			mate = k
+		end
+	end
+	if mate then
+		out[MATE] = 1
+		out[MATE + 1] = if job[mate] == ATTACK then 1 else 0
+		out[MATE + 2] = if job[mate] == MARKING then 1 else 0
+		out[MATE + 3] = if job[mate] == GUARDING then 1 else 0
+		out[MATE + 4] = if mark and markOf[mate] == mark then 1 else 0
+	end
+	if carrier then
+		local c = line[carrier]
+		local cutX, cutY = ahead(F, F.home, c.px, c.py, 120)
+		local nearer = false
+		for k = 1, count do
+			local p = line[k]
+			if k ~= myPlace and p.team == team and hypot(c.px - p.px, c.py - p.py) < gap[carrier] then
+				nearer = true
+			end
+		end
+		out[MATE + 5] = (cutX - x) / (W * PX)
+		out[MATE + 6] = (cutY - y) / (H * PX)
+		out[MATE + 7] = math.min(1, hypot(cutX - x, cutY - y) / 1000)
+		out[MATE + 8] = if nearer then 1 else 0
+		out[MATE + 9] = carrierD
 	end
 end
 

@@ -2,8 +2,8 @@
 -- same input a player sends, so any seat can be given to one:
 --   local bot = Bot.new({ difficulty = "normal", seed = 7 })
 --   inputs[id] = bot.think(g, id)   -- every tick, after Sim.step
--- Ported from the web game's src/ai/bot.js, for the meadow and everyone against
--- everyone: what it had for teams, other maps and their hazards is left out.
+-- Ported from the web game's src/ai/bot.js, for the meadow, with or without
+-- teams: what it had for other maps and their hazards is left out.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage:WaitForChild("Config"))
@@ -20,6 +20,7 @@ local THROW = Config.THROW
 -- One web pixel in studs: the bot's distances are the web game's, in pixels.
 local PX = Nav.PX
 local inHome = Sim.inHome
+local allied = Sim.allied
 local distToSegment = Nav.distToSegment
 
 local Bot = {}
@@ -55,8 +56,8 @@ local DIFFICULTY = {
 --   (see BotSearch), instead of only following the rules below.
 -- dance: up close it feints instead of walking in: a dash at the rival to draw a
 --   swing, a step back out of reach so the swing misses, then in for the hit.
--- poach: with this many others better placed to stop a rival's seed, it leaves
---   that seed to them and goes for one of its own.
+-- poach: with no team, and this many others better placed to stop a rival's
+--   seed, it leaves that seed to them and goes for one of its own.
 -- wary: it learns from being fooled. Once a rival has drawn a wasted swing out of
 --   it and bonked it for that, it stops swinging at that rival just for running
 --   at it. The number is how often it holds fire while it does not know the
@@ -80,10 +81,14 @@ local DIFFICULTY = {
 --   person who sets off to swing just as it crosses.
 -- margin 7, hold 0: it swings only once a rival is well inside reach, and does
 --   not stand its ground against a charge.
--- crowd: it does not swing at a rival without a seed while another one is this
---   near and ready to swing: that one would hit it while it is stuck.
+-- pincer: on a team, those after the same seed split up instead of all running
+--   the same way: the best placed cuts off the way it is going, the next covers
+--   the way it would turn to instead, any others run it down from behind. Within
+--   this distance of each other the lower-numbered one counts as better placed.
+-- crowd: with no team, it does not swing at a rival without a seed while another
+--   one is this near and ready to swing: that one would hit it while it is stuck.
 DIFFICULTY.ace = table.clone(DIFFICULTY.hard)
-for k, v in pairs({ margin = 7 * PX, hold = 0, crowd = 110 * PX, search = true, dance = true, poach = 1, wary = 0.5, clock = 0.15, toss = 0, boxed = 120 * PX, trail = 78 * PX, rubAfter = 1, rubHome = true, lure = 54 * PX, ambush = 0.2, dodge = 0.3, flinch = 0.15 }) do
+for k, v in pairs({ margin = 7 * PX, hold = 0, crowd = 110 * PX, search = true, dance = true, poach = 1, wary = 0.5, clock = 0.15, toss = 0, boxed = 120 * PX, trail = 78 * PX, rubAfter = 1, rubHome = true, lure = 54 * PX, pincer = 60 * PX, ambush = 0.2, dodge = 0.3, flinch = 0.15 }) do
 	DIFFICULTY.ace[k] = v
 end
 Bot.DIFFICULTY = DIFFICULTY
@@ -91,6 +96,8 @@ Bot.DIFFICULTY = DIFFICULTY
 local TOUCH = 2 * R
 local DANGER_R = 110 * PX
 local DANGER_K = 300 * PX
+-- Chance that a bot goes for a seed of its own while a team-mate carries one home.
+local SECOND_SEED = 0.45
 -- How far outside a tunnel's edge a bot stops when it does not mean to go in.
 local RIM = 2 * PX
 -- A seed carrier this close to home has every rival bot drop what it is doing.
@@ -150,10 +157,12 @@ function Bot.new(opts)
 		targetId = -1,
 		entryY = -1,
 		denyRolls = {},
+		secondRolls = {},
 		huntRoll = { id = -1, till = 0, yes = false },
 		duel = { id = -1, bait = false, hold = false, till = 0, expires = 0 },
 		spot = nil,
 		nibbling = false,
+		flank = false,
 		flee = { id = -1, since = 0, tick = -1 },
 		tail = {},
 		dodge = { id = -1, till = 0, x = 0, y = 0 },
@@ -181,7 +190,9 @@ function Bot.new(opts)
 
 	-- This tick's view, shared by the helpers below.
 	local g, id, me, map, nav, now, f
-	local seen = {} -- the other hamsters, as they were `reaction` ago
+	-- Everything below is about rivals; team-mates are neither targets nor obstacles.
+	local seen = {} -- the rivals, as they were `reaction` ago
+	local mates = {} -- its team-mates, likewise
 	local laneUnits = {} -- those of them inside the lanes
 	local entries = nil
 	local tunnels = NO_TUNNELS
@@ -207,6 +218,7 @@ function Bot.new(opts)
 			end
 			local swing = p.swing
 			s.id = p.id
+			s.team = p.team
 			s.x = p.x
 			s.y = p.y
 			s.vx = p.vx
@@ -353,9 +365,32 @@ function Bot.new(opts)
 	end
 
 	-- Where could I cut off a seed carrier before it gets home?
-	local function intercept(c, force)
+	-- `shun`: places a team-mate has covered. The carrier is then taken to go home
+	-- by the best way that keeps clear of them, and that is the way to cut off.
+	local function intercept(c, force, flank, shun)
 		local entry, home = nearestEntry(c)
-		local pts = nav.findPath(c, entry)
+		local pts
+		if shun then
+			local function wide(p, q)
+				local k = 0
+				for _, at in shun do
+					k += math.max(0, 1 - distToSegment(at.x, at.y, p.x, p.y, q.x, q.y) / (130 * PX)) * 900 * PX
+				end
+				return k
+			end
+			local bestCost, bestVia = math.huge, 0
+			nav.from(c, wide)
+			for _, en in entries do
+				local cost, via = nav.costTo(en)
+				if cost < bestCost then
+					entry, bestCost, bestVia = en, cost, via
+				end
+			end
+			home = nav.distance(c, entry)
+			pts = nav.pathTo(entry, bestVia)
+		else
+			pts = nav.findPath(c, entry)
+		end
 		local walked = 0
 		local a = c
 		for i, b in pts do
@@ -401,11 +436,14 @@ function Bot.new(opts)
 			return nil
 		end
 		-- Running at it shows the chase; the tunnel is only worth it when clearly quicker.
-		return if nav.distance(me, door) / SPEED <= tunnelTime * 1.25 then door else viaTunnel
+		-- With a team-mate already on its heels, running after it too adds nothing:
+		-- then the tunnel is taken whenever it is the quicker way round to the door.
+		return if nav.distance(me, door) / SPEED <= tunnelTime * (if flank then 1 else 1.25) then door else viaTunnel
 	end
 
 	local function plan()
 		mem.targetId = -1
+		mem.flank = false
 		if me.carrying then
 			local best, bestCost, bestVia = nil, math.huge, 0
 			local kept, keptCost, keptVia = nil, math.huge, 0
@@ -430,7 +468,7 @@ function Bot.new(opts)
 		end
 
 		-- Someone has a seed: stop it if I can get in its way.
-		local target, targetAt = nil, nil
+		local target, targetAt, targetFlank = nil, nil, false
 		local urgent = math.huge
 		for _, c in seen do
 			if not c.carrying or c.home then
@@ -450,7 +488,7 @@ function Bot.new(opts)
 			-- am to get in its way, nearer the door it is making for, the seed is
 			-- theirs to stop and the flower is free: fetch a second seed and walk it
 			-- home behind the commotion. Not when the first is about to get in.
-			if cfg.poach and not lastStandFor(c) and not near then
+			if cfg.poach and #mates == 0 and not lastStandFor(c) and not near then
 				local door = { x = g.homeX + 26 * PX, y = nearestEntry(c).y }
 				local mine = travel(door)
 				local better = 0
@@ -468,8 +506,16 @@ function Bot.new(opts)
 			-- stays on it, ready to nibble the moment the seed is knocked loose.
 			local chasers = 1
 			local nearestFlower = true
+			for _, m in mates do
+				if not m.carrying then
+					chasers += 1
+					if dist(m, f) <= dist(me, f) then
+						nearestFlower = false
+					end
+				end
+			end
 			for _, e in seen do
-				if e.id ~= c.id and not e.carrying then
+				if e.id ~= c.id and not allied(e, c) and not e.carrying then
 					chasers += 1
 					if dist(e, f) <= dist(me, f) then
 						nearestFlower = false
@@ -477,11 +523,60 @@ function Bot.new(opts)
 				end
 			end
 			local stays = chasers >= 3 and nearestFlower
-			local at = if near then c else intercept(c, cfg.rally and (lastStand or not stays))
+			-- With team-mates after the same seed, split up rather than all run the
+			-- same way and leave it the other. Everyone works the roles out the same
+			-- way from where everyone stands.
+			local press = false
+			local flank = false
+			local shun = nil
+			if cfg.pincer then
+				local door = nil
+				local mine = 0
+				local better = 0
+				local first, firstD = nil, math.huge
+				for _, m in mates do
+					if m.carrying then
+						continue
+					end
+					if not door then
+						door = { x = g.homeX + 26 * PX, y = nearestEntry(c).y }
+						mine = nav.distance(me, door)
+					end
+					-- Clearly nearer the door goes first; when it is close, the lower
+					-- number does. Both sides of a pair come to the same answer that
+					-- way, even standing on the same spot.
+					local theirs = nav.distance(m, door)
+					if theirs < mine - cfg.pincer or (theirs <= mine + cfg.pincer and m.id < id) then
+						better += 1
+					end
+					if theirs < firstD then
+						first, firstD = m, theirs
+					end
+				end
+				if door then
+					-- The best placed takes the way it is going. The next covers the way
+					-- it would turn to instead. Any more run it down from behind.
+					press = better >= 2
+					if better == 1 then
+						shun = { first, door }
+					end
+					-- Cutting it off from behind it means going round, not after it.
+					flank = not press and mine >= nav.distance(c, door)
+				end
+			end
+			local at
+			if flank or shun then
+				at = intercept(c, true, flank, shun)
+			elseif near or press then
+				at = c
+			else
+				at = intercept(c, cfg.rally and (lastStand or not stays))
+			end
 			if at and c.x < urgent then
 				urgent = c.x
 				target = c
 				targetAt = at
+				targetFlank = flank or shun ~= nil
 			end
 		end
 		if target then
@@ -502,7 +597,38 @@ function Bot.new(opts)
 				mem.cut = { id = target.id, at = targetAt, till = now + 1.2 }
 			end
 			mem.path = if targetAt == target then nil else (route(targetAt))
+			mem.flank = targetFlank and mem.path ~= nil
 			return
+		end
+
+		-- A team-mate is running a seed home: clear out whoever is closest to it. Or
+		-- leave the escorting to others and fetch a second seed, which gives the
+		-- rivals two carriers to stop. One choice per trip, so it does not dither.
+		for _, c in mates do
+			if not c.carrying or c.home then
+				continue
+			end
+			local key = c.id * 1000 + c.seeds
+			if mem.secondRolls[key] == nil then
+				mem.secondRolls[key] = rng() < SECOND_SEED
+			end
+			if g.nibbler == id or mem.secondRolls[key] then
+				break
+			end
+			local guard = nil
+			local guardD = 320 * PX
+			for _, e in seen do
+				if not e.home and not e.carrying and dist(e, c) < guardD then
+					guardD = dist(e, c)
+					guard = e
+				end
+			end
+			if guard then
+				mem.mode = "hunt"
+				mem.targetId = guard.id
+				mem.path = nil
+				return
+			end
 		end
 
 		-- Otherwise go for a seed. Only one hamster can nibble at a time and it has
@@ -774,8 +900,14 @@ function Bot.new(opts)
 		local meHome = inHome(g, me)
 
 		table.clear(seen)
+		table.clear(mates)
 		for _, s in frameAgo(delayTicks) do
-			if s.id ~= id and g.byId[s.id] then
+			if s.id == id or not g.byId[s.id] then
+				continue
+			end
+			if allied(s, me) then
+				table.insert(mates, s)
+			else
 				table.insert(seen, s)
 				local was = mem.swung[s.id]
 				local winding = s.swing == "windup"
@@ -927,7 +1059,7 @@ function Bot.new(opts)
 				end
 			end
 		elseif mem.mode == "deny" and target then
-			if dist(me, target) < 230 * PX and nav.clear(me, target) then
+			if dist(me, target) < (if mem.flank then 100 else 230) * PX and nav.clear(me, target) then
 				engage(target)
 			elseif mem.path then
 				follow(mem.path)
@@ -945,7 +1077,7 @@ function Bot.new(opts)
 		local flinching = false
 		if cfg.flinch and not me.swing and not meHome then
 			for _, e in frameAgo(flinchTicks) do
-				if e.id == id or e.home or not e.swing or not g.byId[e.id] then
+				if e.id == id or allied(e, me) or e.home or not e.swing or not g.byId[e.id] then
 					continue
 				end
 				local dx = me.x - e.x
@@ -1228,10 +1360,11 @@ function Bot.new(opts)
 				if reach > limit or not nav.clear(me, e) then
 					continue
 				end
-				-- A swing roots me through the hit and after it. With another rival
-				-- close by and ready to swing, that is a free hit for it, so only a
-				-- seed is worth it then.
-				if cfg.crowd and not e.carrying and not me.carrying then
+				-- A swing roots me through the hit and after it. With no teams, and
+				-- another rival close by and ready to swing, that is a free hit for it,
+				-- so only a seed is worth it then. On a team the one close by is the
+				-- target's team-mate, and mine are about too.
+				if cfg.crowd and me.team < 0 and not e.carrying and not me.carrying then
 					local crowded = false
 					for _, o in seen do
 						if o.id ~= e.id and not o.home and o.swing ~= "recovery" and dist(o, me) < cfg.crowd then

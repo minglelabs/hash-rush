@@ -48,7 +48,8 @@ Config.BONK = {
 	assist = 8, -- auto-aim picks the nearest rival inside this radius
 }
 
-Config.THROW = { charge = 0.4, max = 1.6, range = 12, width = 2.1 }
+-- `friendlyFire` decides whether a thrown seed takes team-mates in its way down too.
+Config.THROW = { charge = 0.4, max = 1.6, range = 12, width = 2.1, friendlyFire = false }
 
 -- Lobby and round flow.
 Config.MIN_PLAYERS = 2
@@ -673,6 +674,14 @@ local function lastStretch(g, p)
 end
 Sim.lastStretch = lastStretch
 
+-- Team-mates cannot bonk each other and walk straight through one another. A
+-- hamster without a team (-1) is on its own side, so a round with no teams is
+-- everyone against everyone.
+local function allied(a, b)
+	return a.team >= 0 and a.team == b.team
+end
+Sim.allied = allied
+
 local function shuffle(list, rng)
 	for i = #list, 2, -1 do
 		local j = math.floor(rng() * i) + 1
@@ -680,7 +689,8 @@ local function shuffle(list, rng)
 	end
 end
 
--- slots: { { id = number, name = string }, ... }. rng returns a number in [0, 1).
+-- slots: { { id = number, name = string, team = number? }, ... }, team 0 or 1
+-- in a team round and left out otherwise. rng returns a number in [0, 1).
 function Sim.new(map, slots, rng)
 	rng = rng or math.random
 	local nests = table.clone(if #slots > #map.nests then map.bigNests else map.nests)
@@ -691,6 +701,7 @@ function Sim.new(map, slots, rng)
 		local p = {
 			id = slot.id,
 			name = slot.name,
+			team = slot.team or -1,
 			nest = nests[i],
 			x = nests[i].x,
 			y = nests[i].y,
@@ -756,7 +767,7 @@ local function pickAim(g, p, mx, my, moveLen)
 	local bestX, bestY
 	local bestD = BONK.assist
 	for _, e in g.players do
-		if e ~= p and not inHome(g, e) then
+		if e ~= p and not allied(p, e) and not inHome(g, e) then
 			local tx = e.x + e.vx * BONK.windup - p.x
 			local ty = e.y + e.vy * BONK.windup - p.y
 			local d = hypot(tx, ty)
@@ -789,7 +800,7 @@ local function separate(g)
 				local nx = b.x - a.x
 				local ny = b.y - a.y
 				local d = hypot(nx, ny)
-				if d < min then
+				if d < min and not allied(a, b) then
 					if d < 1e-6 then
 						nx = 1
 						ny = 0
@@ -839,30 +850,46 @@ local function respawn(g, p)
 	table.insert(g.events, { type = "spawn", id = p.id, x = p.x, y = p.y })
 end
 
--- Nobody brought a seed home in time: most knock-outs wins, then fewest times
--- knocked out, then most seeds picked. Players still level share the win.
+-- Nobody brought a seed home in time: the side with the most knock-outs takes
+-- the round, then the fewest times knocked out, then the most seeds picked. Sides
+-- still level after that share the win. A team counts as one side.
 local function timeoutWinners(players)
+	local sides = {}
+	local byKey = {}
+	for _, p in players do
+		local key = if p.team >= 0 then "t" .. p.team else "p" .. p.id
+		local side = byKey[key]
+		if not side then
+			side = { ids = {}, kills = 0, deaths = 0, seeds = 0 }
+			byKey[key] = side
+			table.insert(sides, side)
+		end
+		table.insert(side.ids, p.id)
+		side.kills += p.kills + p.throws
+		side.deaths += p.deaths
+		side.seeds += p.seeds
+	end
 	local function better(a, b)
-		local ka = a.kills + a.throws
-		local kb = b.kills + b.throws
-		if ka ~= kb then
-			return ka > kb
+		if a.kills ~= b.kills then
+			return a.kills > b.kills
 		end
 		if a.deaths ~= b.deaths then
 			return a.deaths < b.deaths
 		end
 		return a.seeds > b.seeds
 	end
-	local top = players[1]
-	for _, p in players do
-		if better(p, top) then
-			top = p
+	local top = sides[1]
+	for _, side in sides do
+		if better(side, top) then
+			top = side
 		end
 	end
 	local winners = {}
-	for _, p in players do
-		if not better(top, p) then
-			table.insert(winners, p.id)
+	for _, side in sides do
+		if not better(top, side) then
+			for _, id in side.ids do
+				table.insert(winners, id)
+			end
 		end
 	end
 	return winners
@@ -1039,7 +1066,7 @@ local function pickpocket(g)
 		if not p.carrying and not p.swing and p.pickBlock <= 0 and p.dazed <= 0 and not inHome(g, p) then
 			local nearest = PICK.reach
 			for _, c in players do
-				if c ~= p and c.carrying and not inHome(g, c) then
+				if c ~= p and c.carrying and not allied(p, c) and not inHome(g, c) then
 					local d = hypot(c.x - p.x, c.y - p.y)
 					if d <= nearest then
 						on = c
@@ -1149,7 +1176,7 @@ function Sim.step(g, inputs)
 			a.cooldown = BONK.cooldown
 			local victims = {}
 			for _, v in players do
-				if v ~= a and not bonked[v] and not inHome(g, v) then
+				if v ~= a and not bonked[v] and not inHome(g, v) and (THROW.friendlyFire or not allied(a, v)) then
 					local dx = v.x - a.x
 					local dy = v.y - a.y
 					local along = dx * a.fx + dy * a.fy
@@ -1169,7 +1196,7 @@ function Sim.step(g, inputs)
 			local nearest = BONK.reach
 			if not inHome(g, a) then
 				for _, v in players do
-					if v ~= a and not bonked[v] and not inHome(g, v) then
+					if v ~= a and not allied(a, v) and not bonked[v] and not inHome(g, v) then
 						local dx = v.x - a.x
 						local dy = v.y - a.y
 						local d = hypot(dx, dy)
@@ -1182,7 +1209,20 @@ function Sim.step(g, inputs)
 				end
 			end
 			if victim then
-				strike(g, a, { victim }, bonked, false)
+				-- Team-mates can stand inside each other, and that is a risk: a hit on
+				-- one of a clump takes out everyone overlapping it.
+				local clump = { victim }
+				local at = 1
+				while at <= #clump do
+					local c = clump[at]
+					for _, v in players do
+						if not table.find(clump, v) and allied(c, v) and not bonked[v] and not inHome(g, v) and hypot(v.x - c.x, v.y - c.y) < 2 * R then
+							table.insert(clump, v)
+						end
+					end
+					at += 1
+				end
+				strike(g, a, clump, bonked, false)
 			end
 			table.insert(g.events, { type = "impact", id = a.id, x = a.x, y = a.y, dx = a.swing.dx, dy = a.swing.dy, hit = victim ~= nil })
 		end
@@ -1209,7 +1249,14 @@ function Sim.step(g, inputs)
 
 	for _, p in players do
 		if p.carrying and inHome(g, p) then
-			finish(g, { p.id }, false)
+			-- Its whole team wins with it.
+			local winners = {}
+			for _, o in players do
+				if o == p or allied(o, p) then
+					table.insert(winners, o.id)
+				end
+			end
+			finish(g, winners, false)
 			return g
 		end
 	end
@@ -1332,8 +1379,8 @@ return Snapshot
 -- same input a player sends, so any seat can be given to one:
 --   local bot = Bot.new({ difficulty = "normal", seed = 7 })
 --   inputs[id] = bot.think(g, id)   -- every tick, after Sim.step
--- Ported from the web game's src/ai/bot.js, for the meadow and everyone against
--- everyone: what it had for teams, other maps and their hazards is left out.
+-- Ported from the web game's src/ai/bot.js, for the meadow, with or without
+-- teams: what it had for other maps and their hazards is left out.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage:WaitForChild("Config"))
@@ -1350,6 +1397,7 @@ local THROW = Config.THROW
 -- One web pixel in studs: the bot's distances are the web game's, in pixels.
 local PX = Nav.PX
 local inHome = Sim.inHome
+local allied = Sim.allied
 local distToSegment = Nav.distToSegment
 
 local Bot = {}
@@ -1385,8 +1433,8 @@ local DIFFICULTY = {
 --   (see BotSearch), instead of only following the rules below.
 -- dance: up close it feints instead of walking in: a dash at the rival to draw a
 --   swing, a step back out of reach so the swing misses, then in for the hit.
--- poach: with this many others better placed to stop a rival's seed, it leaves
---   that seed to them and goes for one of its own.
+-- poach: with no team, and this many others better placed to stop a rival's
+--   seed, it leaves that seed to them and goes for one of its own.
 -- wary: it learns from being fooled. Once a rival has drawn a wasted swing out of
 --   it and bonked it for that, it stops swinging at that rival just for running
 --   at it. The number is how often it holds fire while it does not know the
@@ -1410,10 +1458,14 @@ local DIFFICULTY = {
 --   person who sets off to swing just as it crosses.
 -- margin 7, hold 0: it swings only once a rival is well inside reach, and does
 --   not stand its ground against a charge.
--- crowd: it does not swing at a rival without a seed while another one is this
---   near and ready to swing: that one would hit it while it is stuck.
+-- pincer: on a team, those after the same seed split up instead of all running
+--   the same way: the best placed cuts off the way it is going, the next covers
+--   the way it would turn to instead, any others run it down from behind. Within
+--   this distance of each other the lower-numbered one counts as better placed.
+-- crowd: with no team, it does not swing at a rival without a seed while another
+--   one is this near and ready to swing: that one would hit it while it is stuck.
 DIFFICULTY.ace = table.clone(DIFFICULTY.hard)
-for k, v in pairs({ margin = 7 * PX, hold = 0, crowd = 110 * PX, search = true, dance = true, poach = 1, wary = 0.5, clock = 0.15, toss = 0, boxed = 120 * PX, trail = 78 * PX, rubAfter = 1, rubHome = true, lure = 54 * PX, ambush = 0.2, dodge = 0.3, flinch = 0.15 }) do
+for k, v in pairs({ margin = 7 * PX, hold = 0, crowd = 110 * PX, search = true, dance = true, poach = 1, wary = 0.5, clock = 0.15, toss = 0, boxed = 120 * PX, trail = 78 * PX, rubAfter = 1, rubHome = true, lure = 54 * PX, pincer = 60 * PX, ambush = 0.2, dodge = 0.3, flinch = 0.15 }) do
 	DIFFICULTY.ace[k] = v
 end
 Bot.DIFFICULTY = DIFFICULTY
@@ -1421,6 +1473,8 @@ Bot.DIFFICULTY = DIFFICULTY
 local TOUCH = 2 * R
 local DANGER_R = 110 * PX
 local DANGER_K = 300 * PX
+-- Chance that a bot goes for a seed of its own while a team-mate carries one home.
+local SECOND_SEED = 0.45
 -- How far outside a tunnel's edge a bot stops when it does not mean to go in.
 local RIM = 2 * PX
 -- A seed carrier this close to home has every rival bot drop what it is doing.
@@ -1480,10 +1534,12 @@ function Bot.new(opts)
 		targetId = -1,
 		entryY = -1,
 		denyRolls = {},
+		secondRolls = {},
 		huntRoll = { id = -1, till = 0, yes = false },
 		duel = { id = -1, bait = false, hold = false, till = 0, expires = 0 },
 		spot = nil,
 		nibbling = false,
+		flank = false,
 		flee = { id = -1, since = 0, tick = -1 },
 		tail = {},
 		dodge = { id = -1, till = 0, x = 0, y = 0 },
@@ -1511,7 +1567,9 @@ function Bot.new(opts)
 
 	-- This tick's view, shared by the helpers below.
 	local g, id, me, map, nav, now, f
-	local seen = {} -- the other hamsters, as they were `reaction` ago
+	-- Everything below is about rivals; team-mates are neither targets nor obstacles.
+	local seen = {} -- the rivals, as they were `reaction` ago
+	local mates = {} -- its team-mates, likewise
 	local laneUnits = {} -- those of them inside the lanes
 	local entries = nil
 	local tunnels = NO_TUNNELS
@@ -1537,6 +1595,7 @@ function Bot.new(opts)
 			end
 			local swing = p.swing
 			s.id = p.id
+			s.team = p.team
 			s.x = p.x
 			s.y = p.y
 			s.vx = p.vx
@@ -1683,9 +1742,32 @@ function Bot.new(opts)
 	end
 
 	-- Where could I cut off a seed carrier before it gets home?
-	local function intercept(c, force)
+	-- `shun`: places a team-mate has covered. The carrier is then taken to go home
+	-- by the best way that keeps clear of them, and that is the way to cut off.
+	local function intercept(c, force, flank, shun)
 		local entry, home = nearestEntry(c)
-		local pts = nav.findPath(c, entry)
+		local pts
+		if shun then
+			local function wide(p, q)
+				local k = 0
+				for _, at in shun do
+					k += math.max(0, 1 - distToSegment(at.x, at.y, p.x, p.y, q.x, q.y) / (130 * PX)) * 900 * PX
+				end
+				return k
+			end
+			local bestCost, bestVia = math.huge, 0
+			nav.from(c, wide)
+			for _, en in entries do
+				local cost, via = nav.costTo(en)
+				if cost < bestCost then
+					entry, bestCost, bestVia = en, cost, via
+				end
+			end
+			home = nav.distance(c, entry)
+			pts = nav.pathTo(entry, bestVia)
+		else
+			pts = nav.findPath(c, entry)
+		end
 		local walked = 0
 		local a = c
 		for i, b in pts do
@@ -1731,11 +1813,14 @@ function Bot.new(opts)
 			return nil
 		end
 		-- Running at it shows the chase; the tunnel is only worth it when clearly quicker.
-		return if nav.distance(me, door) / SPEED <= tunnelTime * 1.25 then door else viaTunnel
+		-- With a team-mate already on its heels, running after it too adds nothing:
+		-- then the tunnel is taken whenever it is the quicker way round to the door.
+		return if nav.distance(me, door) / SPEED <= tunnelTime * (if flank then 1 else 1.25) then door else viaTunnel
 	end
 
 	local function plan()
 		mem.targetId = -1
+		mem.flank = false
 		if me.carrying then
 			local best, bestCost, bestVia = nil, math.huge, 0
 			local kept, keptCost, keptVia = nil, math.huge, 0
@@ -1760,7 +1845,7 @@ function Bot.new(opts)
 		end
 
 		-- Someone has a seed: stop it if I can get in its way.
-		local target, targetAt = nil, nil
+		local target, targetAt, targetFlank = nil, nil, false
 		local urgent = math.huge
 		for _, c in seen do
 			if not c.carrying or c.home then
@@ -1780,7 +1865,7 @@ function Bot.new(opts)
 			-- am to get in its way, nearer the door it is making for, the seed is
 			-- theirs to stop and the flower is free: fetch a second seed and walk it
 			-- home behind the commotion. Not when the first is about to get in.
-			if cfg.poach and not lastStandFor(c) and not near then
+			if cfg.poach and #mates == 0 and not lastStandFor(c) and not near then
 				local door = { x = g.homeX + 26 * PX, y = nearestEntry(c).y }
 				local mine = travel(door)
 				local better = 0
@@ -1798,8 +1883,16 @@ function Bot.new(opts)
 			-- stays on it, ready to nibble the moment the seed is knocked loose.
 			local chasers = 1
 			local nearestFlower = true
+			for _, m in mates do
+				if not m.carrying then
+					chasers += 1
+					if dist(m, f) <= dist(me, f) then
+						nearestFlower = false
+					end
+				end
+			end
 			for _, e in seen do
-				if e.id ~= c.id and not e.carrying then
+				if e.id ~= c.id and not allied(e, c) and not e.carrying then
 					chasers += 1
 					if dist(e, f) <= dist(me, f) then
 						nearestFlower = false
@@ -1807,11 +1900,60 @@ function Bot.new(opts)
 				end
 			end
 			local stays = chasers >= 3 and nearestFlower
-			local at = if near then c else intercept(c, cfg.rally and (lastStand or not stays))
+			-- With team-mates after the same seed, split up rather than all run the
+			-- same way and leave it the other. Everyone works the roles out the same
+			-- way from where everyone stands.
+			local press = false
+			local flank = false
+			local shun = nil
+			if cfg.pincer then
+				local door = nil
+				local mine = 0
+				local better = 0
+				local first, firstD = nil, math.huge
+				for _, m in mates do
+					if m.carrying then
+						continue
+					end
+					if not door then
+						door = { x = g.homeX + 26 * PX, y = nearestEntry(c).y }
+						mine = nav.distance(me, door)
+					end
+					-- Clearly nearer the door goes first; when it is close, the lower
+					-- number does. Both sides of a pair come to the same answer that
+					-- way, even standing on the same spot.
+					local theirs = nav.distance(m, door)
+					if theirs < mine - cfg.pincer or (theirs <= mine + cfg.pincer and m.id < id) then
+						better += 1
+					end
+					if theirs < firstD then
+						first, firstD = m, theirs
+					end
+				end
+				if door then
+					-- The best placed takes the way it is going. The next covers the way
+					-- it would turn to instead. Any more run it down from behind.
+					press = better >= 2
+					if better == 1 then
+						shun = { first, door }
+					end
+					-- Cutting it off from behind it means going round, not after it.
+					flank = not press and mine >= nav.distance(c, door)
+				end
+			end
+			local at
+			if flank or shun then
+				at = intercept(c, true, flank, shun)
+			elseif near or press then
+				at = c
+			else
+				at = intercept(c, cfg.rally and (lastStand or not stays))
+			end
 			if at and c.x < urgent then
 				urgent = c.x
 				target = c
 				targetAt = at
+				targetFlank = flank or shun ~= nil
 			end
 		end
 		if target then
@@ -1832,7 +1974,38 @@ function Bot.new(opts)
 				mem.cut = { id = target.id, at = targetAt, till = now + 1.2 }
 			end
 			mem.path = if targetAt == target then nil else (route(targetAt))
+			mem.flank = targetFlank and mem.path ~= nil
 			return
+		end
+
+		-- A team-mate is running a seed home: clear out whoever is closest to it. Or
+		-- leave the escorting to others and fetch a second seed, which gives the
+		-- rivals two carriers to stop. One choice per trip, so it does not dither.
+		for _, c in mates do
+			if not c.carrying or c.home then
+				continue
+			end
+			local key = c.id * 1000 + c.seeds
+			if mem.secondRolls[key] == nil then
+				mem.secondRolls[key] = rng() < SECOND_SEED
+			end
+			if g.nibbler == id or mem.secondRolls[key] then
+				break
+			end
+			local guard = nil
+			local guardD = 320 * PX
+			for _, e in seen do
+				if not e.home and not e.carrying and dist(e, c) < guardD then
+					guardD = dist(e, c)
+					guard = e
+				end
+			end
+			if guard then
+				mem.mode = "hunt"
+				mem.targetId = guard.id
+				mem.path = nil
+				return
+			end
 		end
 
 		-- Otherwise go for a seed. Only one hamster can nibble at a time and it has
@@ -2104,8 +2277,14 @@ function Bot.new(opts)
 		local meHome = inHome(g, me)
 
 		table.clear(seen)
+		table.clear(mates)
 		for _, s in frameAgo(delayTicks) do
-			if s.id ~= id and g.byId[s.id] then
+			if s.id == id or not g.byId[s.id] then
+				continue
+			end
+			if allied(s, me) then
+				table.insert(mates, s)
+			else
 				table.insert(seen, s)
 				local was = mem.swung[s.id]
 				local winding = s.swing == "windup"
@@ -2257,7 +2436,7 @@ function Bot.new(opts)
 				end
 			end
 		elseif mem.mode == "deny" and target then
-			if dist(me, target) < 230 * PX and nav.clear(me, target) then
+			if dist(me, target) < (if mem.flank then 100 else 230) * PX and nav.clear(me, target) then
 				engage(target)
 			elseif mem.path then
 				follow(mem.path)
@@ -2275,7 +2454,7 @@ function Bot.new(opts)
 		local flinching = false
 		if cfg.flinch and not me.swing and not meHome then
 			for _, e in frameAgo(flinchTicks) do
-				if e.id == id or e.home or not e.swing or not g.byId[e.id] then
+				if e.id == id or allied(e, me) or e.home or not e.swing or not g.byId[e.id] then
 					continue
 				end
 				local dx = me.x - e.x
@@ -2558,10 +2737,11 @@ function Bot.new(opts)
 				if reach > limit or not nav.clear(me, e) then
 					continue
 				end
-				-- A swing roots me through the hit and after it. With another rival
-				-- close by and ready to swing, that is a free hit for it, so only a
-				-- seed is worth it then.
-				if cfg.crowd and not e.carrying and not me.carrying then
+				-- A swing roots me through the hit and after it. With no teams, and
+				-- another rival close by and ready to swing, that is a free hit for it,
+				-- so only a seed is worth it then. On a team the one close by is the
+				-- target's team-mate, and mine are about too.
+				if cfg.crowd and me.team < 0 and not e.carrying and not me.carrying then
 					local crowded = false
 					for _, o in seen do
 						if o.id ~= e.id and not o.home and o.swing ~= "recovery" and dist(o, me) < cfg.crowd then
@@ -3353,6 +3533,7 @@ local PX = Nav.PX
 local R = Config.HAMSTER_R
 local BONK = Config.BONK
 local inHome = Sim.inHome
+local allied = Sim.allied
 
 -- How far ahead a plan is played out, and how often the bot thinks again.
 -- `edge` is how much better than the rule book's own plan another plan has to
@@ -3438,7 +3619,7 @@ local function withBonk(c, p, out)
 		return
 	end
 	for _, e in c.players do
-		if e ~= p and not inHome(c, e) and dist(e, p) <= BONK.reach - 2 * PX then
+		if e ~= p and not allied(p, e) and not inHome(c, e) and dist(e, p) <= BONK.reach - 2 * PX then
 			out.bonk = true
 			return
 		end
@@ -3457,7 +3638,7 @@ local function judge(c, id, before, used)
 	local span = f.x - c.map.home.x2
 	local s = 0
 	for _, p in c.players do
-		local side = if p == me then 1 else -1
+		local side = if p == me or allied(p, me) then 1 else -1
 		local was = before[p.id]
 		if p.carrying then
 			-- How far along the way home the seed is, 0 at the flower and 1 at the door.
@@ -3649,7 +3830,7 @@ function Search.new(seed: number, stepsPerThink: number?)
 			end
 
 			-- What everybody else is taken to be doing: a carrier runs home, the rest
-			-- go for the nearest seed somebody is carrying, or else for the flower.
+			-- go for the nearest seed a rival of theirs is carrying, or else for the flower.
 			-- These drivers keep their place on a path from one daydream to the next,
 			-- as in the web game, so that both bots come to the same choices.
 			local drivers = {}
@@ -3667,7 +3848,7 @@ function Search.new(seed: number, stepsPerThink: number?)
 				local prey = nil
 				local preyD = math.huge
 				for _, c in g.players do
-					if c.carrying and not inHome(g, c) and dist(p, c) < preyD then
+					if c.carrying and not allied(c, p) and not inHome(g, c) and dist(p, c) < preyD then
 						prey = c
 						preyD = dist(p, c)
 					end
@@ -3726,7 +3907,7 @@ function Search.new(seed: number, stepsPerThink: number?)
 					for _, s in nav.gatherSpots do
 						local taken = false
 						for _, e in g.players do
-							if e ~= me and dist(e, s) < 2 * R then
+							if e ~= me and not allied(e, me) and dist(e, s) < 2 * R then
 								taken = true
 								break
 							end
@@ -3746,7 +3927,7 @@ function Search.new(seed: number, stepsPerThink: number?)
 
 				local carriers = {}
 				for _, c in g.players do
-					if c ~= me and c.carrying and not inHome(g, c) then
+					if c ~= me and not allied(c, me) and c.carrying and not inHome(g, c) then
 						table.insert(carriers, c)
 					end
 				end
@@ -3772,18 +3953,40 @@ function Search.new(seed: number, stepsPerThink: number?)
 						add("tunnel:" .. c.id, { mode = "deny", targetId = c.id, path = toTunnel }, walker(toTunnel))
 					end
 				end
-				-- Clear somebody out: whoever is nearest.
+				-- Clear somebody out: whoever is nearest, and whoever threatens a
+				-- team-mate's seed.
 				if not defending then
 					local near = nil
 					local nearD = 220 * PX
+					local ward = nil
 					for _, e in g.players do
-						if e ~= me and not e.carrying and not inHome(g, e) and dist(me, e) < nearD then
+						if e == me or inHome(g, e) then
+							continue
+						end
+						if allied(e, me) then
+							if e.carrying and not ward then
+								ward = e
+							end
+						elseif not e.carrying and dist(me, e) < nearD then
 							near = e
 							nearD = dist(me, e)
 						end
 					end
 					if near then
 						add("hunt:" .. near.id, { mode = "hunt", targetId = near.id, path = nil }, chaser(near.id, nil))
+					end
+					if ward then
+						local threat = nil
+						local threatD = math.huge
+						for _, e in g.players do
+							if e ~= me and not allied(e, me) and not e.carrying and not inHome(g, e) and dist(ward, e) < threatD then
+								threat = e
+								threatD = dist(ward, e)
+							end
+						end
+						if threat and threat ~= near then
+							add("guard:" .. threat.id, { mode = "hunt", targetId = threat.id, path = nil }, chaser(threat.id, (nav.findPath(me, threat))))
+						end
 					end
 				end
 			end
@@ -3807,8 +4010,9 @@ function Search.new(seed: number, stepsPerThink: number?)
 end
 
 return Search
-]]></ProtectedString></Properties></Item><Item class="ModuleScript"><Properties><string name="Name">RLBot</string><ProtectedString name="Source"><![CDATA[-- The learned bot: plays with the network the web game trained for free-for-all
--- rounds (weights/, run by RLPolicy). Ported from the web game's src/ai/rl-bot.js.
+]]></ProtectedString></Properties></Item><Item class="ModuleScript"><Properties><string name="Name">RLBot</string><ProtectedString name="Source"><![CDATA[-- The learned bot: plays with the networks the web game trained (weights/, run
+-- by RLPolicy), one for free-for-all rounds and one for team rounds, picked by
+-- the round it is in. Ported from the web game's src/ai/rl-bot.js.
 -- It sees what it saw in training (RLObserve): itself as it is now and the other
 -- hamsters a few ticks late. Like in training it picks a move every few ticks and
 -- holds it in between.
@@ -3839,45 +4043,57 @@ end
 -- The weights are put together once, the first time a bot is made, and the
 -- map's walking distances worked out then too: both take a moment that a round
 -- in play should not have to wait for.
-local policy
-local function loadPolicy()
-	if not policy then
+-- The web game's rl-solo.bin and rl-team.bin are the same file for now, so only
+-- RLSolo is packed and it plays team rounds too. Team weights of their own go
+-- in beside it as RLTeam, RLTeam01, ... (tools/pack_weights.py).
+local policies
+local function load(folder, name)
+	local index = require(folder:WaitForChild(name))
+	local chunks = {}
+	for i = 1, index.chunks do
+		chunks[i] = require(folder:WaitForChild(string.format("%s%02d", name, i)))
+	end
+	-- Older weights saw themselves late too; these and the ones since do not.
+	assert(index.meta.selfNow, "RLBot plays weights that see themselves as they are now")
+	return RLPolicy.load(index, chunks)
+end
+local function loadPolicies()
+	if not policies then
 		RLObserve.fields(Map)
 		local folder = script.Parent:WaitForChild("weights")
-		local index = require(folder:WaitForChild("RLSolo"))
-		local chunks = {}
-		for i = 1, index.chunks do
-			chunks[i] = require(folder:WaitForChild(string.format("RLSolo%02d", i)))
-		end
-		-- Older weights saw themselves late too; these and the ones since do not.
-		assert(index.meta.selfNow, "RLBot plays weights that see themselves as they are now")
-		policy = RLPolicy.load(index, chunks)
+		local solo = load(folder, "RLSolo")
+		policies = { solo = solo, team = if folder:FindFirstChild("RLTeam") then load(folder, "RLTeam") else solo }
 	end
-	return policy
+	return policies
+end
+
+-- The network that plays the hamster `p`: the team one if it is in a team.
+function RLBot.policyFor(p)
+	local all = loadPolicies()
+	return if p and p.team >= 0 then all.team else all.solo
 end
 
 -- options: { seed = number, offset = number }. Returns { think(g, id) -> input },
 -- to be asked every tick of the round. `offset` shifts which ticks it decides on,
 -- so several bots in a round do not all run their networks on the same tick.
 function RLBot.new(options)
-	local brain = loadPolicy()
-	local every = brain.meta.frameSkip or 4
-	local temperature = brain.meta.temperature or 1
+	loadPolicies()
 	local random = mulberry32(if options and options.seed then options.seed else 1)
 	local view = table.create(RLObserve.OBS, 0)
-	local tick = if options and options.offset then options.offset % every else 0
+	local tick = if options and options.offset then options.offset else 0
 	local move, bonk, throw = 0, 0, 0
 
 	local bot = {}
 
 	function bot.think(g, id)
-		local fresh = tick % every == 0
+		local brain = RLBot.policyFor(g.byId[id])
+		local fresh = tick % (brain.meta.frameSkip or 4) == 0
 		tick += 1
 		-- Every tick, so the late view has no gaps.
 		local past = RLObserve.seenLate(g)
 		if fresh then
 			RLObserve.observe(g, past, id, view)
-			local choice = brain.act(view, temperature, random)
+			local choice = brain.act(view, brain.meta.temperature or 1, random)
 			move, bonk, throw = choice[1], choice[2], choice[3]
 		end
 		local dir = DIRS[move + 1]
@@ -3890,10 +4106,10 @@ end
 
 return RLBot
 ]]></ProtectedString></Properties></Item><Item class="ModuleScript"><Properties><string name="Name">RLObserve</string><ProtectedString name="Source"><![CDATA[-- What the trained policy sees of a round: 230 numbers for one hamster. Ported
--- from the web game's src/ai/observe.js for the one kind of round Roblox has:
--- the meadow, everyone for themselves, no trouble on the map. The numbers have to
--- be the ones the policy learned from, so what a meadow free-for-all leaves at
--- zero in the web game is left at zero here, in the same places.
+-- from the web game's src/ai/observe.js for the rounds Roblox has: the meadow,
+-- everyone for themselves or in teams, no trouble on the map. The numbers have to
+-- be the ones the policy learned from, so what a meadow round leaves at zero in
+-- the web game is left at zero here, in the same places.
 -- Most of it is a share of something (of the map's width, of full speed), which
 -- is the same in studs as in pixels. The walking distances are not: the policy
 -- learned them on the web game's 8 pixel grid, so that part works in pixels.
@@ -3912,16 +4128,24 @@ RLObserve.OBS = OBS
 
 -- Where each part starts, counted from 1: me, the round, the three ways to walk,
 -- the walls around me, then (after the map's trouble and gates, which the meadow
--- has none of) everyone else, whom I am after, and pickpocketing. The parts for
--- teams are skipped: nobody has a team.
+-- has none of) everyone else, my job and whom I am after, my nearest team-mate
+-- and where to cut a rival's seed off, pickpocketing, and a team-mate's pocket
+-- being picked.
 local ROUND = 20
 local MEADOW = 31
 local NAV = 38
 local RAYS = 47
 local OTHERS = 109
 local OTHER = 13
-local MARK = 200
+local TEAM = 200
+local MATE = 210
 local PICK = 220
+local GUARD = 226
+
+-- The jobs of a team round; on its own a hamster has none.
+local ATTACK = 1
+local MARKING = 2
+local GUARDING = 3
 
 -- The moves a policy picks from: standing still, then eight directions.
 local DIRS = { { 0, 0 } }
@@ -4174,6 +4398,40 @@ local function hint(F, dist, x, y, out, at)
 	out[at + 2] = math.min(1, here * CELL / 1000)
 end
 
+-- Where a hamster at a spot in pixels will be after walking `reach` pixels down
+-- `dist`'s slope: a carrier's way home a little ahead of it, the spot to cut it
+-- off at.
+local function ahead(F, dist, x, y, reach)
+	local i = cellOf(F, x, y)
+	if i < 0 or buffer.readf32(dist, i * 4) == INF then
+		return x, y
+	end
+	for _ = 1, math.ceil(reach / CELL) do
+		local c = i % F.cols
+		local r = i // F.cols
+		local best = buffer.readf32(dist, i * 4)
+		local down = i
+		for dr = -1, 1 do
+			for dc = -1, 1 do
+				local nc = c + dc
+				local nr = r + dr
+				if (dr ~= 0 or dc ~= 0) and nc >= 0 and nr >= 0 and nc < F.cols and nr < F.rows then
+					local d = buffer.readf32(dist, (nr * F.cols + nc) * 4)
+					if d < best then
+						best = d
+						down = nr * F.cols + nc
+					end
+				end
+			end
+		end
+		if down == i then
+			break
+		end
+		i = down
+	end
+	return (i % F.cols + 0.5) * CELL, (i // F.cols + 0.5) * CELL
+end
+
 -- The others, seen late ------------------------------------------------------
 
 local views = setmetatable({}, { __mode = "k" })
@@ -4199,6 +4457,7 @@ function RLObserve.seenLate(g)
 				now.players[i] = q
 			end
 			q.id = p.id
+			q.team = p.team
 			q.x = p.x
 			q.y = p.y
 			q.px, q.py = place(F, p)
@@ -4222,8 +4481,102 @@ end
 
 -- The observation ------------------------------------------------------------
 
+-- Everyone as one seat sees them, in seat order: itself as it is now (`mine`),
+-- the rest as they were. `gap` is how far each is from it, in pixels.
+local line = table.create(MAX_P)
+local gap = table.create(MAX_P)
+local mine = {}
 local others = table.create(MAX_P)
 local far = table.create(MAX_P)
+local sides = {}
+
+-- The jobs of one team, worked out from the line-up alone so the bot plays the
+-- job it trained for:
+--   attack: carries the team's seed home, or with no seed on the team, is the one
+--           nearest the flower (by walking) and goes for it;
+--   mark:   each rival seed carrier gets its own marker, the nearest team-mate not
+--           attacking, so two carriers are never both left to one hamster;
+--   guard:  the rest watch the rival nearest the flower, the next seed's way.
+-- Fills job[k] and markOf[k] for the team's places in `line`.
+local job = table.create(MAX_P)
+local markOf = table.create(MAX_P)
+local taken = table.create(MAX_P)
+
+local function teamJobs(F, map, count, team)
+	local seed = false
+	for k = 1, count do
+		local p = line[k]
+		job[k] = 0
+		markOf[k] = nil
+		taken[k] = false
+		if p.team == team and p.carrying then
+			job[k] = ATTACK
+			seed = true
+		end
+	end
+	if not seed then
+		local best = nil
+		local bestD = INF
+		for k = 1, count do
+			local p = line[k]
+			if p.team == team then
+				local d = fieldAt(F, F.flower, p.px, p.py)
+				if not best or d < bestD then
+					best = k
+					bestD = d
+				end
+			end
+		end
+		job[best] = ATTACK
+	end
+	-- Nearest pairs first, each carrier and each marker used once. Of pairs as
+	-- near as each other the earlier carrier, then the earlier marker, goes first.
+	while true do
+		local marker = nil
+		local carrier = nil
+		local nearest = INF
+		for c = 1, count do
+			local rival = line[c]
+			if rival.team ~= team and rival.carrying and not taken[c] then
+				for k = 1, count do
+					if line[k].team == team and job[k] == 0 then
+						local d = hypot(rival.px - line[k].px, rival.py - line[k].py)
+						if d < nearest then
+							marker = k
+							carrier = c
+							nearest = d
+						end
+					end
+				end
+			end
+		end
+		if not marker then
+			break
+		end
+		taken[carrier] = true
+		job[marker] = MARKING
+		markOf[marker] = line[carrier]
+	end
+	local fx, fy = px(map.flower.x), px(map.flower.y)
+	local threat = nil
+	local threatD = INF
+	for k = 1, count do
+		local p = line[k]
+		if p.team ~= team and not p.carrying then
+			local d = hypot(p.px - fx, p.py - fy)
+			if not threat or d < threatD then
+				threat = p
+				threatD = d
+			end
+		end
+	end
+	for k = 1, count do
+		if line[k].team == team and job[k] == 0 then
+			job[k] = GUARDING
+			markOf[k] = threat
+		end
+	end
+end
 
 -- Fills out[1..OBS] with what the hamster `id` sees: itself and the map as they
 -- are now, the others as they were in `past` (from seenLate). A hamster that has
@@ -4247,23 +4600,54 @@ function RLObserve.observe(g, past, id, out)
 	if nibbler and not g.byId[nibbler] then
 		nibbler = nil
 	end
+	local team = me.team
+	local teams = 0
+	table.clear(sides)
+	for _, p in g.players do
+		if p.team >= 0 and not sides[p.team] then
+			sides[p.team] = true
+			teams += 1
+		end
+	end
 
 	-- Everyone else, nearest first, in pixels; whoever is as near as another
-	-- keeps its seat's place. `prey` is the nearest of them with a seed.
+	-- keeps its seat's place. `prey` is the nearest rival with a seed.
 	local x, y = place(F, me)
+	mine.id = id
+	mine.team = team
+	mine.x = me.x
+	mine.y = me.y
+	mine.px = x
+	mine.py = y
+	mine.carrying = me.carrying
+	local count = 0
+	local myPlace = 0
 	local n = 0
 	local prey = nil
 	local preyD = INF
 	local seeds = 0
+	local mateSeed = false
 	local robbed = 0
 	for _, p in past.players do
-		if p.id ~= id and g.byId[p.id] then
+		if p.id == id then
+			count += 1
+			line[count] = mine
+			gap[count] = 0
+			myPlace = count
+		elseif g.byId[p.id] then
 			local d = hypot(p.px - x, p.py - y)
+			count += 1
+			line[count] = p
+			gap[count] = d
 			if p.carrying then
-				seeds += 1
-				if d < preyD then
-					prey = p
-					preyD = d
+				if team >= 0 and p.team == team then
+					mateSeed = true
+				else
+					seeds += 1
+					if d < preyD then
+						prey = p
+						preyD = d
+					end
 				end
 			end
 			if p.pickOn == id then
@@ -4306,10 +4690,11 @@ function RLObserve.observe(g, past, id, out)
 	out[ROUND + 2] = g.homeX / W
 	out[ROUND + 3] = if g.nibbler == id then 1 else 0
 	out[ROUND + 4] = if nibbler and nibbler ~= id then 1 else 0
-	out[ROUND + 5] = (n + 1) / MAX_P
-	-- Then whether I am in a team.
+	out[ROUND + 5] = count / MAX_P
+	out[ROUND + 6] = if team >= 0 then 1 else 0
 	out[ROUND + 7] = if seeds > 0 then 1 else 0
-	-- Then how many teams, night and dusk, and which of the seven maps this is.
+	out[ROUND + 8] = teams / 4
+	-- Then night and dusk, and which of the seven maps this is.
 	out[MEADOW] = 1
 
 	hint(F, F.flower, x, y, out, NAV)
@@ -4341,7 +4726,7 @@ function RLObserve.observe(g, past, id, out)
 		out[o + 4] = p.vx / Config.SPEED
 		out[o + 5] = p.vy / Config.SPEED
 		out[o + 6] = if p.carrying then 1 else 0
-		-- o + 7 is whether it is on my team.
+		out[o + 7] = if team >= 0 and p.team == team then 1 else 0
 		out[o + 8] = if p.windup then 1 else 0
 		out[o + 9] = if p.recovery then 1 else 0
 		out[o + 10] = p.cooldown / Config.BONK.cooldown
@@ -4349,16 +4734,24 @@ function RLObserve.observe(g, past, id, out)
 		out[o + 12] = (p.x - g.homeX) / W
 	end
 
-	-- Whom I am after. On my own that is the nearest rival with a seed; the three
-	-- numbers before these say which job I have in a team, and the fourth whether
-	-- a teammate has a seed.
-	out[MARK + 4] = seeds / 4
-	if prey then
-		out[MARK + 5] = 1
-		out[MARK + 6] = (prey.x - me.x) / W
-		out[MARK + 7] = (prey.y - me.y) / H
-		out[MARK + 8] = fieldAt(F, F.home, prey.px, prey.py)
-		out[MARK + 9] = math.min(1, preyD / 1000)
+	-- My job, who has a seed, and whom I am watching. On my own I have no job and
+	-- watch the nearest hamster with a seed.
+	local mark = prey
+	if team >= 0 then
+		teamJobs(F, map, count, team)
+		mark = markOf[myPlace]
+		out[TEAM] = if job[myPlace] == ATTACK then 1 else 0
+		out[TEAM + 1] = if job[myPlace] == MARKING then 1 else 0
+		out[TEAM + 2] = if job[myPlace] == GUARDING then 1 else 0
+	end
+	out[TEAM + 3] = if mateSeed then 1 else 0
+	out[TEAM + 4] = seeds / 4
+	if mark then
+		out[TEAM + 5] = 1
+		out[TEAM + 6] = (mark.x - me.x) / W
+		out[TEAM + 7] = (mark.y - me.y) / H
+		out[TEAM + 8] = fieldAt(F, F.home, mark.px, mark.py)
+		out[TEAM + 9] = math.min(1, hypot(mark.px - x, mark.py - y) / 1000)
 	end
 
 	-- Pickpocketing: how far I am into taking a seed, how long until I may try
@@ -4371,6 +4764,75 @@ function RLObserve.observe(g, past, id, out)
 		out[PICK + 3] = (prey.x - me.x) / W
 		out[PICK + 4] = (prey.y - me.y) / H
 		out[PICK + 5] = math.min(1, preyD / (8 * Config.PICK.reach * PX))
+	end
+
+	if team < 0 then
+		return
+	end
+
+	-- The rival furthest into a team-mate's seed, for its escort to knock off it.
+	local robber = nil
+	for k = 1, count do
+		local p = line[k]
+		if p.team ~= team and p.pickOn >= 0 and (not robber or p.pick > robber.pick) then
+			for c = 1, count do
+				if line[c].id == p.pickOn and c ~= myPlace and line[c].team == team then
+					robber = p
+				end
+			end
+		end
+	end
+	if robber then
+		out[GUARD] = 1
+		out[GUARD + 1] = math.min(1, robber.pick / steal)
+		out[GUARD + 2] = (robber.x - me.x) / W
+		out[GUARD + 3] = (robber.y - me.y) / H
+		out[GUARD + 4] = math.min(1, hypot(robber.px - x, robber.py - y) / 1000)
+	end
+
+	-- The nearest team-mate's job and whether it is after the same rival, and the
+	-- spot ahead of the rival carrier nearest home where its way home can be cut
+	-- off, with whether a team-mate is nearer that carrier: one presses from
+	-- behind, the other gets in front.
+	local mate = nil
+	local carrier = nil
+	local carrierD = INF
+	for k = 1, count do
+		local p = line[k]
+		if p.team ~= team then
+			if p.carrying then
+				local d = fieldAt(F, F.home, p.px, p.py)
+				if not carrier or d < carrierD then
+					carrier = k
+					carrierD = d
+				end
+			end
+		elseif k ~= myPlace and (not mate or gap[k] < gap[mate]) then
+			mate = k
+		end
+	end
+	if mate then
+		out[MATE] = 1
+		out[MATE + 1] = if job[mate] == ATTACK then 1 else 0
+		out[MATE + 2] = if job[mate] == MARKING then 1 else 0
+		out[MATE + 3] = if job[mate] == GUARDING then 1 else 0
+		out[MATE + 4] = if mark and markOf[mate] == mark then 1 else 0
+	end
+	if carrier then
+		local c = line[carrier]
+		local cutX, cutY = ahead(F, F.home, c.px, c.py, 120)
+		local nearer = false
+		for k = 1, count do
+			local p = line[k]
+			if k ~= myPlace and p.team == team and hypot(c.px - p.px, c.py - p.py) < gap[carrier] then
+				nearer = true
+			end
+		end
+		out[MATE + 5] = (cutX - x) / (W * PX)
+		out[MATE + 6] = (cutY - y) / (H * PX)
+		out[MATE + 7] = math.min(1, hypot(cutX - x, cutY - y) / 1000)
+		out[MATE + 8] = if nearer then 1 else 0
+		out[MATE + 9] = carrierD
 	end
 end
 
@@ -4695,6 +5157,7 @@ local seats = {} -- [seat number] = player
 local bots = {} -- [seat number] = { think, name }
 local botCount = 3 -- how many the lobby has asked for
 local botLevel = "normal"
+local teams = false -- two sides instead of everyone for themselves
 local simInputs = {}
 local rng = Random.new()
 
@@ -4713,6 +5176,7 @@ local function roster()
 			name = player.DisplayName,
 			wins = wins[player.UserId] or 0,
 			kills = if p then p.kills + p.throws else 0,
+			team = if p and p.team >= 0 then p.team else nil,
 		})
 	end
 	for seat, bot in bots do
@@ -4723,6 +5187,7 @@ local function roster()
 			name = bot.name,
 			wins = wins[bot.name] or 0,
 			kills = if p then p.kills + p.throws else 0,
+			team = if p and p.team >= 0 then p.team else nil,
 		})
 	end
 	table.sort(list, function(a, b)
@@ -4755,7 +5220,7 @@ local function sendLobby()
 	-- The count runs only while some, but not all, are ready.
 	local left = if enough(readied) and readied < count then math.ceil(timer) else nil
 	local people = {}
-	local mark = { count, readied, left or -1, botCount, botLevel }
+	local mark = { count, readied, left or -1, botCount, botLevel, if teams then 1 else 0 }
 	for _, player in joined do
 		table.insert(people, { name = player.DisplayName, ready = ready[player] == true })
 		table.insert(mark, if ready[player] then 1 else 0)
@@ -4775,6 +5240,7 @@ local function sendLobby()
 		people = people,
 		bots = botsFor(math.max(1, readied)),
 		level = LEVEL_NAMES[botLevel] or botLevel,
+		teams = teams,
 	}
 	roundRemote:FireAllClients(lastLobby)
 end
@@ -4801,6 +5267,13 @@ local function startRound()
 		bots[i] = { brain = brain, name = "🤖 " .. BOT_NAMES[k] }
 		simInputs[i] = { mx = 0, my = 0, bonk = false, throw = false }
 		slots[i] = { id = i, name = bots[i].name }
+	end
+	-- Sides by turns down the seats: people are seated first, so they are spread
+	-- over both teams and the bots fill each side up.
+	if teams then
+		for i, slot in slots do
+			slot.team = (i - 1) % 2
+		end
 	end
 	game_ = Sim.new(Map, slots, function()
 		return rng:NextNumber()
@@ -4957,6 +5430,8 @@ lobbyRemote.OnServerEvent:Connect(function(player, what, value)
 	end
 	if what == "bots" and type(value) == "number" then
 		botCount = math.clamp(botCount + (if value > 0 then 1 else -1), 0, Config.MAX_PLAYERS - 1)
+	elseif what == "teams" then
+		teams = not teams
 	elseif what == "level" then
 		botLevel = LEVELS[(table.find(LEVELS, botLevel) or 0) % #LEVELS + 1]
 	end
@@ -5425,7 +5900,10 @@ local function basePart(parent, color)
 	return p
 end
 
--- info: { id, name }. `me` marks the local player's own hamster.
+-- A team round paints a ring under everyone in its side's colour.
+Hamster.TEAM_COLORS = { [0] = Color3.fromRGB(255, 96, 96), [1] = Color3.fromRGB(90, 160, 255) }
+
+-- info: { id, name, team }. `me` marks the local player's own hamster.
 function Hamster.new(parent, info, me)
 	local rgb = Config.COLORS[info.id]
 	local fur = Color3.fromRGB(rgb[1], rgb[2], rgb[3])
@@ -5493,11 +5971,12 @@ function Hamster.new(parent, info, me)
 		self.pieces["star" .. i].part.Material = Enum.Material.Neon
 	end
 
-	if me then
-		local ring = basePart(model, WHITE)
+	local side = info.team and Hamster.TEAM_COLORS[info.team]
+	if me or side then
+		local ring = basePart(model, side or WHITE)
 		ring.Shape = Enum.PartType.Cylinder
 		ring.Material = Enum.Material.Neon
-		ring.Transparency = 0.25
+		ring.Transparency = if me then 0.1 else 0.35
 		self.ring = ring
 	end
 
@@ -5710,7 +6189,8 @@ function Hamster:draw(dt, x, y, p, view)
 	end
 
 	if self.ring then
-		local pulse = 1 + math.sin(self.clock * 4) * 0.05
+		-- My own ring is the wider one, and it breathes.
+		local pulse = if self.me then 1.12 + math.sin(self.clock * 4) * 0.06 else 1
 		self.ring.Size = Vector3.new(0.08, (R + 0.7) * 2 * pulse, (R + 0.7) * 2 * pulse)
 		self.ring.CFrame = CFrame.new(x, 0.36, y) * UPRIGHT
 	end
@@ -6245,7 +6725,7 @@ ContextActionService:BindAction("HashRushReady", function(_, inputState)
 end, false, Enum.KeyCode.Return, Enum.KeyCode.KeypadEnter, Enum.KeyCode.ButtonStart)
 
 -- The lobby's bots: how many, and how good. Anyone may change them.
-local botBar = panel({ AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -134), Size = UDim2.fromOffset(430, 46), Visible = false }, hud, 23)
+local botBar = panel({ AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -134), Size = UDim2.fromOffset(546, 46), Visible = false }, hud, 23)
 local botLabel = text({ Position = UDim2.fromOffset(16, 9), Size = UDim2.fromOffset(120, 28), TextXAlignment = Enum.TextXAlignment.Left }, botBar, false)
 local function barButton(label, x, width, action)
 	local button = make("TextButton", { Position = UDim2.fromOffset(x, 6), Size = UDim2.fromOffset(width, 34), BackgroundColor3 = Color3.fromRGB(110, 78, 48), BorderSizePixel = 0, AutoButtonColor = false, Font = FONT, TextSize = 20, TextColor3 = CREAM, Text = label }, botBar)
@@ -6265,6 +6745,9 @@ barButton("+", 192, 40, function()
 end)
 local levelButton = barButton("", 246, 170, function()
 	lobbyRemote:FireServer("level")
+end)
+local modeButton = barButton("", 424, 108, function()
+	lobbyRemote:FireServer("teams")
 end)
 
 -- How to play and who is here, shown while waiting in the lobby.
@@ -6363,7 +6846,8 @@ local function drawScores()
 		if info then
 			local chip = make("Frame", { LayoutOrder = seat, AutomaticSize = Enum.AutomaticSize.X, Size = UDim2.fromOffset(0, 30), BackgroundColor3 = PANEL, BorderSizePixel = 0 }, scoreRow)
 			make("UICorner", { CornerRadius = UDim.new(0.5, 0) }, chip)
-			make("UIStroke", { Thickness = if seat == mySeat then 3 else 2, Color = if seat == mySeat then GOLD else INK }, chip)
+			local side = info.team and Hamster.TEAM_COLORS[info.team]
+			make("UIStroke", { Thickness = if seat == mySeat or side then 3 else 2, Color = side or (if seat == mySeat then GOLD else INK) }, chip)
 			make("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, VerticalAlignment = Enum.VerticalAlignment.Center, Padding = UDim.new(0, 6) }, chip)
 			make("UIPadding", { PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 12) }, chip)
 			local dot = make("Frame", { Size = UDim2.fromOffset(20, 20), BackgroundColor3 = seatColor(seat), BorderSizePixel = 0 }, chip)
@@ -6523,7 +7007,18 @@ local function showResult(msg)
 		table.insert(names, nameOf(seat))
 		iWon = iWon or seat == mySeat
 	end
-	resultTitle.Text = if #names > 0 then "🏆 " .. table.concat(names, " · ") .. " 승리!" else "판이 끝났어요"
+	local winner = roster[msg.winners[1]]
+	local wholeTeam = winner and winner.team ~= nil
+	for _, seat in msg.winners do
+		wholeTeam = wholeTeam and roster[seat] and roster[seat].team == winner.team
+	end
+	if wholeTeam then
+		resultTitle.Text = (if winner.team == 0 then "🏆 빨강 팀" else "🏆 파랑 팀") .. " 승리!"
+		resultTitle.TextColor3 = Hamster.TEAM_COLORS[winner.team]
+	else
+		resultTitle.Text = if #names > 0 then "🏆 " .. table.concat(names, " · ") .. " 승리!" else "판이 끝났어요"
+		resultTitle.TextColor3 = GOLD
+	end
 	resultWhy.Text = if msg.left then "상대가 나가서 판이 끝났어요" elseif msg.timeout then "시간 종료 · 꿀밤 횟수로 정했어요" else "해씨를 물고 집에 돌아왔어요"
 	local sorted = table.clone(msg.roster)
 	table.sort(sorted, function(a, b)
@@ -6596,6 +7091,7 @@ roundRemote.OnClientEvent:Connect(function(msg)
 		botBar.Visible = true
 		botLabel.Text = ("🤖 봇 %d"):format(msg.bots)
 		levelButton.Text = "난이도 " .. msg.level
+		modeButton.Text = if msg.teams then "⚔ 팀전" else "👤 개인전"
 		showPeople(msg)
 		if msg.left then
 			notice(("%d초 뒤 시작해요 · 준비 %d/%d명"):format(msg.left, msg.ready, msg.count))

@@ -37,7 +37,10 @@ local function basePart(parent, color)
 	return p
 end
 
--- info: { id, name }. `me` marks the local player's own hamster.
+-- A team round paints a ring under everyone in its side's colour.
+Hamster.TEAM_COLORS = { [0] = Color3.fromRGB(255, 96, 96), [1] = Color3.fromRGB(90, 160, 255) }
+
+-- info: { id, name, team }. `me` marks the local player's own hamster.
 function Hamster.new(parent, info, me)
 	local rgb = Config.COLORS[info.id]
 	local fur = Color3.fromRGB(rgb[1], rgb[2], rgb[3])
@@ -105,11 +108,12 @@ function Hamster.new(parent, info, me)
 		self.pieces["star" .. i].part.Material = Enum.Material.Neon
 	end
 
-	if me then
-		local ring = basePart(model, WHITE)
+	local side = info.team and Hamster.TEAM_COLORS[info.team]
+	if me or side then
+		local ring = basePart(model, side or WHITE)
 		ring.Shape = Enum.PartType.Cylinder
 		ring.Material = Enum.Material.Neon
-		ring.Transparency = 0.25
+		ring.Transparency = if me then 0.1 else 0.35
 		self.ring = ring
 	end
 
@@ -322,7 +326,8 @@ function Hamster:draw(dt, x, y, p, view)
 	end
 
 	if self.ring then
-		local pulse = 1 + math.sin(self.clock * 4) * 0.05
+		-- My own ring is the wider one, and it breathes.
+		local pulse = if self.me then 1.12 + math.sin(self.clock * 4) * 0.06 else 1
 		self.ring.Size = Vector3.new(0.08, (R + 0.7) * 2 * pulse, (R + 0.7) * 2 * pulse)
 		self.ring.CFrame = CFrame.new(x, 0.36, y) * UPRIGHT
 	end

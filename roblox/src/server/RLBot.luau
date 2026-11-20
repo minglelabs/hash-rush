@@ -1,5 +1,6 @@
--- The learned bot: plays with the network the web game trained for free-for-all
--- rounds (weights/, run by RLPolicy). Ported from the web game's src/ai/rl-bot.js.
+-- The learned bot: plays with the networks the web game trained (weights/, run
+-- by RLPolicy), one for free-for-all rounds and one for team rounds, picked by
+-- the round it is in. Ported from the web game's src/ai/rl-bot.js.
 -- It sees what it saw in training (RLObserve): itself as it is now and the other
 -- hamsters a few ticks late. Like in training it picks a move every few ticks and
 -- holds it in between.
@@ -30,45 +31,57 @@ end
 -- The weights are put together once, the first time a bot is made, and the
 -- map's walking distances worked out then too: both take a moment that a round
 -- in play should not have to wait for.
-local policy
-local function loadPolicy()
-	if not policy then
+-- The web game's rl-solo.bin and rl-team.bin are the same file for now, so only
+-- RLSolo is packed and it plays team rounds too. Team weights of their own go
+-- in beside it as RLTeam, RLTeam01, ... (tools/pack_weights.py).
+local policies
+local function load(folder, name)
+	local index = require(folder:WaitForChild(name))
+	local chunks = {}
+	for i = 1, index.chunks do
+		chunks[i] = require(folder:WaitForChild(string.format("%s%02d", name, i)))
+	end
+	-- Older weights saw themselves late too; these and the ones since do not.
+	assert(index.meta.selfNow, "RLBot plays weights that see themselves as they are now")
+	return RLPolicy.load(index, chunks)
+end
+local function loadPolicies()
+	if not policies then
 		RLObserve.fields(Map)
 		local folder = script.Parent:WaitForChild("weights")
-		local index = require(folder:WaitForChild("RLSolo"))
-		local chunks = {}
-		for i = 1, index.chunks do
-			chunks[i] = require(folder:WaitForChild(string.format("RLSolo%02d", i)))
-		end
-		-- Older weights saw themselves late too; these and the ones since do not.
-		assert(index.meta.selfNow, "RLBot plays weights that see themselves as they are now")
-		policy = RLPolicy.load(index, chunks)
+		local solo = load(folder, "RLSolo")
+		policies = { solo = solo, team = if folder:FindFirstChild("RLTeam") then load(folder, "RLTeam") else solo }
 	end
-	return policy
+	return policies
+end
+
+-- The network that plays the hamster `p`: the team one if it is in a team.
+function RLBot.policyFor(p)
+	local all = loadPolicies()
+	return if p and p.team >= 0 then all.team else all.solo
 end
 
 -- options: { seed = number, offset = number }. Returns { think(g, id) -> input },
 -- to be asked every tick of the round. `offset` shifts which ticks it decides on,
 -- so several bots in a round do not all run their networks on the same tick.
 function RLBot.new(options)
-	local brain = loadPolicy()
-	local every = brain.meta.frameSkip or 4
-	local temperature = brain.meta.temperature or 1
+	loadPolicies()
 	local random = mulberry32(if options and options.seed then options.seed else 1)
 	local view = table.create(RLObserve.OBS, 0)
-	local tick = if options and options.offset then options.offset % every else 0
+	local tick = if options and options.offset then options.offset else 0
 	local move, bonk, throw = 0, 0, 0
 
 	local bot = {}
 
 	function bot.think(g, id)
-		local fresh = tick % every == 0
+		local brain = RLBot.policyFor(g.byId[id])
+		local fresh = tick % (brain.meta.frameSkip or 4) == 0
 		tick += 1
 		-- Every tick, so the late view has no gaps.
 		local past = RLObserve.seenLate(g)
 		if fresh then
 			RLObserve.observe(g, past, id, view)
-			local choice = brain.act(view, temperature, random)
+			local choice = brain.act(view, brain.meta.temperature or 1, random)
 			move, bonk, throw = choice[1], choice[2], choice[3]
 		end
 		local dir = DIRS[move + 1]
