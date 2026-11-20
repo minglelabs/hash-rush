@@ -1,0 +1,2049 @@
+<roblox version="4"><Item class="Workspace"><Properties><string name="Name">Workspace</string><bool name="StreamingEnabled">false</bool></Properties></Item><Item class="Players"><Properties><string name="Name">Players</string><bool name="CharacterAutoLoads">false</bool></Properties></Item><Item class="Lighting"><Properties><string name="Name">Lighting</string><bool name="GlobalShadows">false</bool><float name="Brightness">2</float><string name="TimeOfDay">15:00:00</string><float name="EnvironmentSpecularScale">0</float><Color3 name="Ambient"><R>0.75</R><G>0.75</G><B>0.75</B></Color3><Color3 name="OutdoorAmbient"><R>0.75</R><G>0.75</G><B>0.75</B></Color3></Properties></Item><Item class="ReplicatedStorage"><Properties><string name="Name">ReplicatedStorage</string></Properties><Item class="ModuleScript"><Properties><string name="Name">Config</string><ProtectedString name="Source"><![CDATA[-- Every tuning value of the game. Distances are studs (10 web pixels = 1 stud),
+-- times are seconds.
+
+local Config = {}
+
+Config.TICK_RATE = 60
+Config.DT = 1 / Config.TICK_RATE
+
+Config.HAMSTER_R = 1.5
+Config.SPEED = 18.5
+-- A hamster with a seed is slower, and slower still right before home.
+Config.CARRY_SPEED = 0.85
+Config.ALARM_RANGE = 19
+Config.LAST_STRETCH_SPEED = 0.7
+
+Config.COUNTDOWN = 3
+
+-- Stalemate breaker: after `start` the home edge creeps towards the flower, from
+-- `rush` it comes on fast. A seed comes loose quicker (down to `nibble` of the
+-- usual time at `rush`), and whoever is knocked out sits dazed for `daze`.
+-- At `finish` the round is called on bonks.
+Config.OVERTIME = { start = 40, speed = 0.65, rush = 70, rushSpeed = 2.0, nibble = 0.45, daze = 1.5, finish = 105 }
+
+Config.GATHER_TIME = 2.2
+-- Four players is the baseline; more players nibble quicker.
+function Config.gatherTime(players: number, time: number?): number
+	local ot = Config.OVERTIME
+	local late = math.clamp(((time or 0) - ot.start) / (ot.rush - ot.start), 0, 1)
+	return (Config.GATHER_TIME * 4 / math.max(4, players)) * (1 - (1 - ot.nibble) * late)
+end
+
+Config.BONK = {
+	windup = 0.14, -- standing still before the hit lands
+	recovery = 0.42, -- stuck after the hit; a whiff is punishable
+	cooldown = 0.8, -- from swing start until the next swing
+	reach = 4, -- centre-to-centre distance that still hits
+	arcCos = math.cos(math.rad(75)),
+	recoveryMove = 0.15,
+	chain = 2, -- a knock-out this soon after the last one makes a double, a triple...
+	assist = 8, -- auto-aim picks the nearest rival inside this radius
+}
+
+Config.THROW = { charge = 0.4, max = 1.6, range = 12, width = 2.1 }
+
+-- Lobby and round flow.
+Config.MIN_PLAYERS = 2
+Config.MAX_PLAYERS = 8
+Config.LOBBY_COUNTDOWN = 10
+Config.RESULT_TIME = 5
+
+-- One colour per seat, as { r, g, b } 0..255.
+Config.COLORS = {
+	{ 244, 162, 97 },
+	{ 255, 255, 255 },
+	{ 120, 144, 156 },
+	{ 255, 213, 79 },
+	{ 161, 136, 127 },
+	{ 240, 98, 146 },
+	{ 100, 181, 246 },
+	{ 174, 213, 129 },
+}
+
+return Config
+]]></ProtectedString></Properties></Item><Item class="ModuleScript"><Properties><string name="Name">Snapshot</string><ProtectedString name="Source"><![CDATA[-- The world as the server sends it every tick, packed into a buffer so it stays
+-- well under the size limit of an UnreliableRemoteEvent.
+--
+-- header (19 bytes): u8 round, u16 tick, u8 phase, f32 countdown, f32 time,
+--   f32 homeX, u8 nibbler id (0 = nobody), u8 gather progress (0..255), u8 players
+-- per player (15 bytes): u8 id, f32 x, f32 y, f32 facing angle, u8 flags,
+--   u8 throw charge (0..255 of THROW.max)
+
+local Config = require(script.Parent:WaitForChild("Config"))
+
+local Snapshot = {}
+
+local HEADER = 19
+local PER_PLAYER = 15
+local PHASES = { "countdown", "playing", "over" }
+
+local CARRYING, WINDUP, RECOVERY, DAZED, ALARM = 1, 2, 4, 8, 16
+
+local function byte(fraction)
+	return math.clamp(math.floor(fraction * 255 + 0.5), 0, 255)
+end
+
+-- `alarm(p)` says whether p is a carrier in the last stretch.
+function Snapshot.encode(round, g, alarm)
+	local players = g.players
+	local b = buffer.create(HEADER + PER_PLAYER * #players)
+	local gather = 0
+	local nibbler = g.nibbler and g.byId[g.nibbler]
+	if nibbler then
+		gather = nibbler.gather / Config.gatherTime(#players, g.time)
+	end
+	buffer.writeu8(b, 0, round % 256)
+	buffer.writeu16(b, 1, g.tick % 65536)
+	buffer.writeu8(b, 3, table.find(PHASES, g.phase) or 1)
+	buffer.writef32(b, 4, g.countdown)
+	buffer.writef32(b, 8, g.time)
+	buffer.writef32(b, 12, g.homeX)
+	buffer.writeu8(b, 16, g.nibbler or 0)
+	buffer.writeu8(b, 17, byte(gather))
+	buffer.writeu8(b, 18, #players)
+	for i, p in players do
+		local o = HEADER + (i - 1) * PER_PLAYER
+		local flags = 0
+		if p.carrying then
+			flags += CARRYING
+		end
+		if p.swing then
+			flags += if p.swing.windup then WINDUP else RECOVERY
+		end
+		if p.dazed > 0 then
+			flags += DAZED
+		end
+		if alarm(p) then
+			flags += ALARM
+		end
+		buffer.writeu8(b, o, p.id)
+		buffer.writef32(b, o + 1, p.x)
+		buffer.writef32(b, o + 5, p.y)
+		buffer.writef32(b, o + 9, math.atan2(p.fy, p.fx))
+		buffer.writeu8(b, o + 13, flags)
+		buffer.writeu8(b, o + 14, byte(p.charge / Config.THROW.max))
+	end
+	return b
+end
+
+function Snapshot.decode(b)
+	local snap = {
+		round = buffer.readu8(b, 0),
+		tick = buffer.readu16(b, 1),
+		phase = PHASES[buffer.readu8(b, 3)],
+		countdown = buffer.readf32(b, 4),
+		time = buffer.readf32(b, 8),
+		homeX = buffer.readf32(b, 12),
+		nibbler = buffer.readu8(b, 16),
+		gather = buffer.readu8(b, 17) / 255,
+		players = {},
+	}
+	for i = 1, buffer.readu8(b, 18) do
+		local o = HEADER + (i - 1) * PER_PLAYER
+		local flags = buffer.readu8(b, o + 13)
+		local angle = buffer.readf32(b, o + 9)
+		table.insert(snap.players, {
+			id = buffer.readu8(b, o),
+			x = buffer.readf32(b, o + 1),
+			y = buffer.readf32(b, o + 5),
+			fx = math.cos(angle),
+			fy = math.sin(angle),
+			carrying = bit32.btest(flags, CARRYING),
+			windup = bit32.btest(flags, WINDUP),
+			recovery = bit32.btest(flags, RECOVERY),
+			dazed = bit32.btest(flags, DAZED),
+			alarm = bit32.btest(flags, ALARM),
+			charge = buffer.readu8(b, o + 14) / 255 * Config.THROW.max,
+		})
+	end
+	return snap
+end
+
+return Snapshot
+]]></ProtectedString></Properties></Item></Item><Item class="ServerScriptService"><Properties><string name="Name">ServerScriptService</string></Properties><Item class="ModuleScript"><Properties><string name="Name">Sim</string><ProtectedString name="Source"><![CDATA[-- The game itself, as plain logic: no Instances, no remotes, no clock. Every tick
+-- it takes one input per player and advances the world by Config.DT.
+--   input = { mx, my, bonk, throw }   move vector and the two buttons, held or not
+-- Ported from the web game's src/sim/game.js (meadow, free-for-all).
+
+local Config = require(game:GetService("ReplicatedStorage"):WaitForChild("Config"))
+
+local DT = Config.DT
+local R = Config.HAMSTER_R
+local BONK = Config.BONK
+local THROW = Config.THROW
+local OVERTIME = Config.OVERTIME
+
+local Sim = {}
+
+local EMPTY_INPUT = table.freeze({ mx = 0, my = 0, bonk = false, throw = false })
+
+local function hypot(x, y)
+	return math.sqrt(x * x + y * y)
+end
+
+-- Collision ---------------------------------------------------------------
+
+-- Hedges collide as rounded rectangles: a core rect grown by the corner radius.
+local function pushOutHedge(p, rect, corner)
+	local cx = math.clamp(p.x, rect.x + corner, rect.x + rect.w - corner)
+	local cy = math.clamp(p.y, rect.y + corner, rect.y + rect.h - corner)
+	local dx = p.x - cx
+	local dy = p.y - cy
+	local min = R + corner
+	local d2 = dx * dx + dy * dy
+	if d2 >= min * min then
+		return
+	end
+	if d2 > 1e-9 then
+		local d = math.sqrt(d2)
+		p.x = cx + dx / d * min
+		p.y = cy + dy / d * min
+		return
+	end
+	-- Centre is inside the core: leave through the nearest side.
+	local left = p.x - rect.x
+	local right = rect.x + rect.w - p.x
+	local top = p.y - rect.y
+	local bottom = rect.y + rect.h - p.y
+	local m = math.min(left, right, top, bottom)
+	if m == left then
+		p.x = rect.x - R
+	elseif m == right then
+		p.x = rect.x + rect.w + R
+	elseif m == top then
+		p.y = rect.y - R
+	else
+		p.y = rect.y + rect.h + R
+	end
+end
+
+local function pushOutFlower(p, f)
+	local dx = p.x - f.x
+	local dy = p.y - f.y
+	local min = R + f.r
+	local d2 = dx * dx + dy * dy
+	if d2 >= min * min then
+		return
+	end
+	local d = math.sqrt(d2)
+	if d < 1e-6 then
+		p.x = f.x + min
+		return
+	end
+	p.x = f.x + dx / d * min
+	p.y = f.y + dy / d * min
+end
+
+-- Walls, the flower and the map edge.
+local function collide(map, p)
+	local b = map.bounds
+	for _ = 1, 2 do
+		for _, rect in map.rects do
+			pushOutHedge(p, rect, map.corner)
+		end
+		pushOutFlower(p, map.flower)
+		p.x = math.clamp(p.x, b.x1 + R, b.x2 - R)
+		p.y = math.clamp(p.y, b.y1 + R, b.y2 - R)
+	end
+end
+
+local function segmentHitsRect(ax, ay, bx, by, x1, y1, x2, y2)
+	local t0 = 0
+	local t1 = 1
+	local dx = bx - ax
+	local dy = by - ay
+	if math.abs(dx) < 1e-9 then
+		if ax < x1 or ax > x2 then
+			return false
+		end
+	else
+		local ta = (x1 - ax) / dx
+		local tb = (x2 - ax) / dx
+		t0 = math.max(t0, math.min(ta, tb))
+		t1 = math.min(t1, math.max(ta, tb))
+		if t0 > t1 then
+			return false
+		end
+	end
+	if math.abs(dy) < 1e-9 then
+		if ay < y1 or ay > y2 then
+			return false
+		end
+	else
+		local ta = (y1 - ay) / dy
+		local tb = (y2 - ay) / dy
+		t0 = math.max(t0, math.min(ta, tb))
+		t1 = math.min(t1, math.max(ta, tb))
+		if t0 > t1 then
+			return false
+		end
+	end
+	return true
+end
+
+local function distToSegment(px, py, ax, ay, bx, by)
+	local dx = bx - ax
+	local dy = by - ay
+	local len2 = dx * dx + dy * dy
+	local t = if len2 > 1e-9 then math.clamp(((px - ax) * dx + (py - ay) * dy) / len2, 0, 1) else 0
+	return hypot(px - (ax + dx * t), py - (ay + dy * t))
+end
+
+local function pointRectDistance(px, py, x1, y1, x2, y2)
+	return hypot(px - math.clamp(px, x1, x2), py - math.clamp(py, y1, y2))
+end
+
+local function segmentRectDistance(ax, ay, bx, by, x1, y1, x2, y2)
+	if segmentHitsRect(ax, ay, bx, by, x1, y1, x2, y2) then
+		return 0
+	end
+	return math.min(
+		pointRectDistance(ax, ay, x1, y1, x2, y2),
+		pointRectDistance(bx, by, x1, y1, x2, y2),
+		distToSegment(x1, y1, ax, ay, bx, by),
+		distToSegment(x2, y1, ax, ay, bx, by),
+		distToSegment(x1, y2, ax, ay, bx, by),
+		distToSegment(x2, y2, ax, ay, bx, by)
+	)
+end
+
+-- A clear line from a to b: no hedge and no flower in between.
+local function sight(map, a, b)
+	local c = map.corner
+	for _, r in map.rects do
+		if segmentRectDistance(a.x, a.y, b.x, b.y, r.x + c, r.y + c, r.x + r.w - c, r.y + r.h - c) < c then
+			return false
+		end
+	end
+	local f = map.flower
+	return distToSegment(f.x, f.y, a.x, a.y, b.x, b.y) >= f.r
+end
+
+-- Rules -------------------------------------------------------------------
+
+-- Inside home nobody can bonk or be bonked, and a carrier who gets here wins.
+local function inHome(g, p)
+	return p.x < g.homeX
+end
+Sim.inHome = inHome
+
+-- A carrier this close to home sets the alarm off and is slowest.
+local function lastStretch(g, p)
+	return p.carrying and p.x - g.homeX < Config.ALARM_RANGE
+end
+Sim.lastStretch = lastStretch
+
+local function shuffle(list, rng)
+	for i = #list, 2, -1 do
+		local j = math.floor(rng() * i) + 1
+		list[i], list[j] = list[j], list[i]
+	end
+end
+
+-- slots: { { id = number, name = string }, ... }. rng returns a number in [0, 1).
+function Sim.new(map, slots, rng)
+	rng = rng or math.random
+	local nests = table.clone(if #slots > #map.nests then map.bigNests else map.nests)
+	shuffle(nests, rng)
+	local players = {}
+	local byId = {}
+	for i, slot in slots do
+		local p = {
+			id = slot.id,
+			name = slot.name,
+			nest = nests[i],
+			x = nests[i].x,
+			y = nests[i].y,
+			vx = 0,
+			vy = 0,
+			fx = 1,
+			fy = 0,
+			carrying = false,
+			gather = 0,
+			queued = -1,
+			swing = nil, -- { windup = boolean, t, dx, dy }
+			cooldown = 0,
+			bonkHeld = false,
+			charge = 0,
+			dazed = 0,
+			chain = 0,
+			chainUntil = 0,
+			kills = 0,
+			throws = 0,
+			deaths = 0,
+			seeds = 0,
+		}
+		players[i] = p
+		byId[p.id] = p
+	end
+	return {
+		map = map,
+		tick = 0,
+		time = 0,
+		phase = "countdown", -- "countdown" | "playing" | "over"
+		countdown = Config.COUNTDOWN,
+		homeX = map.home.x2,
+		nibbler = nil, -- id of whoever is at the flower's head of the line
+		rng = rng,
+		players = players,
+		byId = byId,
+		winners = {}, -- ids
+		timeout = false,
+		events = {},
+	}
+end
+
+-- A player who left takes its hamster with it.
+function Sim.remove(g, id)
+	local p = g.byId[id]
+	if not p then
+		return
+	end
+	g.byId[id] = nil
+	table.remove(g.players, table.find(g.players, p))
+	if g.nibbler == id then
+		g.nibbler = nil
+	end
+end
+
+local function pickAim(g, p, mx, my, moveLen)
+	local bestX, bestY
+	local bestD = BONK.assist
+	for _, e in g.players do
+		if e ~= p and not inHome(g, e) then
+			local tx = e.x + e.vx * BONK.windup - p.x
+			local ty = e.y + e.vy * BONK.windup - p.y
+			local d = hypot(tx, ty)
+			if d < bestD and d > 1e-6 then
+				bestD = d
+				bestX = tx / d
+				bestY = ty / d
+			end
+		end
+	end
+	if bestX then
+		return bestX, bestY
+	end
+	if moveLen > 0.05 then
+		return mx / moveLen, my / moveLen
+	end
+	return p.fx, p.fy
+end
+
+-- Hamsters are solid. Whoever walked into the other gives way, so standing still
+-- in a lane blocks it and nobody can be shoved along.
+local function separate(g)
+	local players = g.players
+	local min = 2 * R
+	for _ = 1, 3 do
+		for i = 1, #players do
+			for j = i + 1, #players do
+				local a = players[i]
+				local b = players[j]
+				local nx = b.x - a.x
+				local ny = b.y - a.y
+				local d = hypot(nx, ny)
+				if d < min then
+					if d < 1e-6 then
+						nx = 1
+						ny = 0
+					else
+						nx /= d
+						ny /= d
+					end
+					local pa = math.max(0, a.vx * nx + a.vy * ny)
+					local pb = math.max(0, -(b.vx * nx + b.vy * ny))
+					local wa = if pa + pb > 1e-6 then pa / (pa + pb) else 0.5
+					local overlap = min - d
+					a.x -= nx * overlap * wa
+					a.y -= ny * overlap * wa
+					b.x += nx * overlap * (1 - wa)
+					b.y += ny * overlap * (1 - wa)
+					collide(g.map, a)
+					collide(g.map, b)
+				end
+			end
+		end
+	end
+end
+
+local function sendHome(p)
+	p.x = p.nest.x
+	p.y = p.nest.y
+	p.vx = 0
+	p.vy = 0
+	p.carrying = false
+	p.gather = 0
+	p.queued = -1
+	p.swing = nil
+	p.cooldown = 0
+	p.charge = 0
+	p.dazed = 0
+end
+
+local function respawn(g, p)
+	sendHome(p)
+	-- In overtime a knock-out costs more than the walk back.
+	p.dazed = if g.time > OVERTIME.start then OVERTIME.daze else 0
+	p.chain = 0
+	p.chainUntil = 0
+	p.deaths += 1
+	table.insert(g.events, { type = "spawn", id = p.id, x = p.x, y = p.y })
+end
+
+-- Nobody brought a seed home in time: most knock-outs wins, then fewest times
+-- knocked out, then most seeds picked. Players still level share the win.
+local function timeoutWinners(players)
+	local function better(a, b)
+		local ka = a.kills + a.throws
+		local kb = b.kills + b.throws
+		if ka ~= kb then
+			return ka > kb
+		end
+		if a.deaths ~= b.deaths then
+			return a.deaths < b.deaths
+		end
+		return a.seeds > b.seeds
+	end
+	local top = players[1]
+	for _, p in players do
+		if better(p, top) then
+			top = p
+		end
+	end
+	local winners = {}
+	for _, p in players do
+		if not better(top, p) then
+			table.insert(winners, p.id)
+		end
+	end
+	return winners
+end
+
+-- Credits `a` with knocking out `victims`, by a bonk or a thrown seed.
+local function strike(g, a, victims, bonked, thrown)
+	if #victims == 0 then
+		return
+	end
+	for _, v in victims do
+		bonked[v] = true
+		if thrown then
+			a.throws += 1
+		else
+			a.kills += 1
+		end
+		-- `close` marks a seed stopped just short of home: a super play.
+		table.insert(g.events, { type = "bonk", by = a.id, id = v.id, x = v.x, y = v.y, seed = v.carrying, close = lastStretch(g, v) })
+	end
+	-- Several down at once, or one after another in quick succession.
+	a.chain = (if g.time <= a.chainUntil then a.chain else 0) + #victims
+	a.chainUntil = g.time + BONK.chain
+	if a.chain > 1 then
+		table.insert(g.events, { type = "multi", by = a.id, n = a.chain })
+	end
+end
+
+local function stepPlayer(g, p, inp, landing, throwing)
+	-- Dazed at the nest: nothing it presses does anything until it wears off.
+	if p.dazed > 0 then
+		p.dazed = math.max(0, p.dazed - DT)
+		inp = EMPTY_INPUT
+	end
+	p.cooldown = math.max(0, p.cooldown - DT)
+
+	local mx = inp.mx or 0
+	local my = inp.my or 0
+	local len = hypot(mx, my)
+	if len > 1 then
+		mx /= len
+		my /= len
+		len = 1
+	end
+
+	local pressed = inp.bonk and not p.bonkHeld
+	p.bonkHeld = inp.bonk == true
+	if pressed and not p.swing and p.cooldown <= 0 and not inHome(g, p) then
+		local ax, ay = pickAim(g, p, mx, my, len)
+		p.swing = { windup = true, t = 0, dx = ax, dy = ay }
+		p.fx = ax
+		p.fy = ay
+		p.cooldown = BONK.cooldown
+		table.insert(g.events, { type = "swing", id = p.id })
+	end
+
+	-- Holding the throw button with a seed winds up a throw, and letting go throws
+	-- it. A swing already on its way lands first.
+	local landed = not (p.swing and p.swing.windup)
+	if inp.throw and p.carrying and not inHome(g, p) then
+		p.charge += DT
+		-- Fully wound up: it goes by itself.
+		if p.charge >= THROW.max - 1e-9 and landed then
+			table.insert(throwing, p)
+			p.charge = 0
+		end
+	else
+		local ready = p.charge >= THROW.charge - 1e-9 and p.carrying and not inHome(g, p)
+		if ready and landed then
+			table.insert(throwing, p)
+		end
+		p.charge = 0
+	end
+
+	local share = 1
+	if p.carrying then
+		share = if lastStretch(g, p) then Config.LAST_STRETCH_SPEED else Config.CARRY_SPEED
+	end
+	local speed = Config.SPEED * share
+	local swing = p.swing
+	if swing then
+		swing.t += DT
+		if swing.windup then
+			p.vx = 0
+			p.vy = 0
+			if swing.t >= BONK.windup - 1e-9 then
+				swing.windup = false
+				swing.t = 0
+				table.insert(landing, p)
+			end
+		else
+			p.vx = mx * speed * BONK.recoveryMove
+			p.vy = my * speed * BONK.recoveryMove
+			if swing.t >= BONK.recovery - 1e-9 then
+				p.swing = nil
+			end
+		end
+	else
+		p.vx = mx * speed
+		p.vy = my * speed
+		if len > 0.05 then
+			p.fx = mx / len
+			p.fy = my / len
+		end
+	end
+
+	-- Winding up a throw, the hamster turns wherever it is steered.
+	if p.charge > 0 and len > 0.05 then
+		p.fx = mx / len
+		p.fy = my / len
+	end
+
+	p.x += p.vx * DT
+	p.y += p.vy * DT
+	collide(g.map, p)
+end
+
+-- The flower feeds one hamster at a time. Whoever has waited in the ring longest
+-- nibbles, and has to hold still to do it. Walking resets the progress; leaving
+-- or bonking goes to the back of the line.
+local function stepFlower(g)
+	local players = g.players
+	local f = g.map.flower
+	local nibbler = nil
+	for _, p in players do
+		local inRing = not p.carrying and hypot(p.x - f.x, p.y - f.y) <= f.gatherR
+		if not inRing or p.swing then
+			p.queued = if inRing then g.tick else -1
+			p.gather = 0
+		else
+			if p.queued < 0 then
+				p.queued = g.tick
+			end
+			if not nibbler or p.queued < nibbler.queued then
+				nibbler = p
+			end
+		end
+	end
+	g.nibbler = if nibbler then nibbler.id else nil
+	for _, p in players do
+		if p ~= nibbler then
+			p.gather = 0
+		end
+	end
+	if not nibbler then
+		return
+	end
+	if hypot(nibbler.vx, nibbler.vy) > 0.1 then
+		nibbler.gather = 0
+		return
+	end
+	nibbler.gather += DT
+	if nibbler.gather >= Config.gatherTime(#players, g.time) - 1e-9 then
+		nibbler.gather = 0
+		nibbler.queued = -1
+		nibbler.carrying = true
+		nibbler.seeds += 1
+		g.nibbler = nil
+		table.insert(g.events, { type = "seed", id = nibbler.id })
+	end
+end
+
+local function finish(g, winners, timeout)
+	g.phase = "over"
+	g.winners = winners
+	g.timeout = timeout
+	table.insert(g.events, { type = "win", ids = winners, timeout = timeout })
+end
+
+-- inputs: { [id] = input }. Events of this tick are left in g.events.
+function Sim.step(g, inputs)
+	table.clear(g.events)
+	if g.phase == "over" then
+		return g
+	end
+	g.tick += 1
+
+	if g.phase == "countdown" then
+		local before = math.ceil(g.countdown - 1e-9)
+		g.countdown -= DT
+		if g.countdown <= 1e-9 then
+			g.phase = "playing"
+			table.insert(g.events, { type = "go" })
+		else
+			local after = math.ceil(g.countdown - 1e-9)
+			if after ~= before then
+				table.insert(g.events, { type = "count", n = after })
+			end
+		end
+		return g
+	end
+
+	g.time += DT
+	local map = g.map
+	local players = g.players
+	if g.time > OVERTIME.start then
+		if g.homeX == map.home.x2 then
+			table.insert(g.events, { type = "overtime" })
+		end
+		if g.time > OVERTIME.rush and g.time - DT <= OVERTIME.rush then
+			table.insert(g.events, { type = "rush" })
+		end
+		-- A creep at first, then a rush. It stops over the near half of the flower's
+		-- ring, where a seed is home the moment it is nibbled loose.
+		local crept = (math.min(g.time, OVERTIME.rush) - OVERTIME.start) * OVERTIME.speed
+		local rushed = math.max(0, g.time - OVERTIME.rush) * OVERTIME.rushSpeed
+		g.homeX = math.min(map.flower.x, map.home.x2 + crept + rushed)
+	end
+
+	local landing = {}
+	local throwing = {}
+	for _, p in players do
+		stepPlayer(g, p, inputs[p.id] or EMPTY_INPUT, landing, throwing)
+	end
+	separate(g)
+
+	-- There is never a double knock-out. Hits landing on the same tick resolve one
+	-- at a time in a random order, and whoever is already down loses its own hit.
+	shuffle(landing, g.rng)
+	shuffle(throwing, g.rng)
+	local bonked = {}
+	-- Thrown seeds go first: everyone on the line goes down.
+	for _, a in throwing do
+		if not bonked[a] then
+			a.carrying = false
+			a.swing = nil
+			a.cooldown = BONK.cooldown
+			local victims = {}
+			for _, v in players do
+				if v ~= a and not bonked[v] and not inHome(g, v) then
+					local dx = v.x - a.x
+					local dy = v.y - a.y
+					local along = dx * a.fx + dy * a.fy
+					if along >= 0 and along <= THROW.range and math.abs(dx * a.fy - dy * a.fx) <= THROW.width and sight(map, a, v) then
+						table.insert(victims, v)
+					end
+				end
+			end
+			table.insert(g.events, { type = "throw", id = a.id, x = a.x, y = a.y, dx = a.fx, dy = a.fy, hit = #victims })
+			strike(g, a, victims, bonked, true)
+		end
+	end
+	-- A bonk lands on one hamster only: the nearest one in front.
+	for _, a in landing do
+		if not bonked[a] then
+			local victim = nil
+			local nearest = BONK.reach
+			if not inHome(g, a) then
+				for _, v in players do
+					if v ~= a and not bonked[v] and not inHome(g, v) then
+						local dx = v.x - a.x
+						local dy = v.y - a.y
+						local d = hypot(dx, dy)
+						local inFront = d <= R or (dx * a.swing.dx + dy * a.swing.dy) / d >= BONK.arcCos
+						if d <= nearest and inFront and sight(map, a, v) then
+							victim = v
+							nearest = d
+						end
+					end
+				end
+			end
+			if victim then
+				strike(g, a, { victim }, bonked, false)
+			end
+			table.insert(g.events, { type = "impact", id = a.id, x = a.x, y = a.y, dx = a.swing.dx, dy = a.swing.dy, hit = victim ~= nil })
+		end
+	end
+	for _, v in players do
+		if bonked[v] then
+			respawn(g, v)
+		end
+	end
+
+	-- A tunnel takes an empty-handed hamster straight back to its nest.
+	for _, p in players do
+		if not p.carrying then
+			for _, w in map.warps do
+				if hypot(p.x - w.x, p.y - w.y) <= w.r then
+					local fromX, fromY = p.x, p.y
+					sendHome(p)
+					table.insert(g.events, { type = "warp", id = p.id, fromX = fromX, fromY = fromY, x = p.x, y = p.y })
+					break
+				end
+			end
+		end
+	end
+
+	for _, p in players do
+		if p.carrying and inHome(g, p) then
+			finish(g, { p.id }, false)
+			return g
+		end
+	end
+
+	if g.time >= OVERTIME.finish then
+		finish(g, timeoutWinners(players), true)
+		return g
+	end
+
+	stepFlower(g)
+	return g
+end
+
+return Sim
+]]></ProtectedString></Properties></Item><Item class="ModuleScript"><Properties><string name="Name">Map</string><ProtectedString name="Source"><![CDATA[-- The meadow: home on the left, the sunflower on the right and a hedge maze in
+-- between. Everything is data, in studs. Sim x runs left to right (world X), sim y
+-- runs top to bottom on screen (world Z).
+
+local CELL = 4
+local COLS = 12
+local ROWS = 13
+local HEDGE_X1 = 21
+
+-- Runs of open grid cells, { col, row, col, row }, counted from 0.
+local LANES = {
+	-- top
+	{ 0, 1, 2, 1 }, { 2, 1, 2, 3 }, { 2, 3, 5, 3 }, { 5, 3, 5, 1 }, { 5, 1, 8, 1 }, { 8, 1, 8, 3 }, { 8, 3, 11, 3 },
+	-- middle
+	{ 0, 5, 3, 5 }, { 3, 5, 3, 7 }, { 3, 7, 6, 7 }, { 6, 7, 6, 5 }, { 6, 5, 9, 5 }, { 9, 5, 9, 7 }, { 9, 7, 11, 7 },
+	-- bottom
+	{ 0, 11, 2, 11 }, { 2, 11, 2, 9 }, { 2, 9, 5, 9 }, { 5, 9, 5, 11 }, { 5, 11, 8, 11 }, { 8, 11, 8, 9 }, { 8, 9, 11, 9 },
+	-- cross links
+	{ 3, 3, 3, 5 }, { 4, 7, 4, 9 }, { 8, 3, 8, 5 }, { 10, 7, 10, 9 },
+}
+
+local BOUNDS = { x1 = 2.4, y1 = 2, x2 = 89, y2 = 2 + ROWS * CELL }
+local FLOWER = { x = 79, y = 28, r = 3, gatherR = 6.6 }
+local HOME = { x1 = BOUNDS.x1, y1 = BOUNDS.y1, x2 = 15, y2 = BOUNDS.y2 }
+
+-- Nests sit on an arc, top to bottom, so everyone starts as far from the middle lane.
+local function arcNests(cx, cy, r, angles)
+	local nests = {}
+	for _, deg in angles do
+		local a = math.rad(deg)
+		table.insert(nests, { x = cx - math.cos(a) * r, y = cy + math.sin(a) * r })
+	end
+	return nests
+end
+
+local bigAngles = {}
+for i = 0, 7 do
+	table.insert(bigAngles, -66 + i * 132 / 7)
+end
+
+-- Every wall cell is covered by its longest horizontal and vertical run. The two
+-- sets overlap, so the union only has rounded corners where a wall really ends.
+local function hedgeRects()
+	local open = {}
+	for r = 0, ROWS - 1 do
+		open[r] = {}
+	end
+	for _, lane in LANES do
+		for c = math.min(lane[1], lane[3]), math.max(lane[1], lane[3]) do
+			for r = math.min(lane[2], lane[4]), math.max(lane[2], lane[4]) do
+				open[r][c] = true
+			end
+		end
+	end
+	local rects = {}
+	for r = 0, ROWS - 1 do
+		for c = 0, COLS - 1 do
+			if not open[r][c] and (c == 0 or open[r][c - 1]) then
+				local last = c
+				while last + 1 < COLS and not open[r][last + 1] do
+					last += 1
+				end
+				table.insert(rects, { x = HEDGE_X1 + c * CELL, y = BOUNDS.y1 + r * CELL, w = (last - c + 1) * CELL, h = CELL })
+			end
+		end
+	end
+	for c = 0, COLS - 1 do
+		for r = 0, ROWS - 1 do
+			if not open[r][c] and (r == 0 or open[r - 1][c]) then
+				local last = r
+				while last + 1 < ROWS and not open[last + 1][c] do
+					last += 1
+				end
+				if last > r then
+					table.insert(rects, { x = HEDGE_X1 + c * CELL, y = BOUNDS.y1 + r * CELL, w = CELL, h = (last - r + 1) * CELL })
+				end
+			end
+		end
+	end
+	return rects
+end
+
+local Map = {
+	world = { w = 91.4, h = 56 },
+	bounds = BOUNDS,
+	home = HOME,
+	flower = FLOWER,
+	-- Tunnels above and below the flower: an empty-handed hamster goes straight home.
+	warps = {
+		{ x = FLOWER.x, y = 6.4, r = 3.4 },
+		{ x = FLOWER.x, y = 49.6, r = 3.4 },
+	},
+	nests = arcNests(HOME.x2, FLOWER.y, 10, { -36, -12, 12, 36 }),
+	-- Used once more than four hamsters play.
+	bigNests = arcNests(HOME.x2 + 2, FLOWER.y, 12.5, bigAngles),
+	-- Hedges collide as rounded rectangles with this corner radius.
+	rects = hedgeRects(),
+	corner = 2,
+}
+
+-- Builds the map as anchored parts under Workspace.HashRushMap. The folder's
+-- attributes tell the client where things are.
+function Map.render()
+	local folder = Instance.new("Folder")
+	folder.Name = "HashRushMap"
+
+	local function part(name, color, material)
+		local p = Instance.new("Part")
+		p.Name = name
+		p.Anchored = true
+		p.CanCollide = false
+		p.CanQuery = false
+		p.CanTouch = false
+		p.CastShadow = false
+		p.TopSurface = Enum.SurfaceType.Smooth
+		p.BottomSurface = Enum.SurfaceType.Smooth
+		p.Material = material or Enum.Material.SmoothPlastic
+		p.Color = color
+		p.Parent = folder
+		return p
+	end
+	-- A box over the sim rectangle (x1, y1)-(x2, y2), standing on `base`.
+	local function box(name, x1, y1, x2, y2, base, height, color, material)
+		local p = part(name, color, material)
+		p.Size = Vector3.new(x2 - x1, height, y2 - y1)
+		p.Position = Vector3.new((x1 + x2) / 2, base + height / 2, (y1 + y2) / 2)
+		return p
+	end
+	local function disc(name, x, y, r, base, height, color, material)
+		local p = part(name, color, material)
+		p.Shape = Enum.PartType.Cylinder
+		p.Size = Vector3.new(height, 2 * r, 2 * r)
+		p.CFrame = CFrame.new(x, base + height / 2, y) * CFrame.Angles(0, 0, math.rad(90))
+		return p
+	end
+	local function sign(parent, text)
+		local gui = Instance.new("BillboardGui")
+		gui.Size = UDim2.fromScale(8, 2)
+		gui.AlwaysOnTop = true
+		gui.Parent = parent
+		local label = Instance.new("TextLabel")
+		label.Size = UDim2.fromScale(1, 1)
+		label.BackgroundTransparency = 1
+		label.Text = text
+		label.TextScaled = true
+		label.Font = Enum.Font.GothamBold
+		label.TextColor3 = Color3.new(1, 1, 1)
+		label.TextStrokeTransparency = 0.3
+		label.Parent = gui
+	end
+
+	local w = Map.world
+	box("Ground", -300, -300, w.w + 300, w.h + 300, -1, 1, Color3.fromRGB(47, 122, 61))
+	box("Field", BOUNDS.x1, BOUNDS.y1, BOUNDS.x2, BOUNDS.y2, 0, 0.1, Color3.fromRGB(147, 211, 111))
+	box("LaneFloor", HEDGE_X1, BOUNDS.y1, HEDGE_X1 + COLS * CELL, BOUNDS.y2, 0.1, 0.05, Color3.fromRGB(236, 220, 174))
+	-- The client stretches these two as the home edge moves in overtime.
+	box("Home", HOME.x1, HOME.y1, HOME.x2, HOME.y2, 0.15, 0.1, Color3.fromRGB(246, 230, 194), Enum.Material.Sand)
+	box("HomeEdge", HOME.x2 - 0.15, HOME.y1, HOME.x2 + 0.15, HOME.y2, 0.25, 1.6, Color3.fromRGB(226, 150, 70)).Transparency = 0.35
+	for _, n in Map.bigNests do
+		disc("Nest", n.x, n.y, 1.9, 0.25, 0.05, Color3.fromRGB(214, 190, 140))
+	end
+	for _, n in Map.nests do
+		disc("Nest", n.x, n.y, 1.9, 0.25, 0.05, Color3.fromRGB(214, 190, 140))
+	end
+
+	-- A hedge is a rounded rectangle: two crossing boxes and a disc in each corner.
+	local c = Map.corner
+	local hedge = Color3.fromRGB(60, 148, 73)
+	local corners = {}
+	for _, r in Map.rects do
+		if r.w > 2 * c then
+			box("Hedge", r.x + c, r.y, r.x + r.w - c, r.y + r.h, 0.1, 1.5, hedge, Enum.Material.Grass)
+		end
+		if r.h > 2 * c then
+			box("Hedge", r.x, r.y + c, r.x + r.w, r.y + r.h - c, 0.1, 1.5, hedge, Enum.Material.Grass)
+		end
+		for _, x in { r.x + c, r.x + r.w - c } do
+			for _, y in { r.y + c, r.y + r.h - c } do
+				local key = x .. "," .. y
+				if not corners[key] then
+					corners[key] = true
+					disc("Hedge", x, y, c, 0.1, 1.5, hedge, Enum.Material.Grass)
+				end
+			end
+		end
+	end
+
+	local ring = disc("GatherRing", FLOWER.x, FLOWER.y, FLOWER.gatherR, 0.15, 0.05, Color3.fromRGB(255, 244, 170))
+	ring.Transparency = 0.45
+	local flower = disc("Flower", FLOWER.x, FLOWER.y, FLOWER.r, 0.1, 1.4, Color3.fromRGB(255, 200, 40))
+	disc("FlowerHeart", FLOWER.x, FLOWER.y, FLOWER.r * 0.55, 0.1, 1.5, Color3.fromRGB(110, 70, 40))
+	sign(flower, "🌻")
+	for _, warp in Map.warps do
+		sign(disc("Warp", warp.x, warp.y, warp.r, 0.15, 0.05, Color3.fromRGB(90, 62, 44)), "🏠 굴")
+	end
+
+	folder:SetAttribute("WorldW", w.w)
+	folder:SetAttribute("WorldH", w.h)
+	folder:SetAttribute("HomeX1", HOME.x1)
+	folder:SetAttribute("HomeX2", HOME.x2)
+	folder:SetAttribute("FlowerX", FLOWER.x)
+	folder:SetAttribute("FlowerY", FLOWER.y)
+	folder:SetAttribute("GatherR", FLOWER.gatherR)
+	folder.Parent = workspace
+	return folder
+end
+
+return Map
+]]></ProtectedString></Properties></Item><Item class="Script"><Properties><string name="Name">Round</string><ProtectedString name="Source"><![CDATA[-- Lobby and round flow. The server owns the game: clients only send what they
+-- are pressing, and get back a snapshot every tick plus the events of that tick.
+--   lobby (2+ players, 10 s) -> round (3 s countdown, play) -> result (5 s) -> round ...
+
+local DataStoreService = game:GetService("DataStoreService")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+
+local Config = require(ReplicatedStorage:WaitForChild("Config"))
+local Snapshot = require(ReplicatedStorage:WaitForChild("Snapshot"))
+local Map = require(script.Parent:WaitForChild("Map"))
+local Sim = require(script.Parent:WaitForChild("Sim"))
+
+Players.CharacterAutoLoads = false
+
+-- In Studio one player is enough, so the game can be looked at with a plain test run.
+local MIN_PLAYERS = if RunService:IsStudio() then 1 else Config.MIN_PLAYERS
+
+local remotes = Instance.new("Folder")
+remotes.Name = "HashRushRemotes"
+local inputRemote = Instance.new("RemoteEvent")
+inputRemote.Name = "Input"
+inputRemote.Parent = remotes
+local roundRemote = Instance.new("RemoteEvent")
+roundRemote.Name = "Round"
+roundRemote.Parent = remotes
+local snapRemote = Instance.new("UnreliableRemoteEvent")
+snapRemote.Name = "Snap"
+snapRemote.Parent = remotes
+remotes.Parent = ReplicatedStorage
+
+Map.render()
+
+-- Wins and games played, kept across visits.
+local store = nil
+do
+	local ok, result = pcall(function()
+		return DataStoreService:GetDataStore("HashRushStats")
+	end)
+	if ok then
+		store = result
+	else
+		warn("HashRush: stats are not saved (" .. tostring(result) .. ")")
+	end
+end
+
+local function record(userId, won)
+	if not store then
+		return
+	end
+	task.spawn(function()
+		local ok, err = pcall(function()
+			store:UpdateAsync("u" .. userId, function(old)
+				old = old or { wins = 0, games = 0 }
+				old.games += 1
+				if won then
+					old.wins += 1
+				end
+				return old
+			end)
+		end)
+		if not ok then
+			warn("HashRush: could not save stats for " .. userId .. ": " .. tostring(err))
+		end
+	end)
+end
+
+local joined = {} -- players, in the order they came in
+local raw = {} -- [player] = what that player is pressing
+local wins = {} -- [userId] = rounds won on this server
+
+local state = "lobby" -- "lobby" | "round" | "result"
+local timer = Config.LOBBY_COUNTDOWN
+local roundNo = 0
+local game_ = nil -- the Sim game of the running round
+local seats = {} -- [seat number] = player
+local simInputs = {}
+local rng = Random.new()
+
+-- The last of each message, for whoever joins in the middle.
+local lastLobby = nil
+local lastStart = nil
+local lastResult = nil
+
+local function roster()
+	local list = {}
+	for seat, player in seats do
+		local p = game_ and game_.byId[seat]
+		table.insert(list, {
+			id = seat,
+			userId = player.UserId,
+			name = player.DisplayName,
+			wins = wins[player.UserId] or 0,
+			kills = if p then p.kills + p.throws else 0,
+		})
+	end
+	return list
+end
+
+local function sendLobby()
+	local count = #joined
+	local left = if count >= MIN_PLAYERS then math.ceil(timer) else nil
+	if lastLobby and lastLobby.count == count and lastLobby.left == left then
+		return
+	end
+	lastLobby = { kind = "lobby", count = count, need = MIN_PLAYERS, left = left }
+	roundRemote:FireAllClients(lastLobby)
+end
+
+local function toLobby()
+	state = "lobby"
+	timer = Config.LOBBY_COUNTDOWN
+	game_ = nil
+	seats = {}
+	lastLobby = nil
+	sendLobby()
+end
+
+local function startRound()
+	roundNo += 1
+	seats = {}
+	simInputs = {}
+	local slots = {}
+	for i = 1, math.min(#joined, Config.MAX_PLAYERS) do
+		seats[i] = joined[i]
+		simInputs[i] = { mx = 0, my = 0, bonk = false, throw = false }
+		slots[i] = { id = i, name = joined[i].DisplayName }
+	end
+	game_ = Sim.new(Map, slots, function()
+		return rng:NextNumber()
+	end)
+	state = "round"
+	lastStart = { kind = "start", round = roundNo, roster = roster() }
+	roundRemote:FireAllClients(lastStart)
+end
+
+-- winners: seat numbers. `left` is true when the round stopped for want of players.
+local function endRound(winners, timeout, left)
+	for seat, player in seats do
+		local won = table.find(winners, seat) ~= nil
+		if won then
+			wins[player.UserId] = (wins[player.UserId] or 0) + 1
+		end
+		if not left then
+			record(player.UserId, won)
+		end
+	end
+	state = "result"
+	timer = Config.RESULT_TIME
+	lastResult = { kind = "result", winners = winners, timeout = timeout, left = left, roster = roster(), next = Config.RESULT_TIME }
+	roundRemote:FireAllClients(lastResult)
+end
+
+local function stepRound()
+	for seat, player in seats do
+		local r = raw[player]
+		local inp = simInputs[seat]
+		inp.mx = r.mx
+		inp.my = r.my
+		-- A tap that came and went between two ticks still counts.
+		inp.bonk = r.bonk or r.tapped
+		inp.throw = r.throw
+		r.tapped = false
+	end
+	Sim.step(game_, simInputs)
+	if #game_.events > 0 then
+		roundRemote:FireAllClients({ kind = "events", round = roundNo, list = table.clone(game_.events) })
+	end
+	snapRemote:FireAllClients(Snapshot.encode(roundNo, game_, function(p)
+		return Sim.lastStretch(game_, p)
+	end))
+	if game_.phase == "over" then
+		endRound(game_.winners, game_.timeout, false)
+	end
+end
+
+local function tick()
+	if state == "lobby" then
+		if #joined >= MIN_PLAYERS then
+			timer -= Config.DT
+			if timer <= 0 then
+				startRound()
+				return
+			end
+		else
+			timer = Config.LOBBY_COUNTDOWN
+		end
+		sendLobby()
+	elseif state == "round" then
+		stepRound()
+	else
+		timer -= Config.DT
+		if timer <= 0 then
+			if #joined >= MIN_PLAYERS then
+				startRound()
+			else
+				toLobby()
+			end
+		end
+	end
+end
+
+Players.PlayerAdded:Connect(function(player)
+	table.insert(joined, player)
+	raw[player] = { mx = 0, my = 0, bonk = false, throw = false, tapped = false }
+end)
+for _, player in Players:GetPlayers() do
+	table.insert(joined, player)
+	raw[player] = { mx = 0, my = 0, bonk = false, throw = false, tapped = false }
+end
+
+Players.PlayerRemoving:Connect(function(player)
+	local at = table.find(joined, player)
+	if at then
+		table.remove(joined, at)
+	end
+	raw[player] = nil
+	-- Not table.find: seats has gaps once somebody has left.
+	local seat = nil
+	for s, seated in seats do
+		if seated == player then
+			seat = s
+		end
+	end
+	if seat then
+		seats[seat] = nil
+		simInputs[seat] = nil
+		if state == "round" then
+			Sim.remove(game_, seat)
+			if #game_.players < MIN_PLAYERS then
+				endRound({}, false, true)
+			end
+		end
+	end
+end)
+
+inputRemote.OnServerEvent:Connect(function(player, mx, my, bonk, throw)
+	local r = raw[player]
+	if not r or type(mx) ~= "number" or type(my) ~= "number" or mx ~= mx or my ~= my then
+		return
+	end
+	r.mx = math.clamp(mx, -1, 1)
+	r.my = math.clamp(my, -1, 1)
+	if bonk == true and not r.bonk then
+		r.tapped = true
+	end
+	r.bonk = bonk == true
+	r.throw = throw == true
+end)
+
+-- A client says it is ready to draw: tell it where things stand.
+roundRemote.OnServerEvent:Connect(function(player)
+	if state == "lobby" then
+		if lastLobby then
+			roundRemote:FireClient(player, lastLobby)
+		end
+		return
+	end
+	roundRemote:FireClient(player, lastStart)
+	if state == "result" then
+		roundRemote:FireClient(player, lastResult)
+	end
+end)
+
+local behind = 0
+RunService.Heartbeat:Connect(function(dt)
+	behind = math.min(behind + dt, 0.25)
+	while behind >= Config.DT do
+		behind -= Config.DT
+		tick()
+	end
+end)
+]]></ProtectedString></Properties></Item></Item><Item class="StarterPlayer"><Properties><string name="Name">StarterPlayer</string></Properties><Item class="StarterPlayerScripts"><Properties><string name="Name">StarterPlayerScripts</string></Properties><Item class="LocalScript"><Properties><string name="Name">Input</string><ProtectedString name="Source"><![CDATA[-- Reads what the player is pressing and tells the server: a move direction, the
+-- bonk button and the throw button. Nothing here decides anything about the game.
+--   PC: WASD / arrows, Space / J, F / K      pad: left stick / D-pad, A, B
+--   touch: a joystick under the left thumb and two buttons under the right
+
+local ContextActionService = game:GetService("ContextActionService")
+local GuiService = game:GetService("GuiService")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+local remote = ReplicatedStorage:WaitForChild("HashRushRemotes"):WaitForChild("Input")
+
+-- Roblox's own movement and jump controls are not used.
+GuiService.TouchControlsEnabled = false
+task.spawn(function()
+	local module = player:WaitForChild("PlayerScripts"):WaitForChild("PlayerModule", 10)
+	if module then
+		pcall(function()
+			require(module):GetControls():Disable()
+		end)
+	end
+end)
+
+-- Keys and gamepad --------------------------------------------------------
+
+local KEY_DIRS = {
+	[Enum.KeyCode.W] = Vector2.new(0, -1),
+	[Enum.KeyCode.Up] = Vector2.new(0, -1),
+	[Enum.KeyCode.DPadUp] = Vector2.new(0, -1),
+	[Enum.KeyCode.S] = Vector2.new(0, 1),
+	[Enum.KeyCode.Down] = Vector2.new(0, 1),
+	[Enum.KeyCode.DPadDown] = Vector2.new(0, 1),
+	[Enum.KeyCode.A] = Vector2.new(-1, 0),
+	[Enum.KeyCode.Left] = Vector2.new(-1, 0),
+	[Enum.KeyCode.DPadLeft] = Vector2.new(-1, 0),
+	[Enum.KeyCode.D] = Vector2.new(1, 0),
+	[Enum.KeyCode.Right] = Vector2.new(1, 0),
+	[Enum.KeyCode.DPadRight] = Vector2.new(1, 0),
+}
+
+local keysDown = {}
+local padStick = Vector2.zero
+local bonkKey = false
+local throwKey = false
+
+local moveKeys = { Enum.KeyCode.Thumbstick1 }
+for key in KEY_DIRS do
+	table.insert(moveKeys, key)
+end
+
+ContextActionService:BindAction("HashRushMove", function(_, inputState, input)
+	if input.KeyCode == Enum.KeyCode.Thumbstick1 then
+		local tilted = inputState == Enum.UserInputState.Change or inputState == Enum.UserInputState.Begin
+		-- The stick's up is +Y; on screen up is -y.
+		padStick = if tilted then Vector2.new(input.Position.X, -input.Position.Y) else Vector2.zero
+	else
+		keysDown[input.KeyCode] = if inputState == Enum.UserInputState.Begin then true else nil
+	end
+	return Enum.ContextActionResult.Sink
+end, false, table.unpack(moveKeys))
+
+ContextActionService:BindAction("HashRushBonk", function(_, inputState)
+	bonkKey = inputState == Enum.UserInputState.Begin
+	return Enum.ContextActionResult.Sink
+end, false, Enum.KeyCode.Space, Enum.KeyCode.J, Enum.KeyCode.ButtonA)
+
+ContextActionService:BindAction("HashRushThrow", function(_, inputState)
+	throwKey = inputState == Enum.UserInputState.Begin
+	return Enum.ContextActionResult.Sink
+end, false, Enum.KeyCode.F, Enum.KeyCode.K, Enum.KeyCode.ButtonB)
+
+UserInputService.WindowFocusReleased:Connect(function()
+	table.clear(keysDown)
+	padStick = Vector2.zero
+	bonkKey = false
+	throwKey = false
+end)
+
+-- Touch -------------------------------------------------------------------
+
+local STICK_RADIUS = 60
+local touchMove = Vector2.zero
+local stickTouch = nil
+local stickOrigin = Vector2.zero
+local held = {} -- [button name] = the InputObject pressing it
+
+-- IgnoreGuiInset stays off so that InputObject.Position lines up with the gui.
+local gui = Instance.new("ScreenGui")
+gui.Name = "HashRushTouch"
+gui.ResetOnSpawn = false
+gui.DisplayOrder = 5
+gui.Enabled = UserInputService.TouchEnabled
+gui.Parent = player:WaitForChild("PlayerGui")
+
+local function round(parent)
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0.5, 0)
+	corner.Parent = parent
+end
+
+local pad = Instance.new("Frame")
+pad.Name = "StickArea"
+pad.BackgroundTransparency = 1
+pad.Position = UDim2.fromScale(0, 0.2)
+pad.Size = UDim2.fromScale(0.5, 0.8)
+pad.Active = true
+pad.Parent = gui
+
+local base = Instance.new("Frame")
+base.AnchorPoint = Vector2.new(0.5, 0.5)
+base.Size = UDim2.fromOffset(STICK_RADIUS * 2, STICK_RADIUS * 2)
+base.BackgroundColor3 = Color3.new(1, 1, 1)
+base.BackgroundTransparency = 0.75
+base.Visible = false
+base.Parent = gui
+round(base)
+
+local knob = Instance.new("Frame")
+knob.AnchorPoint = Vector2.new(0.5, 0.5)
+knob.Size = UDim2.fromOffset(STICK_RADIUS, STICK_RADIUS)
+knob.Position = UDim2.fromScale(0.5, 0.5)
+knob.BackgroundColor3 = Color3.new(1, 1, 1)
+knob.BackgroundTransparency = 0.35
+knob.Parent = base
+round(knob)
+
+local function moveStick(position)
+	local delta = (Vector2.new(position.X, position.Y) - stickOrigin) / STICK_RADIUS
+	if delta.Magnitude > 1 then
+		delta = delta.Unit
+	end
+	knob.Position = UDim2.fromScale(0.5 + delta.X / 2, 0.5 + delta.Y / 2)
+	if delta.Magnitude < 0.25 then
+		touchMove = Vector2.zero
+		return
+	end
+	-- Snapped to 16 directions, so a thumb that drifts a little still runs straight.
+	local step = math.pi / 8
+	local angle = math.round(math.atan2(delta.Y, delta.X) / step) * step
+	touchMove = Vector2.new(math.cos(angle), math.sin(angle))
+end
+
+pad.InputBegan:Connect(function(input)
+	if input.UserInputType ~= Enum.UserInputType.Touch or stickTouch then
+		return
+	end
+	stickTouch = input
+	stickOrigin = Vector2.new(input.Position.X, input.Position.Y)
+	base.Position = UDim2.fromOffset(stickOrigin.X, stickOrigin.Y)
+	base.Visible = true
+	moveStick(input.Position)
+end)
+
+local function button(name, text, size, offsetY, color)
+	local b = Instance.new("TextButton")
+	b.Name = name
+	b.AnchorPoint = Vector2.new(1, 1)
+	b.Position = UDim2.new(1, -28, 1, offsetY)
+	b.Size = UDim2.fromOffset(size, size)
+	b.BackgroundColor3 = color
+	b.BackgroundTransparency = 0.2
+	b.AutoButtonColor = false
+	b.Text = text
+	b.TextSize = 22
+	b.Font = Enum.Font.GothamBold
+	b.TextColor3 = Color3.new(1, 1, 1)
+	b.Parent = gui
+	round(b)
+	b.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+			held[name] = input
+			b.BackgroundTransparency = 0
+		end
+	end)
+	return b
+end
+
+local bonkButton = button("Bonk", "꿀밤", 112, -28, Color3.fromRGB(230, 90, 70))
+-- Only there while there is a seed to throw. View keeps the attribute up to date.
+local throwButton = button("Throw", "던지기", 92, -160, Color3.fromRGB(235, 170, 40))
+throwButton.Visible = false
+player:GetAttributeChangedSignal("HRCarrying"):Connect(function()
+	throwButton.Visible = player:GetAttribute("HRCarrying") == true
+	if not throwButton.Visible then
+		held.Throw = nil
+		throwButton.BackgroundTransparency = 0.2
+	end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+	if input == stickTouch then
+		moveStick(input.Position)
+	end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+	if input == stickTouch then
+		stickTouch = nil
+		touchMove = Vector2.zero
+		base.Visible = false
+	end
+	for name, pressing in held do
+		if pressing == input or (input.UserInputType == Enum.UserInputType.MouseButton1 and pressing.UserInputType == Enum.UserInputType.MouseButton1) then
+			held[name] = nil
+			gui[name].BackgroundTransparency = 0.2
+		end
+	end
+end)
+
+-- The touch controls show for whoever last touched the screen.
+UserInputService.LastInputTypeChanged:Connect(function(last)
+	if last == Enum.UserInputType.Touch then
+		gui.Enabled = true
+	elseif last == Enum.UserInputType.Keyboard or last.Name:find("Gamepad") then
+		gui.Enabled = false
+	end
+end)
+
+-- Sending -----------------------------------------------------------------
+
+local function moveVector()
+	local keys = Vector2.zero
+	for key in keysDown do
+		keys += KEY_DIRS[key]
+	end
+	if keys.Magnitude > 0 then
+		return keys.Unit
+	end
+	if padStick.Magnitude > 0.2 then
+		return if padStick.Magnitude > 1 then padStick.Unit else padStick
+	end
+	return touchMove
+end
+
+local sent = { mx = 0, my = 0, bonk = false, throw = false }
+local sentAt = 0
+
+RunService.Heartbeat:Connect(function()
+	local move = moveVector()
+	local mx = math.round(move.X * 100) / 100
+	local my = math.round(move.Y * 100) / 100
+	local bonk = bonkKey or held.Bonk ~= nil
+	local throw = throwKey or held.Throw ~= nil
+	local buttons = bonk ~= sent.bonk or throw ~= sent.throw
+	local moved = mx ~= sent.mx or my ~= sent.my
+	-- Buttons go out at once; a stick being rolled around goes out 30 times a second.
+	if not buttons and not (moved and os.clock() - sentAt >= 1 / 30) then
+		return
+	end
+	sent.mx, sent.my, sent.bonk, sent.throw = mx, my, bonk, throw
+	sentAt = os.clock()
+	remote:FireServer(mx, my, bonk, throw)
+	-- View uses this for the "hold still" hint at the flower.
+	player:SetAttribute("HRMoving", mx ~= 0 or my ~= 0)
+end)
+]]></ProtectedString></Properties></Item><Item class="LocalScript"><Properties><string name="Name">View</string><ProtectedString name="Source"><![CDATA[-- Everything the player sees: the camera fixed straight above the map, a hamster
+-- for every seat, and the words on screen. It draws what the server says and
+-- decides nothing.
+
+local Debris = game:GetService("Debris")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local StarterGui = game:GetService("StarterGui")
+local TweenService = game:GetService("TweenService")
+
+local Config = require(ReplicatedStorage:WaitForChild("Config"))
+local Snapshot = require(ReplicatedStorage:WaitForChild("Snapshot"))
+
+local player = Players.LocalPlayer
+local remotes = ReplicatedStorage:WaitForChild("HashRushRemotes")
+local roundRemote = remotes:WaitForChild("Round")
+local snapRemote = remotes:WaitForChild("Snap")
+local mapFolder = workspace:WaitForChild("HashRushMap")
+
+local WORLD_W = mapFolder:GetAttribute("WorldW")
+local WORLD_H = mapFolder:GetAttribute("WorldH")
+local HOME_X1 = mapFolder:GetAttribute("HomeX1")
+local FLOWER_X = mapFolder:GetAttribute("FlowerX")
+local FLOWER_Y = mapFolder:GetAttribute("FlowerY")
+local GATHER_R = mapFolder:GetAttribute("GatherR")
+local homePart = mapFolder:WaitForChild("Home")
+local homeEdge = mapFolder:WaitForChild("HomeEdge")
+
+local FONT = Enum.Font.GothamBold
+local UPRIGHT = CFrame.Angles(0, 0, math.rad(90)) -- stands a cylinder on its end
+local WHITE = Color3.new(1, 1, 1)
+local RED = Color3.fromRGB(255, 80, 70)
+local GOLD = Color3.fromRGB(255, 210, 60)
+
+task.spawn(function()
+	for _, kind in { Enum.CoreGuiType.Backpack, Enum.CoreGuiType.Health, Enum.CoreGuiType.EmotesMenu, Enum.CoreGuiType.PlayerList } do
+		for _ = 1, 10 do
+			if pcall(StarterGui.SetCoreGuiEnabled, StarterGui, kind, false) then
+				break
+			end
+			task.wait(0.5)
+		end
+	end
+end)
+
+-- Camera ------------------------------------------------------------------
+
+local FOV = 20 -- narrow, so the view is close to flat
+
+local function placeCamera()
+	local camera = workspace.CurrentCamera
+	camera.CameraType = Enum.CameraType.Scriptable
+	camera.FieldOfView = FOV
+	local view = camera.ViewportSize
+	local half = math.tan(math.rad(FOV / 2))
+	-- High enough for the whole map, with room for the top bar.
+	local height = math.max(WORLD_H * 1.18 / (2 * half), WORLD_W * 1.04 / (2 * half * view.X / view.Y))
+	local centre = Vector3.new(WORLD_W / 2, 0, WORLD_H * 0.46)
+	-- Screen right is +X and screen down is +Z, the same way round as the sim.
+	camera.CFrame = CFrame.lookAt(centre + Vector3.new(0, height, 0), centre, Vector3.new(0, 0, -1))
+end
+
+-- Screen ------------------------------------------------------------------
+
+local function make(className, props, parent)
+	local object = Instance.new(className)
+	for key, value in props do
+		object[key] = value
+	end
+	object.Parent = parent
+	return object
+end
+
+local function text(props, parent)
+	local label = make("TextLabel", {
+		BackgroundTransparency = 1,
+		Font = FONT,
+		TextColor3 = WHITE,
+		TextScaled = true,
+		TextStrokeTransparency = 0.4,
+		Text = "",
+	}, nil)
+	for key, value in props do
+		label[key] = value
+	end
+	label.Parent = parent
+	return label
+end
+
+local hud = make("ScreenGui", { Name = "HashRushHud", ResetOnSpawn = false, IgnoreGuiInset = true }, player:WaitForChild("PlayerGui"))
+local timerLabel = text({ AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.fromScale(0.5, 0.01), Size = UDim2.fromScale(0.4, 0.055) }, hud)
+local scoreRow = make("Frame", { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.fromScale(0.5, 0.07), Size = UDim2.new(0.96, 0, 0, 24), BackgroundTransparency = 1 }, hud)
+make("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Center, Padding = UDim.new(0, 6) }, scoreRow)
+local bigLabel = text({ AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.45), Size = UDim2.fromScale(0.5, 0.22), Visible = false }, hud)
+local bannerLabel = text({ AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.2), Size = UDim2.fromScale(0.8, 0.09), TextColor3 = GOLD, Visible = false }, hud)
+local noticeLabel = text({ AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.fromScale(0.5, 0.97), Size = UDim2.fromScale(0.7, 0.05) }, hud)
+
+local resultPanel = make("Frame", {
+	AnchorPoint = Vector2.new(0.5, 0.5),
+	Position = UDim2.fromScale(0.5, 0.5),
+	Size = UDim2.fromScale(0.5, 0.6),
+	BackgroundColor3 = Color3.fromRGB(40, 30, 20),
+	BackgroundTransparency = 0.15,
+	Visible = false,
+}, hud)
+make("UICorner", { CornerRadius = UDim.new(0.05, 0) }, resultPanel)
+local resultTitle = text({ Position = UDim2.fromScale(0.05, 0.04), Size = UDim2.fromScale(0.9, 0.17), TextColor3 = GOLD }, resultPanel)
+local resultWhy = text({ Position = UDim2.fromScale(0.05, 0.21), Size = UDim2.fromScale(0.9, 0.07) }, resultPanel)
+local resultList = text({ Position = UDim2.fromScale(0.1, 0.3), Size = UDim2.fromScale(0.8, 0.56), TextYAlignment = Enum.TextYAlignment.Top }, resultPanel)
+-- With one or two names the scaled text would otherwise dwarf the title.
+make("UITextSizeConstraint", { MaxTextSize = 30 }, resultList)
+local resultNext = text({ Position = UDim2.fromScale(0.05, 0.88), Size = UDim2.fromScale(0.9, 0.08) }, resultPanel)
+
+local bannerShown = 0
+local function banner(message)
+	bannerShown += 1
+	local mine = bannerShown
+	bannerLabel.Text = message
+	bannerLabel.Visible = true
+	task.delay(1.6, function()
+		if bannerShown == mine then
+			bannerLabel.Visible = false
+		end
+	end)
+end
+
+-- World -------------------------------------------------------------------
+
+local viewFolder = make("Folder", { Name = "HashRushView" }, workspace)
+
+local function part(props, parent)
+	local p = make("Part", {
+		Anchored = true,
+		CanCollide = false,
+		CanQuery = false,
+		CanTouch = false,
+		CastShadow = false,
+		Material = Enum.Material.SmoothPlastic,
+		TopSurface = Enum.SurfaceType.Smooth,
+		BottomSurface = Enum.SurfaceType.Smooth,
+	}, nil)
+	for key, value in props do
+		p[key] = value
+	end
+	p.Parent = parent or viewFolder
+	return p
+end
+
+local function disc(radius, height, color, parent)
+	return part({ Shape = Enum.PartType.Cylinder, Size = Vector3.new(height, radius * 2, radius * 2), Color = color }, parent)
+end
+
+-- Words that rise from a spot on the map and fade: "꿀밤!", "뿅!", "던지기!".
+-- They start above the name over a hamster, so the two do not overlap.
+local function floatText(x, y, message, color)
+	local anchor = part({ Size = Vector3.one, Transparency = 1, Position = Vector3.new(x, 2, y) })
+	local gui = make("BillboardGui", { Size = UDim2.fromScale(9, 2.6), AlwaysOnTop = true, StudsOffsetWorldSpace = Vector3.new(0, 0, -7) }, anchor)
+	local label = text({ Size = UDim2.fromScale(1, 1), Text = message, TextColor3 = color or WHITE, TextStrokeTransparency = 0 }, gui)
+	local info = TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	TweenService:Create(gui, info, { StudsOffsetWorldSpace = Vector3.new(0, 0, -10) }):Play()
+	TweenService:Create(label, TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
+	Debris:AddItem(anchor, 0.9)
+end
+
+local function flash(x, y, radius, color, seconds)
+	local p = disc(radius, 0.1, color)
+	p.CFrame = CFrame.new(x, 2.2, y) * UPRIGHT
+	p.Transparency = 0.2
+	TweenService:Create(p, TweenInfo.new(seconds), { Transparency = 1 }):Play()
+	Debris:AddItem(p, seconds + 0.1)
+end
+
+local round = -1
+local roster = {} -- [seat] = { id, userId, name, wins, kills }
+local hamsters = {} -- [seat] = what is drawn for it
+local mySeat = nil
+local latest = nil -- the newest snapshot of this round
+local resultUntil = nil
+
+local function clearHamsters()
+	for _, h in hamsters do
+		h.model:Destroy()
+	end
+	table.clear(hamsters)
+end
+
+local function makeHamster(info)
+	local rgb = Config.COLORS[info.id]
+	local color = Color3.fromRGB(rgb[1], rgb[2], rgb[3])
+	local dark = color:Lerp(Color3.new(0, 0, 0), 0.3)
+	local me = info.id == mySeat
+	local model = make("Model", { Name = "Hamster" .. info.id }, viewFolder)
+	local h = {
+		model = model,
+		me = me,
+		name = info.name,
+		body = disc(Config.HAMSTER_R, 1, color, model),
+		earL = disc(0.5, 0.2, dark, model),
+		earR = disc(0.5, 0.2, dark, model),
+		nose = part({ Shape = Enum.PartType.Ball, Size = Vector3.one * 0.7, Color = Color3.fromRGB(255, 150, 170) }, model),
+		seed = part({ Shape = Enum.PartType.Ball, Size = Vector3.one * 1.3, Color = Color3.fromRGB(50, 40, 35), Transparency = 1 }, model),
+		-- Shows where a thrown seed would go while the throw winds up.
+		aim = part({ Size = Vector3.new(1, 0.1, 0.6), Transparency = 1 }, model),
+		ring = if me then disc(Config.HAMSTER_R + 0.45, 0.05, WHITE, model) else nil,
+	}
+	local gui = make("BillboardGui", { Size = UDim2.fromScale(15, 4.2), AlwaysOnTop = true, StudsOffsetWorldSpace = Vector3.new(0, 0, -(Config.HAMSTER_R + 2.4)) }, h.body)
+	h.status = text({ Size = UDim2.fromScale(1, 0.36), TextColor3 = GOLD }, gui)
+	local barBack = make("Frame", { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.fromScale(0.5, 0.4), Size = UDim2.fromScale(0.4, 0.13), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.4, BorderSizePixel = 0, Visible = false }, gui)
+	h.barBack = barBack
+	h.bar = make("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = GOLD, BorderSizePixel = 0 }, barBack)
+	h.label = text({ Position = UDim2.fromScale(0, 0.58), Size = UDim2.fromScale(1, 0.4), Text = info.name, TextColor3 = if me then GOLD else WHITE }, gui)
+	return h
+end
+
+local function setText(label, value)
+	if label.Text ~= value then
+		label.Text = value
+	end
+end
+
+-- Puts a hamster where the snapshot says, sliding there rather than jumping.
+local function drawHamster(h, p, dt)
+	if not h.x or math.abs(p.x - h.x) + math.abs(p.y - h.y) > 5 then
+		h.x, h.y = p.x, p.y -- back at the nest, or the first time it is seen
+	else
+		local k = 1 - math.exp(-dt * 30)
+		h.x += (p.x - h.x) * k
+		h.y += (p.y - h.y) * k
+	end
+	local at = Vector3.new(h.x, 0, h.y)
+	local forward = Vector3.new(p.fx, 0, p.fy)
+	local side = Vector3.new(-p.fy, 0, p.fx)
+	h.body.CFrame = CFrame.new(at + Vector3.new(0, 0.8, 0)) * UPRIGHT
+	h.body.Transparency = if p.dazed then 0.5 else 0
+	h.earL.CFrame = CFrame.new(at + forward * 0.2 + side * 1.05 + Vector3.new(0, 1.4, 0)) * UPRIGHT
+	h.earR.CFrame = CFrame.new(at + forward * 0.2 - side * 1.05 + Vector3.new(0, 1.4, 0)) * UPRIGHT
+	h.nose.Position = at + forward * 1.3 + Vector3.new(0, 1.2, 0)
+	h.seed.Position = at + forward * 0.5 + Vector3.new(0, 1.5, 0)
+	h.seed.Transparency = if p.carrying then 0 else 1
+	if h.ring then
+		h.ring.CFrame = CFrame.new(at + Vector3.new(0, 0.33, 0)) * UPRIGHT
+	end
+
+	if p.charge > 0 then
+		local length = Config.THROW.range * math.min(1, p.charge / Config.THROW.charge)
+		h.aim.Size = Vector3.new(length, 0.1, 0.6)
+		h.aim.CFrame = CFrame.new(at + forward * (Config.HAMSTER_R + length / 2) + Vector3.new(0, 2, 0)) * CFrame.Angles(0, -math.atan2(p.fy, p.fx), 0)
+		h.aim.Color = if p.charge > Config.THROW.max - 0.35 then RED elseif p.charge >= Config.THROW.charge then GOLD else WHITE
+		h.aim.Transparency = 0.3
+	else
+		h.aim.Transparency = 1
+	end
+
+	-- A carrier close to home sets the alarm off.
+	setText(h.label, (if p.alarm then "🚨 " elseif p.carrying then "🌻 " else "") .. h.name)
+	h.label.TextColor3 = if p.alarm then RED elseif h.me then GOLD else WHITE
+
+	local status = ""
+	local nibbling = latest.nibbler == p.id
+	if p.dazed then
+		status = "💫 기절"
+	elseif nibbling then
+		status = "해씨 캐는 중"
+	end
+	-- Hints only its own player sees.
+	if h.me and not p.carrying and not p.dazed then
+		local inRing = (Vector2.new(p.x, p.y) - Vector2.new(FLOWER_X, FLOWER_Y)).Magnitude <= GATHER_R
+		if inRing and (nibbling or latest.nibbler == 0) and player:GetAttribute("HRMoving") then
+			status = "가만히 있어야 캐져요!"
+		elseif inRing and not nibbling and latest.nibbler ~= 0 then
+			status = "앞 햄스터가 캐는 중… 대기"
+		end
+	end
+	setText(h.status, status)
+	h.barBack.Visible = nibbling
+	if nibbling then
+		h.bar.Size = UDim2.fromScale(latest.gather, 1)
+	end
+end
+
+local function drawScores()
+	for _, child in scoreRow:GetChildren() do
+		if child:IsA("TextLabel") then
+			child:Destroy()
+		end
+	end
+	for seat = 1, Config.MAX_PLAYERS do
+		local info = roster[seat]
+		if info then
+			local rgb = Config.COLORS[seat]
+			local chip = make("TextLabel", {
+				LayoutOrder = seat,
+				AutomaticSize = Enum.AutomaticSize.X,
+				Size = UDim2.fromScale(0, 1),
+				BackgroundColor3 = Color3.fromRGB(rgb[1], rgb[2], rgb[3]),
+				Font = FONT,
+				TextSize = 15,
+				TextColor3 = Color3.new(0, 0, 0),
+				Text = ("  %s %d승  "):format(info.name, info.wins),
+			}, scoreRow)
+			make("UICorner", { CornerRadius = UDim.new(0.5, 0) }, chip)
+		end
+	end
+end
+
+local function setRoster(list)
+	table.clear(roster)
+	mySeat = nil
+	for _, info in list do
+		roster[info.id] = info
+		if info.userId == player.UserId then
+			mySeat = info.id
+		end
+	end
+	drawScores()
+end
+
+local function nameOf(seat)
+	return if roster[seat] then roster[seat].name else "?"
+end
+
+local MULTI = { [2] = "더블킬!", [3] = "트리플킬! 슈퍼플레이!", [4] = "쿼드라킬! 슈퍼플레이!" }
+
+local function showEvent(e)
+	local h = e.id and hamsters[e.id]
+	if e.type == "swing" and h and h.x then
+		floatText(h.x, h.y, "꿀밤!")
+	elseif e.type == "impact" then
+		flash(e.x + e.dx * 2.6, e.y + e.dy * 2.6, 1.5, if e.hit then GOLD else WHITE, 0.2)
+	elseif e.type == "bonk" then
+		floatText(e.x, e.y, "뿅!", RED)
+		flash(e.x, e.y, 2.2, RED, 0.3)
+		if e.close then
+			banner(nameOf(e.by) .. " 슈퍼플레이!")
+		end
+	elseif e.type == "throw" then
+		floatText(e.x, e.y, "던지기!", GOLD)
+		local seed = part({ Shape = Enum.PartType.Ball, Size = Vector3.one * 1.3, Color = Color3.fromRGB(50, 40, 35), Position = Vector3.new(e.x, 2, e.y) })
+		local reach = Config.THROW.range
+		TweenService:Create(seed, TweenInfo.new(0.2, Enum.EasingStyle.Linear), { Position = Vector3.new(e.x + e.dx * reach, 2, e.y + e.dy * reach) }):Play()
+		Debris:AddItem(seed, 0.25)
+	elseif e.type == "multi" then
+		banner(nameOf(e.by) .. " " .. (MULTI[e.n] or "펜타킬! 슈퍼플레이!"))
+	elseif e.type == "seed" and h and h.x then
+		floatText(h.x, h.y, "🌻 해씨 획득!", GOLD)
+	elseif e.type == "overtime" then
+		banner("연장전! 집이 넓어져요")
+	elseif e.type == "rush" then
+		banner("집이 빠르게 밀려와요!")
+	end
+end
+
+local function showResult(msg)
+	setRoster(msg.roster)
+	local names = {}
+	for _, seat in msg.winners do
+		table.insert(names, nameOf(seat))
+	end
+	resultTitle.Text = if #names > 0 then "🏆 " .. table.concat(names, " · ") .. " 승리!" else "판이 끝났어요"
+	resultWhy.Text = if msg.left then "상대가 나가서 판이 끝났어요" elseif msg.timeout then "시간 종료 · 꿀밤 횟수로 정했어요" else "해씨를 물고 집에 돌아왔어요"
+	local sorted = table.clone(msg.roster)
+	table.sort(sorted, function(a, b)
+		if a.wins ~= b.wins then
+			return a.wins > b.wins
+		end
+		return a.id < b.id
+	end)
+	local lines = {}
+	for _, info in sorted do
+		table.insert(lines, ("%s   %d승 · 꿀밤 %d"):format(info.name, info.wins, info.kills))
+	end
+	resultList.Text = table.concat(lines, "\n")
+	resultUntil = os.clock() + msg.next
+	resultPanel.Visible = true
+	bigLabel.Visible = false
+end
+
+roundRemote.OnClientEvent:Connect(function(msg)
+	if msg.kind == "lobby" then
+		round = -1
+		latest = nil
+		clearHamsters()
+		setRoster({})
+		resultPanel.Visible = false
+		bigLabel.Visible = false
+		timerLabel.Text = "🌻 Hash Rush"
+		if msg.left then
+			noticeLabel.Text = ("%d초 뒤 시작해요 (%d명)"):format(msg.left, msg.count)
+		else
+			noticeLabel.Text = ("다른 햄스터를 기다리는 중… (%d/%d명)"):format(msg.count, msg.need)
+		end
+	elseif msg.kind == "start" then
+		round = msg.round
+		latest = nil
+		clearHamsters()
+		setRoster(msg.roster)
+		for _, info in msg.roster do
+			hamsters[info.id] = makeHamster(info)
+		end
+		resultPanel.Visible = false
+		noticeLabel.Text = if mySeat then "" else "관전 중 · 다음 판부터 참가해요"
+	elseif msg.kind == "events" then
+		if msg.round == round then
+			for _, e in msg.list do
+				showEvent(e)
+			end
+		end
+	elseif msg.kind == "result" then
+		showResult(msg)
+	end
+end)
+
+snapRemote.OnClientEvent:Connect(function(packed)
+	local snap = Snapshot.decode(packed)
+	if snap.round ~= round % 256 then
+		return
+	end
+	-- Unreliable: an older snapshot can turn up after a newer one.
+	if latest and (snap.tick - latest.tick) % 65536 >= 32768 then
+		return
+	end
+	latest = snap
+end)
+
+local function clock(seconds)
+	return ("%d:%02d"):format(seconds // 60, seconds % 60)
+end
+
+RunService:BindToRenderStep("HashRushView", Enum.RenderPriority.Camera.Value + 1, function(dt)
+	placeCamera()
+	if resultPanel.Visible and resultUntil then
+		resultNext.Text = ("%d초 뒤 다음 판"):format(math.max(0, math.ceil(resultUntil - os.clock())))
+	end
+	if not latest then
+		return
+	end
+
+	local seen = {}
+	local carrying = false
+	for _, p in latest.players do
+		local h = hamsters[p.id]
+		if h then
+			seen[p.id] = true
+			drawHamster(h, p, dt)
+			if h.me then
+				carrying = p.carrying
+			end
+		end
+	end
+	-- Whoever left the game took its hamster along.
+	for seat, h in hamsters do
+		if not seen[seat] then
+			h.model:Destroy()
+			hamsters[seat] = nil
+		end
+	end
+	-- Input shows the throw button while this is set.
+	if player:GetAttribute("HRCarrying") ~= carrying then
+		player:SetAttribute("HRCarrying", carrying)
+	end
+
+	-- In overtime home grows towards the flower.
+	if homeEdge.Position.X ~= latest.homeX then
+		local size = homePart.Size
+		local at = homePart.Position
+		homePart.Size = Vector3.new(latest.homeX - HOME_X1, size.Y, size.Z)
+		homePart.Position = Vector3.new((HOME_X1 + latest.homeX) / 2, at.Y, at.Z)
+		homeEdge.Position = Vector3.new(latest.homeX, homeEdge.Position.Y, homeEdge.Position.Z)
+	end
+
+	-- The count before the start, then "go" for a moment.
+	bigLabel.Visible = latest.phase == "countdown" or (latest.phase == "playing" and latest.time < 0.7)
+	if latest.phase == "countdown" then
+		bigLabel.Text = tostring(math.max(1, math.ceil(latest.countdown)))
+		timerLabel.Text = clock(0)
+		timerLabel.TextColor3 = WHITE
+	else
+		bigLabel.Text = "출발!"
+		local overtime = latest.time > Config.OVERTIME.start
+		timerLabel.Text = (if overtime then "연장전 " else "") .. clock(math.floor(latest.time))
+		timerLabel.TextColor3 = if overtime then RED else WHITE
+	end
+end)
+
+placeCamera()
+-- Ready to draw: ask the server where things stand.
+roundRemote:FireServer()
+]]></ProtectedString></Properties></Item></Item></Item></roblox>

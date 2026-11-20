@@ -1,0 +1,37 @@
+{
+  "name": "HashRush",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "Config": { "$path": "src/shared/Config.luau" },
+      "Snapshot": { "$path": "src/shared/Snapshot.luau" }
+    },
+    "ServerScriptService": {
+      "Sim": { "$path": "src/server/Sim.luau" },
+      "Map": { "$path": "src/server/Map.luau" },
+      "Round": { "$path": "src/server/Round.server.luau" }
+    },
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "Input": { "$path": "src/client/Input.client.luau" },
+        "View": { "$path": "src/client/View.client.luau" }
+      }
+    },
+    "Workspace": {
+      "$properties": { "StreamingEnabled": false }
+    },
+    "Players": {
+      "$properties": { "CharacterAutoLoads": false }
+    },
+    "Lighting": {
+      "$properties": {
+        "GlobalShadows": false,
+        "Brightness": 2,
+        "ClockTime": 15,
+        "EnvironmentSpecularScale": 0,
+        "Ambient": [0.75, 0.75, 0.75],
+        "OutdoorAmbient": [0.75, 0.75, 0.75]
+      }
+    }
+  }
+}
