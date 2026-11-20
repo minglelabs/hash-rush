@@ -108,6 +108,8 @@ make("UICorner", { CornerRadius = UDim.new(0.05, 0) }, resultPanel)
 local resultTitle = text({ Position = UDim2.fromScale(0.05, 0.04), Size = UDim2.fromScale(0.9, 0.17), TextColor3 = GOLD }, resultPanel)
 local resultWhy = text({ Position = UDim2.fromScale(0.05, 0.21), Size = UDim2.fromScale(0.9, 0.07) }, resultPanel)
 local resultList = text({ Position = UDim2.fromScale(0.1, 0.3), Size = UDim2.fromScale(0.8, 0.56), TextYAlignment = Enum.TextYAlignment.Top }, resultPanel)
+-- With one or two names the scaled text would otherwise dwarf the title.
+make("UITextSizeConstraint", { MaxTextSize = 30 }, resultList)
 local resultNext = text({ Position = UDim2.fromScale(0.05, 0.88), Size = UDim2.fromScale(0.9, 0.08) }, resultPanel)
 
 local bannerShown = 0
@@ -150,12 +152,13 @@ local function disc(radius, height, color, parent)
 end
 
 -- Words that rise from a spot on the map and fade: "꿀밤!", "뿅!", "던지기!".
+-- They start above the name over a hamster, so the two do not overlap.
 local function floatText(x, y, message, color)
 	local anchor = part({ Size = Vector3.one, Transparency = 1, Position = Vector3.new(x, 2, y) })
-	local gui = make("BillboardGui", { Size = UDim2.fromScale(9, 2.6), AlwaysOnTop = true, StudsOffsetWorldSpace = Vector3.new(0, 0, -2.5) }, anchor)
+	local gui = make("BillboardGui", { Size = UDim2.fromScale(9, 2.6), AlwaysOnTop = true, StudsOffsetWorldSpace = Vector3.new(0, 0, -7) }, anchor)
 	local label = text({ Size = UDim2.fromScale(1, 1), Text = message, TextColor3 = color or WHITE, TextStrokeTransparency = 0 }, gui)
 	local info = TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-	TweenService:Create(gui, info, { StudsOffsetWorldSpace = Vector3.new(0, 0, -5.5) }):Play()
+	TweenService:Create(gui, info, { StudsOffsetWorldSpace = Vector3.new(0, 0, -10) }):Play()
 	TweenService:Create(label, TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
 	Debris:AddItem(anchor, 0.9)
 end

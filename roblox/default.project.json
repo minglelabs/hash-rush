@@ -27,7 +27,8 @@
       "$properties": {
         "GlobalShadows": false,
         "Brightness": 2,
-        "ClockTime": 12,
+        "ClockTime": 15,
+        "EnvironmentSpecularScale": 0,
         "Ambient": [0.75, 0.75, 0.75],
         "OutdoorAmbient": [0.75, 0.75, 0.75]
       }

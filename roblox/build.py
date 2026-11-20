@@ -27,7 +27,7 @@ place = "".join([
     service("Workspace", '<bool name="StreamingEnabled">false</bool>'),
     service("Players", '<bool name="CharacterAutoLoads">false</bool>'),
     service("Lighting", '<bool name="GlobalShadows">false</bool><float name="Brightness">2</float>'
-            '<string name="TimeOfDay">12:00:00</string>' + colour("Ambient", 0.75) + colour("OutdoorAmbient", 0.75)),
+            '<string name="TimeOfDay">15:00:00</string><float name="EnvironmentSpecularScale">0</float>' + colour("Ambient", 0.75) + colour("OutdoorAmbient", 0.75)),
     service("ReplicatedStorage", children=script("ModuleScript", "Config", "src/shared/Config.luau")
             + script("ModuleScript", "Snapshot", "src/shared/Snapshot.luau")),
     service("ServerScriptService", children=script("ModuleScript", "Sim", "src/server/Sim.luau")
