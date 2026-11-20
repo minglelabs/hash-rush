@@ -2,7 +2,9 @@
 -- sim and prints who won. Each job draws four seats at random from the pool
 -- (repeats allowed) and plays that line-up several times, as rl/elo.js does for
 -- the web game.
---   luau --codegen roblox/test/elo.luau -a <solo|team> <first seed> <jobs> <rounds per job>
+--   luau --codegen roblox/test/elo.luau -a <solo|team> <first seed> <jobs> <rounds per job> [line-up]
+-- A line-up such as 5,4,5,4 seats those pool numbers instead of drawing them: in a
+-- team round that is two of the fifth against two of the fourth.
 -- One line per round: mode, the four pool numbers, then 1 or 0 per seat for a win.
 
 local shim = require("./shim")
@@ -15,7 +17,7 @@ local Bot = shim.require(ServerScriptService:WaitForChild("Bot"))
 local RLBot = shim.require(ServerScriptService:WaitForChild("RLBot"))
 local mulberry32 = shim.require(ServerScriptService:WaitForChild("BotRng"))
 
-local mode, first, jobs, perJob = ...
+local mode, first, jobs, perJob, lineup = ...
 first = tonumber(first)
 jobs = tonumber(jobs)
 perJob = tonumber(perJob)
@@ -29,6 +31,11 @@ for j = 0, jobs - 1 do
 	local ids = {}
 	for seat = 1, 4 do
 		ids[seat] = math.floor(draw() * #POOL) + 1
+	end
+	if lineup then
+		for seat, id in string.split(lineup, ",") do
+			ids[seat] = tonumber(id)
+		end
 	end
 	for round = 1, perJob do
 		local slots = {}
