@@ -288,3 +288,28 @@ Tried and left out: playing below the trained temperature (`rl16@0.4` in
 `elo.js`: free-for-all within the error, teams about 100 points down), the
 network on the GPU (`--device mps`: 3100 decisions a second against 5000 on the
 CPU), and more threads for the learning step (no quicker past 4).
+
+### rl18: every bot level as a sparring partner, flat 0.5 s pickpocketing, a cost for being robbed
+
+rl17 only ever met the hard bot and the ace, and lost to the easy one: two of it
+beat two easy bots in a third of rounds. The easy bot does not fight, it takes a
+seed and runs, and rl17 had never had to stop that. rl18 spars with all four
+levels (`--bot-levels 0 1 2 3`), is charged for a seed pickpocketed off it
+(`--robbed 3`), is paid more for taking one (`--steal 4`), starts more rounds at
+a carrier's heels (`--tail 0.25`), and plays more team rounds (`--teams 0.7`).
+It was trained on the rules of PR #254: pickpocketing in a flat 0.5 s, overtime
+from 80 s.
+
+    python3 rl/train.py --name rl18 --resume rl/runs/rl17/policy.pt --frame-skip 2 --minutes 480 --teams 0.7 --bot-levels 0 1 2 3 --bot-env 0.7 --entropy 0.003 --lr 1e-4 --steal 4 --robbed 3 --tail 0.25 --rivals rl/runs/rl16/policy.pt rl/runs/rl17/policy.pt rl/runs/rl17/best-team.pt rl/runs/rl17/best-solo.pt
+
+(Run as an hour against levels 2 and 3 on the old rules, then 450 minutes as
+above from that; 138M decisions in the second part.) rl18 is in the game for both
+kinds of round. Elo, 1200 rounds a mode, puts it level with rl17: free-for-all
+rl18 1225, rl17 1217, ace 1146; teams ace 1299, rl18 1280, rl17 1273, hard 1240.
+Side against side, two of it against two bots of one level, 150 rounds
+(rl17 in brackets): easy 49% (27%), normal 71% (57%), hard 85% (74%), ace 67%
+(57%). One of it among three bots of one level, where a quarter is a fair
+share: easy 24% (30%), normal 57% (54%), hard 73% (67%), ace 48% (47%).
+
+Still open: it does not pick pockets (0.00 seeds taken a round), and among
+three easy bots it wins no more than its fair share.
