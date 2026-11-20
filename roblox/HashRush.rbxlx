@@ -160,12 +160,439 @@ function Snapshot.decode(b)
 end
 
 return Snapshot
-]]></ProtectedString></Properties></Item></Item><Item class="ServerScriptService"><Properties><string name="Name">ServerScriptService</string></Properties><Item class="ModuleScript"><Properties><string name="Name">Sim</string><ProtectedString name="Source"><![CDATA[-- The game itself, as plain logic: no Instances, no remotes, no clock. Every tick
+]]></ProtectedString></Properties></Item><Item class="ModuleScript"><Properties><string name="Name">Map</string><ProtectedString name="Source"><![CDATA[-- The meadow: home on the left, the sunflower on the right and a hedge maze in
+-- between. Everything is data, in studs. Sim x runs left to right (world X), sim y
+-- runs top to bottom on screen (world Z).
+
+local CELL = 4
+local COLS = 12
+local ROWS = 13
+local HEDGE_X1 = 21
+
+-- Runs of open grid cells, { col, row, col, row }, counted from 0.
+local LANES = {
+	-- top
+	{ 0, 1, 2, 1 }, { 2, 1, 2, 3 }, { 2, 3, 5, 3 }, { 5, 3, 5, 1 }, { 5, 1, 8, 1 }, { 8, 1, 8, 3 }, { 8, 3, 11, 3 },
+	-- middle
+	{ 0, 5, 3, 5 }, { 3, 5, 3, 7 }, { 3, 7, 6, 7 }, { 6, 7, 6, 5 }, { 6, 5, 9, 5 }, { 9, 5, 9, 7 }, { 9, 7, 11, 7 },
+	-- bottom
+	{ 0, 11, 2, 11 }, { 2, 11, 2, 9 }, { 2, 9, 5, 9 }, { 5, 9, 5, 11 }, { 5, 11, 8, 11 }, { 8, 11, 8, 9 }, { 8, 9, 11, 9 },
+	-- cross links
+	{ 3, 3, 3, 5 }, { 4, 7, 4, 9 }, { 8, 3, 8, 5 }, { 10, 7, 10, 9 },
+}
+
+local BOUNDS = { x1 = 2.4, y1 = 2, x2 = 89, y2 = 2 + ROWS * CELL }
+local FLOWER = { x = 79, y = 28, r = 3, gatherR = 6.6 }
+local HOME = { x1 = BOUNDS.x1, y1 = BOUNDS.y1, x2 = 15, y2 = BOUNDS.y2 }
+
+-- Nests sit on an arc, top to bottom, so everyone starts as far from the middle lane.
+local function arcNests(cx, cy, r, angles)
+	local nests = {}
+	for _, deg in angles do
+		local a = math.rad(deg)
+		table.insert(nests, { x = cx - math.cos(a) * r, y = cy + math.sin(a) * r })
+	end
+	return nests
+end
+
+local bigAngles = {}
+for i = 0, 7 do
+	table.insert(bigAngles, -66 + i * 132 / 7)
+end
+
+-- Every wall cell is covered by its longest horizontal and vertical run. The two
+-- sets overlap, so the union only has rounded corners where a wall really ends.
+local function hedgeRects()
+	local open = {}
+	for r = 0, ROWS - 1 do
+		open[r] = {}
+	end
+	for _, lane in LANES do
+		for c = math.min(lane[1], lane[3]), math.max(lane[1], lane[3]) do
+			for r = math.min(lane[2], lane[4]), math.max(lane[2], lane[4]) do
+				open[r][c] = true
+			end
+		end
+	end
+	local rects = {}
+	for r = 0, ROWS - 1 do
+		for c = 0, COLS - 1 do
+			if not open[r][c] and (c == 0 or open[r][c - 1]) then
+				local last = c
+				while last + 1 < COLS and not open[r][last + 1] do
+					last += 1
+				end
+				table.insert(rects, { x = HEDGE_X1 + c * CELL, y = BOUNDS.y1 + r * CELL, w = (last - c + 1) * CELL, h = CELL })
+			end
+		end
+	end
+	for c = 0, COLS - 1 do
+		for r = 0, ROWS - 1 do
+			if not open[r][c] and (r == 0 or open[r - 1][c]) then
+				local last = r
+				while last + 1 < ROWS and not open[last + 1][c] do
+					last += 1
+				end
+				if last > r then
+					table.insert(rects, { x = HEDGE_X1 + c * CELL, y = BOUNDS.y1 + r * CELL, w = CELL, h = (last - r + 1) * CELL })
+				end
+			end
+		end
+	end
+	return rects
+end
+
+local Map = {
+	world = { w = 91.4, h = 56 },
+	bounds = BOUNDS,
+	home = HOME,
+	flower = FLOWER,
+	-- Tunnels above and below the flower: an empty-handed hamster goes straight home.
+	warps = {
+		{ x = FLOWER.x, y = 6.4, r = 3.4 },
+		{ x = FLOWER.x, y = 49.6, r = 3.4 },
+	},
+	nests = arcNests(HOME.x2, FLOWER.y, 10, { -36, -12, 12, 36 }),
+	-- Used once more than four hamsters play.
+	bigNests = arcNests(HOME.x2 + 2, FLOWER.y, 12.5, bigAngles),
+	-- Hedges collide as rounded rectangles with this corner radius.
+	rects = hedgeRects(),
+	corner = 2,
+}
+
+-- Builds the map as anchored parts under Workspace.HashRushMap, and sets the
+-- light. The folder's attributes tell the client where things are.
+function Map.render()
+	local Lighting = game:GetService("Lighting")
+	local folder = Instance.new("Folder")
+	folder.Name = "HashRushMap"
+	local rng = Random.new(11)
+
+	local function rgb(r, g, b)
+		return Color3.fromRGB(r, g, b)
+	end
+	local function part(name, color, material, parent)
+		local p = Instance.new("Part")
+		p.Name = name
+		p.Anchored = true
+		p.CanCollide = false
+		p.CanQuery = false
+		p.CanTouch = false
+		p.CastShadow = false
+		p.TopSurface = Enum.SurfaceType.Smooth
+		p.BottomSurface = Enum.SurfaceType.Smooth
+		p.Material = material or Enum.Material.SmoothPlastic
+		p.Color = color
+		p.Parent = parent or folder
+		return p
+	end
+	-- A box over the sim rectangle (x1, y1)-(x2, y2), standing on `base`.
+	local function box(name, x1, y1, x2, y2, base, height, color, material, parent)
+		local p = part(name, color, material, parent)
+		p.Size = Vector3.new(x2 - x1, height, y2 - y1)
+		p.Position = Vector3.new((x1 + x2) / 2, base + height / 2, (y1 + y2) / 2)
+		return p
+	end
+	local function disc(name, x, y, r, base, height, color, material, parent)
+		local p = part(name, color, material, parent)
+		p.Shape = Enum.PartType.Cylinder
+		p.Size = Vector3.new(height, 2 * r, 2 * r)
+		p.CFrame = CFrame.new(x, base + height / 2, y) * CFrame.Angles(0, 0, math.rad(90))
+		return p
+	end
+	-- An ellipsoid: a part wearing a sphere mesh.
+	local function blob(name, cframe, size, color, parent)
+		local p = part(name, color, nil, parent)
+		p.Size = size
+		p.CFrame = cframe
+		local mesh = Instance.new("SpecialMesh")
+		mesh.MeshType = Enum.MeshType.Sphere
+		mesh.Parent = p
+		return p
+	end
+	local function sign(parent, text, studs)
+		local gui = Instance.new("BillboardGui")
+		gui.Size = UDim2.fromScale(studs, studs * 0.5)
+		gui.AlwaysOnTop = true
+		gui.LightInfluence = 0
+		gui.Parent = parent
+		local label = Instance.new("TextLabel")
+		label.Size = UDim2.fromScale(1, 1)
+		label.BackgroundTransparency = 1
+		label.Text = text
+		label.TextScaled = true
+		label.Font = Enum.Font.FredokaOne
+		label.TextColor3 = Color3.new(1, 1, 1)
+		label.TextStrokeTransparency = 1
+		label.Parent = gui
+		local stroke = Instance.new("UIStroke")
+		stroke.Thickness = 2.5
+		stroke.Color = rgb(74, 50, 30)
+		stroke.Parent = label
+	end
+
+	local w = Map.world
+
+	-- Light: an afternoon sun with soft shadows, colours a little richer than life.
+	Lighting.GlobalShadows = true
+	Lighting.Brightness = 2.4
+	Lighting.ClockTime = 14.3
+	Lighting.GeographicLatitude = 28
+	Lighting.Ambient = rgb(150, 150, 165)
+	Lighting.OutdoorAmbient = rgb(165, 165, 175)
+	Lighting.EnvironmentSpecularScale = 0
+	Lighting.EnvironmentDiffuseScale = 0.5
+	Lighting.ShadowSoftness = 0.35
+	local grade = Instance.new("ColorCorrectionEffect")
+	grade.Name = "HashRushGrade"
+	grade.Saturation = 0.2
+	grade.Contrast = 0.06
+	grade.Parent = Lighting
+	local bloom = Instance.new("BloomEffect")
+	bloom.Name = "HashRushBloom"
+	bloom.Intensity = 0.3
+	bloom.Size = 18
+	bloom.Threshold = 1.5
+	bloom.Parent = Lighting
+
+	-- The meadow around the field.
+	box("Ground", -400, -400, w.w + 400, w.h + 400, -1, 1, rgb(96, 170, 90), Enum.Material.Grass)
+
+	-- The field: mown in a checkerboard of two greens.
+	local TILE = 4
+	local cols = math.ceil((BOUNDS.x2 - BOUNDS.x1) / TILE)
+	local rows = math.ceil((BOUNDS.y2 - BOUNDS.y1) / TILE)
+	for c = 0, cols - 1 do
+		for r = 0, rows - 1 do
+			local x1 = BOUNDS.x1 + c * TILE
+			local y1 = BOUNDS.y1 + r * TILE
+			local light = (c + r) % 2 == 0
+			box("Field", x1, y1, math.min(BOUNDS.x2, x1 + TILE), math.min(BOUNDS.y2, y1 + TILE), 0, 0.1, if light then rgb(168, 222, 118) else rgb(154, 212, 106))
+		end
+	end
+
+	-- The maze floor: a sandy path with a darker rim.
+	local laneX2 = HEDGE_X1 + COLS * CELL
+	box("LaneRim", HEDGE_X1 - 0.5, BOUNDS.y1, laneX2 + 0.5, BOUNDS.y2, 0.1, 0.04, rgb(206, 180, 128))
+	for c = 0, COLS - 1 do
+		for r = 0, ROWS - 1 do
+			local x1 = HEDGE_X1 + c * CELL
+			local y1 = BOUNDS.y1 + r * CELL
+			local light = (c + r) % 2 == 0
+			box("LaneFloor", x1, y1, x1 + CELL, y1 + CELL, 0.14, 0.04, if light then rgb(247, 232, 196) else rgb(241, 224, 184))
+		end
+	end
+
+	-- Home. The client stretches these two as the home edge moves in overtime.
+	box("Home", HOME.x1, HOME.y1, HOME.x2, HOME.y2, 0.2, 0.08, rgb(255, 226, 170), Enum.Material.Sand)
+	local edge = box("HomeEdge", HOME.x2 - 0.25, HOME.y1, HOME.x2 + 0.25, HOME.y2, 0.28, 0.5, rgb(255, 150, 60), Enum.Material.Neon)
+	edge.Transparency = 0.15
+	local function nest(n)
+		disc("Nest", n.x, n.y, 2.2, 0.28, 0.12, rgb(196, 150, 86))
+		disc("Nest", n.x, n.y, 1.6, 0.4, 0.06, rgb(232, 196, 130))
+	end
+	for _, n in Map.bigNests do
+		nest(n)
+	end
+	for _, n in Map.nests do
+		nest(n)
+	end
+
+	-- A hedge is a rounded rectangle: two crossing boxes and a disc in each corner,
+	-- with a lighter cap on top so it reads as a plump bush.
+	local c = Map.corner
+	local HEDGE_H = 1.9
+	local side = rgb(52, 138, 70)
+	local cap = rgb(98, 186, 92)
+	local INSET = 0.6
+	local corners = {}
+	for _, r in Map.rects do
+		if r.w > 2 * c then
+			box("Hedge", r.x + c, r.y, r.x + r.w - c, r.y + r.h, 0.1, HEDGE_H, side, Enum.Material.Grass).CastShadow = true
+		end
+		if r.h > 2 * c then
+			box("Hedge", r.x, r.y + c, r.x + r.w, r.y + r.h - c, 0.1, HEDGE_H, side, Enum.Material.Grass).CastShadow = true
+		end
+		for _, x in { r.x + c, r.x + r.w - c } do
+			for _, y in { r.y + c, r.y + r.h - c } do
+				local key = x .. "," .. y
+				if not corners[key] then
+					corners[key] = true
+					disc("Hedge", x, y, c, 0.1, HEDGE_H, side, Enum.Material.Grass).CastShadow = true
+					-- A blossom on some of the corners.
+					if rng:NextNumber() < 0.45 then
+						local petals = ({ rgb(255, 255, 255), rgb(255, 170, 200), rgb(255, 224, 110) })[rng:NextInteger(1, 3)]
+						local bx = x + rng:NextNumber(-0.7, 0.7)
+						local by = y + rng:NextNumber(-0.7, 0.7)
+						blob("Blossom", CFrame.new(bx, 0.1 + HEDGE_H + 0.32, by), Vector3.new(0.85, 0.3, 0.85), petals)
+						blob("Blossom", CFrame.new(bx, 0.1 + HEDGE_H + 0.42, by), Vector3.new(0.35, 0.25, 0.35), rgb(255, 200, 60))
+					end
+				end
+			end
+		end
+	end
+
+	-- The lighter cap, one piece per wall cell, drawn in from every side that
+	-- faces a lane so the darker rim shows all the way round.
+	local wall = {}
+	for r = 0, ROWS - 1 do
+		wall[r] = table.create(COLS, true)
+		wall[r][0] = true
+	end
+	for _, lane in LANES do
+		for col = math.min(lane[1], lane[3]), math.max(lane[1], lane[3]) do
+			for r = math.min(lane[2], lane[4]), math.max(lane[2], lane[4]) do
+				wall[r][col] = false
+			end
+		end
+	end
+	local function isWall(col, r)
+		return r >= 0 and r < ROWS and col >= 0 and col < COLS and wall[r][col]
+	end
+	for r = 0, ROWS - 1 do
+		for col = 0, COLS - 1 do
+			if wall[r][col] then
+				local x1 = HEDGE_X1 + col * CELL
+				local y1 = BOUNDS.y1 + r * CELL
+				box(
+					"HedgeCap",
+					x1 + (if isWall(col - 1, r) then 0 else INSET),
+					y1 + (if isWall(col, r - 1) then 0 else INSET),
+					x1 + CELL - (if isWall(col + 1, r) then 0 else INSET),
+					y1 + CELL - (if isWall(col, r + 1) then 0 else INSET),
+					0.1 + HEDGE_H,
+					0.25,
+					cap,
+					Enum.Material.Grass
+				)
+			end
+		end
+	end
+
+	-- The sunflower. The client sways the head.
+	disc("GatherRing", FLOWER.x, FLOWER.y, FLOWER.gatherR, 0.12, 0.05, rgb(255, 246, 170)).Transparency = 0.55
+	for i = 0, 23 do
+		local a = i / 24 * math.pi * 2
+		disc("GatherDot", FLOWER.x + math.cos(a) * FLOWER.gatherR, FLOWER.y + math.sin(a) * FLOWER.gatherR, 0.32, 0.14, 0.06, rgb(255, 255, 255)).Transparency = 0.15
+	end
+	local flower = Instance.new("Model")
+	flower.Name = "Sunflower"
+	local HEAD_Y = 2.6
+	local heart = disc("Heart", FLOWER.x, FLOWER.y, FLOWER.r * 0.62, HEAD_Y, 0.7, rgb(120, 76, 40), nil, flower)
+	heart.CastShadow = true
+	disc("HeartTop", FLOWER.x, FLOWER.y, FLOWER.r * 0.45, HEAD_Y + 0.7, 0.12, rgb(92, 56, 30), nil, flower)
+	for i = 0, 15 do
+		local a = i / 16 * math.pi * 2
+		local reach = FLOWER.r * 0.62 + 0.75
+		local at = CFrame.new(FLOWER.x, HEAD_Y + 0.3 + (i % 2) * 0.12, FLOWER.y) * CFrame.Angles(0, -a, 0) * CFrame.new(reach, 0, 0)
+		blob("Petal", at, Vector3.new(2.3, 0.45, 1.25), if i % 2 == 0 then rgb(255, 212, 50) else rgb(255, 190, 30), flower).CastShadow = true
+	end
+	-- No primary part: the pivot stays upright, so the client can nod the head.
+	flower.WorldPivot = CFrame.new(FLOWER.x, HEAD_Y, FLOWER.y)
+	flower.Parent = folder
+	local stem = part("Stem", rgb(86, 160, 70))
+	stem.Shape = Enum.PartType.Cylinder
+	stem.Size = Vector3.new(HEAD_Y, 0.9, 0.9)
+	stem.CFrame = CFrame.new(FLOWER.x, HEAD_Y / 2, FLOWER.y) * CFrame.Angles(0, 0, math.rad(90))
+	for _, a in { 0.6, 3.6 } do
+		blob("Leaf", CFrame.new(FLOWER.x, 0.5, FLOWER.y) * CFrame.Angles(0, a, 0) * CFrame.new(2.3, 0, 0), Vector3.new(3, 0.3, 1.5), rgb(98, 176, 78))
+	end
+	sign(heart, "🌻", 5)
+
+	-- Burrows: a mound with a dark hole.
+	for _, warp in Map.warps do
+		disc("WarpMound", warp.x, warp.y, warp.r + 0.7, 0.1, 0.3, rgb(170, 122, 78))
+		disc("WarpRim", warp.x, warp.y, warp.r, 0.4, 0.1, rgb(120, 82, 52))
+		local hole = disc("Warp", warp.x, warp.y, warp.r - 0.8, 0.5, 0.05, rgb(46, 30, 22))
+		sign(hole, "🏠 굴", 5)
+	end
+
+	-- A picket fence around the field.
+	local wood = rgb(214, 170, 112)
+	local function post(x, y)
+		local p = part("FencePost", wood)
+		p.Size = Vector3.new(0.6, 2, 0.6)
+		p.Position = Vector3.new(x, 1, y)
+		p.CastShadow = true
+	end
+	for x = BOUNDS.x1, BOUNDS.x2, 3.33 do
+		post(x, BOUNDS.y1 - 0.5)
+		post(x, BOUNDS.y2 + 0.5)
+	end
+	for y = BOUNDS.y1 + 3, BOUNDS.y2 - 3, 3.25 do
+		post(BOUNDS.x1 - 0.5, y)
+		post(BOUNDS.x2 + 0.5, y)
+	end
+	box("FenceRail", BOUNDS.x1 - 0.5, BOUNDS.y1 - 0.65, BOUNDS.x2 + 0.5, BOUNDS.y1 - 0.35, 1.1, 0.4, wood)
+	box("FenceRail", BOUNDS.x1 - 0.5, BOUNDS.y2 + 0.35, BOUNDS.x2 + 0.5, BOUNDS.y2 + 0.65, 1.1, 0.4, wood)
+	box("FenceRail", BOUNDS.x1 - 0.65, BOUNDS.y1 - 0.5, BOUNDS.x1 - 0.35, BOUNDS.y2 + 0.5, 1.1, 0.4, wood)
+	box("FenceRail", BOUNDS.x2 + 0.35, BOUNDS.y1 - 0.5, BOUNDS.x2 + 0.65, BOUNDS.y2 + 0.5, 1.1, 0.4, wood)
+
+	-- Outside the fence: bushes, rocks, wild flowers and a few trees.
+	local function outside()
+		while true do
+			local x = rng:NextNumber(-26, w.w + 26)
+			local y = rng:NextNumber(-20, w.h + 20)
+			if x < BOUNDS.x1 - 2.5 or x > BOUNDS.x2 + 2.5 or y < BOUNDS.y1 - 2.5 or y > BOUNDS.y2 + 2.5 then
+				return x, y
+			end
+		end
+	end
+	for _ = 1, 26 do
+		local x, y = outside()
+		-- A bush is a clump of three low mounds.
+		for i = 1, 3 do
+			local size = rng:NextNumber(2.2, 3.6)
+			local bx = x + rng:NextNumber(-1.4, 1.4)
+			local by = y + rng:NextNumber(-1.4, 1.4)
+			local bush = blob("Bush", CFrame.new(bx, size * 0.2, by), Vector3.new(size, size * 0.6, size), if i % 2 == 0 then rgb(62, 142, 72) else rgb(76, 158, 80))
+			bush.Material = Enum.Material.Grass
+			bush.CastShadow = true
+		end
+	end
+	for _ = 1, 16 do
+		local x, y = outside()
+		local size = rng:NextNumber(1.2, 2.6)
+		blob("Rock", CFrame.new(x, size * 0.12, y) * CFrame.Angles(0, rng:NextNumber(0, 6), 0), Vector3.new(size * 1.3, size * 0.5, size), rgb(150, 152, 160)).CastShadow = true
+	end
+	for _ = 1, 60 do
+		local x, y = outside()
+		local petals = ({ rgb(255, 255, 255), rgb(255, 170, 200), rgb(255, 224, 110), rgb(190, 170, 255) })[rng:NextInteger(1, 4)]
+		blob("WildFlower", CFrame.new(x, 0.25, y), Vector3.new(0.9, 0.3, 0.9), petals)
+		blob("WildFlower", CFrame.new(x, 0.35, y), Vector3.new(0.38, 0.28, 0.38), rgb(255, 200, 60))
+	end
+	for _ = 1, 9 do
+		local x, y = outside()
+		if x < BOUNDS.x1 - 6 or x > BOUNDS.x2 + 6 or y < BOUNDS.y1 - 6 or y > BOUNDS.y2 + 6 then
+			local trunk = part("Trunk", rgb(140, 98, 62))
+			trunk.Shape = Enum.PartType.Cylinder
+			trunk.Size = Vector3.new(3, 1.6, 1.6)
+			trunk.CFrame = CFrame.new(x, 1.5, y) * CFrame.Angles(0, 0, math.rad(90))
+			local crown = blob("Crown", CFrame.new(x, 4.2, y), Vector3.new(7.5, 5, 7.5), rgb(64, 146, 76))
+			crown.Material = Enum.Material.Grass
+			crown.CastShadow = true
+			blob("Crown", CFrame.new(x + 0.8, 6, y - 0.6), Vector3.new(5, 3.6, 5), rgb(88, 170, 88)).Material = Enum.Material.Grass
+		end
+	end
+
+	folder:SetAttribute("WorldW", w.w)
+	folder:SetAttribute("WorldH", w.h)
+	folder:SetAttribute("HomeX1", HOME.x1)
+	folder:SetAttribute("HomeX2", HOME.x2)
+	folder:SetAttribute("FlowerX", FLOWER.x)
+	folder:SetAttribute("FlowerY", FLOWER.y)
+	folder:SetAttribute("GatherR", FLOWER.gatherR)
+	folder.Parent = workspace
+	return folder
+end
+
+return Map
+]]></ProtectedString></Properties></Item><Item class="ModuleScript"><Properties><string name="Name">Sim</string><ProtectedString name="Source"><![CDATA[-- The game itself, as plain logic: no Instances, no remotes, no clock. Every tick
 -- it takes one input per player and advances the world by Config.DT.
 --   input = { mx, my, bonk, throw }   move vector and the two buttons, held or not
 -- Ported from the web game's src/sim/game.js (meadow, free-for-all).
 
-local Config = require(game:GetService("ReplicatedStorage"):WaitForChild("Config"))
+local Config = require(script.Parent:WaitForChild("Config"))
 
 local DT = Config.DT
 local R = Config.HAMSTER_R
@@ -318,6 +745,9 @@ local function sight(map, a, b)
 	local f = map.flower
 	return distToSegment(f.x, f.y, a.x, a.y, b.x, b.y) >= f.r
 end
+
+-- The client uses this too, to place its own hamster ahead of the server.
+Sim.collide = collide
 
 -- Rules -------------------------------------------------------------------
 
@@ -819,215 +1249,7 @@ function Sim.step(g, inputs)
 end
 
 return Sim
-]]></ProtectedString></Properties></Item><Item class="ModuleScript"><Properties><string name="Name">Map</string><ProtectedString name="Source"><![CDATA[-- The meadow: home on the left, the sunflower on the right and a hedge maze in
--- between. Everything is data, in studs. Sim x runs left to right (world X), sim y
--- runs top to bottom on screen (world Z).
-
-local CELL = 4
-local COLS = 12
-local ROWS = 13
-local HEDGE_X1 = 21
-
--- Runs of open grid cells, { col, row, col, row }, counted from 0.
-local LANES = {
-	-- top
-	{ 0, 1, 2, 1 }, { 2, 1, 2, 3 }, { 2, 3, 5, 3 }, { 5, 3, 5, 1 }, { 5, 1, 8, 1 }, { 8, 1, 8, 3 }, { 8, 3, 11, 3 },
-	-- middle
-	{ 0, 5, 3, 5 }, { 3, 5, 3, 7 }, { 3, 7, 6, 7 }, { 6, 7, 6, 5 }, { 6, 5, 9, 5 }, { 9, 5, 9, 7 }, { 9, 7, 11, 7 },
-	-- bottom
-	{ 0, 11, 2, 11 }, { 2, 11, 2, 9 }, { 2, 9, 5, 9 }, { 5, 9, 5, 11 }, { 5, 11, 8, 11 }, { 8, 11, 8, 9 }, { 8, 9, 11, 9 },
-	-- cross links
-	{ 3, 3, 3, 5 }, { 4, 7, 4, 9 }, { 8, 3, 8, 5 }, { 10, 7, 10, 9 },
-}
-
-local BOUNDS = { x1 = 2.4, y1 = 2, x2 = 89, y2 = 2 + ROWS * CELL }
-local FLOWER = { x = 79, y = 28, r = 3, gatherR = 6.6 }
-local HOME = { x1 = BOUNDS.x1, y1 = BOUNDS.y1, x2 = 15, y2 = BOUNDS.y2 }
-
--- Nests sit on an arc, top to bottom, so everyone starts as far from the middle lane.
-local function arcNests(cx, cy, r, angles)
-	local nests = {}
-	for _, deg in angles do
-		local a = math.rad(deg)
-		table.insert(nests, { x = cx - math.cos(a) * r, y = cy + math.sin(a) * r })
-	end
-	return nests
-end
-
-local bigAngles = {}
-for i = 0, 7 do
-	table.insert(bigAngles, -66 + i * 132 / 7)
-end
-
--- Every wall cell is covered by its longest horizontal and vertical run. The two
--- sets overlap, so the union only has rounded corners where a wall really ends.
-local function hedgeRects()
-	local open = {}
-	for r = 0, ROWS - 1 do
-		open[r] = {}
-	end
-	for _, lane in LANES do
-		for c = math.min(lane[1], lane[3]), math.max(lane[1], lane[3]) do
-			for r = math.min(lane[2], lane[4]), math.max(lane[2], lane[4]) do
-				open[r][c] = true
-			end
-		end
-	end
-	local rects = {}
-	for r = 0, ROWS - 1 do
-		for c = 0, COLS - 1 do
-			if not open[r][c] and (c == 0 or open[r][c - 1]) then
-				local last = c
-				while last + 1 < COLS and not open[r][last + 1] do
-					last += 1
-				end
-				table.insert(rects, { x = HEDGE_X1 + c * CELL, y = BOUNDS.y1 + r * CELL, w = (last - c + 1) * CELL, h = CELL })
-			end
-		end
-	end
-	for c = 0, COLS - 1 do
-		for r = 0, ROWS - 1 do
-			if not open[r][c] and (r == 0 or open[r - 1][c]) then
-				local last = r
-				while last + 1 < ROWS and not open[last + 1][c] do
-					last += 1
-				end
-				if last > r then
-					table.insert(rects, { x = HEDGE_X1 + c * CELL, y = BOUNDS.y1 + r * CELL, w = CELL, h = (last - r + 1) * CELL })
-				end
-			end
-		end
-	end
-	return rects
-end
-
-local Map = {
-	world = { w = 91.4, h = 56 },
-	bounds = BOUNDS,
-	home = HOME,
-	flower = FLOWER,
-	-- Tunnels above and below the flower: an empty-handed hamster goes straight home.
-	warps = {
-		{ x = FLOWER.x, y = 6.4, r = 3.4 },
-		{ x = FLOWER.x, y = 49.6, r = 3.4 },
-	},
-	nests = arcNests(HOME.x2, FLOWER.y, 10, { -36, -12, 12, 36 }),
-	-- Used once more than four hamsters play.
-	bigNests = arcNests(HOME.x2 + 2, FLOWER.y, 12.5, bigAngles),
-	-- Hedges collide as rounded rectangles with this corner radius.
-	rects = hedgeRects(),
-	corner = 2,
-}
-
--- Builds the map as anchored parts under Workspace.HashRushMap. The folder's
--- attributes tell the client where things are.
-function Map.render()
-	local folder = Instance.new("Folder")
-	folder.Name = "HashRushMap"
-
-	local function part(name, color, material)
-		local p = Instance.new("Part")
-		p.Name = name
-		p.Anchored = true
-		p.CanCollide = false
-		p.CanQuery = false
-		p.CanTouch = false
-		p.CastShadow = false
-		p.TopSurface = Enum.SurfaceType.Smooth
-		p.BottomSurface = Enum.SurfaceType.Smooth
-		p.Material = material or Enum.Material.SmoothPlastic
-		p.Color = color
-		p.Parent = folder
-		return p
-	end
-	-- A box over the sim rectangle (x1, y1)-(x2, y2), standing on `base`.
-	local function box(name, x1, y1, x2, y2, base, height, color, material)
-		local p = part(name, color, material)
-		p.Size = Vector3.new(x2 - x1, height, y2 - y1)
-		p.Position = Vector3.new((x1 + x2) / 2, base + height / 2, (y1 + y2) / 2)
-		return p
-	end
-	local function disc(name, x, y, r, base, height, color, material)
-		local p = part(name, color, material)
-		p.Shape = Enum.PartType.Cylinder
-		p.Size = Vector3.new(height, 2 * r, 2 * r)
-		p.CFrame = CFrame.new(x, base + height / 2, y) * CFrame.Angles(0, 0, math.rad(90))
-		return p
-	end
-	local function sign(parent, text)
-		local gui = Instance.new("BillboardGui")
-		gui.Size = UDim2.fromScale(8, 2)
-		gui.AlwaysOnTop = true
-		gui.Parent = parent
-		local label = Instance.new("TextLabel")
-		label.Size = UDim2.fromScale(1, 1)
-		label.BackgroundTransparency = 1
-		label.Text = text
-		label.TextScaled = true
-		label.Font = Enum.Font.GothamBold
-		label.TextColor3 = Color3.new(1, 1, 1)
-		label.TextStrokeTransparency = 0.3
-		label.Parent = gui
-	end
-
-	local w = Map.world
-	box("Ground", -300, -300, w.w + 300, w.h + 300, -1, 1, Color3.fromRGB(47, 122, 61))
-	box("Field", BOUNDS.x1, BOUNDS.y1, BOUNDS.x2, BOUNDS.y2, 0, 0.1, Color3.fromRGB(147, 211, 111))
-	box("LaneFloor", HEDGE_X1, BOUNDS.y1, HEDGE_X1 + COLS * CELL, BOUNDS.y2, 0.1, 0.05, Color3.fromRGB(236, 220, 174))
-	-- The client stretches these two as the home edge moves in overtime.
-	box("Home", HOME.x1, HOME.y1, HOME.x2, HOME.y2, 0.15, 0.1, Color3.fromRGB(246, 230, 194), Enum.Material.Sand)
-	box("HomeEdge", HOME.x2 - 0.15, HOME.y1, HOME.x2 + 0.15, HOME.y2, 0.25, 1.6, Color3.fromRGB(226, 150, 70)).Transparency = 0.35
-	for _, n in Map.bigNests do
-		disc("Nest", n.x, n.y, 1.9, 0.25, 0.05, Color3.fromRGB(214, 190, 140))
-	end
-	for _, n in Map.nests do
-		disc("Nest", n.x, n.y, 1.9, 0.25, 0.05, Color3.fromRGB(214, 190, 140))
-	end
-
-	-- A hedge is a rounded rectangle: two crossing boxes and a disc in each corner.
-	local c = Map.corner
-	local hedge = Color3.fromRGB(60, 148, 73)
-	local corners = {}
-	for _, r in Map.rects do
-		if r.w > 2 * c then
-			box("Hedge", r.x + c, r.y, r.x + r.w - c, r.y + r.h, 0.1, 1.5, hedge, Enum.Material.Grass)
-		end
-		if r.h > 2 * c then
-			box("Hedge", r.x, r.y + c, r.x + r.w, r.y + r.h - c, 0.1, 1.5, hedge, Enum.Material.Grass)
-		end
-		for _, x in { r.x + c, r.x + r.w - c } do
-			for _, y in { r.y + c, r.y + r.h - c } do
-				local key = x .. "," .. y
-				if not corners[key] then
-					corners[key] = true
-					disc("Hedge", x, y, c, 0.1, 1.5, hedge, Enum.Material.Grass)
-				end
-			end
-		end
-	end
-
-	local ring = disc("GatherRing", FLOWER.x, FLOWER.y, FLOWER.gatherR, 0.15, 0.05, Color3.fromRGB(255, 244, 170))
-	ring.Transparency = 0.45
-	local flower = disc("Flower", FLOWER.x, FLOWER.y, FLOWER.r, 0.1, 1.4, Color3.fromRGB(255, 200, 40))
-	disc("FlowerHeart", FLOWER.x, FLOWER.y, FLOWER.r * 0.55, 0.1, 1.5, Color3.fromRGB(110, 70, 40))
-	sign(flower, "🌻")
-	for _, warp in Map.warps do
-		sign(disc("Warp", warp.x, warp.y, warp.r, 0.15, 0.05, Color3.fromRGB(90, 62, 44)), "🏠 굴")
-	end
-
-	folder:SetAttribute("WorldW", w.w)
-	folder:SetAttribute("WorldH", w.h)
-	folder:SetAttribute("HomeX1", HOME.x1)
-	folder:SetAttribute("HomeX2", HOME.x2)
-	folder:SetAttribute("FlowerX", FLOWER.x)
-	folder:SetAttribute("FlowerY", FLOWER.y)
-	folder:SetAttribute("GatherR", FLOWER.gatherR)
-	folder.Parent = workspace
-	return folder
-end
-
-return Map
-]]></ProtectedString></Properties></Item><Item class="Script"><Properties><string name="Name">Round</string><ProtectedString name="Source"><![CDATA[-- Lobby and round flow. The server owns the game: clients only send what they
+]]></ProtectedString></Properties></Item></Item><Item class="ServerScriptService"><Properties><string name="Name">ServerScriptService</string></Properties><Item class="Script"><Properties><string name="Name">Round</string><ProtectedString name="Source"><![CDATA[-- Lobby and round flow. The server owns the game: clients only send what they
 -- are pressing, and get back a snapshot every tick plus the events of that tick.
 --   lobby (2+ players, 10 s) -> round (3 s countdown, play) -> result (5 s) -> round ...
 
@@ -1038,8 +1260,8 @@ local RunService = game:GetService("RunService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Config"))
 local Snapshot = require(ReplicatedStorage:WaitForChild("Snapshot"))
-local Map = require(script.Parent:WaitForChild("Map"))
-local Sim = require(script.Parent:WaitForChild("Sim"))
+local Map = require(ReplicatedStorage:WaitForChild("Map"))
+local Sim = require(ReplicatedStorage:WaitForChild("Sim"))
 
 Players.CharacterAutoLoads = false
 
@@ -1414,8 +1636,8 @@ pad.Parent = gui
 local base = Instance.new("Frame")
 base.AnchorPoint = Vector2.new(0.5, 0.5)
 base.Size = UDim2.fromOffset(STICK_RADIUS * 2, STICK_RADIUS * 2)
-base.BackgroundColor3 = Color3.new(1, 1, 1)
-base.BackgroundTransparency = 0.75
+base.BackgroundColor3 = Color3.fromRGB(58, 40, 30)
+base.BackgroundTransparency = 0.6
 base.Visible = false
 base.Parent = gui
 round(base)
@@ -1466,29 +1688,47 @@ local function button(name, text, size, offsetY, color)
 	b.BackgroundTransparency = 0.2
 	b.AutoButtonColor = false
 	b.Text = text
-	b.TextSize = 22
-	b.Font = Enum.Font.GothamBold
+	b.TextSize = math.floor(size * 0.22)
+	b.Font = Enum.Font.FredokaOne
 	b.TextColor3 = Color3.new(1, 1, 1)
 	b.Parent = gui
 	round(b)
+	local rim = Instance.new("UIStroke")
+	rim.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	rim.Thickness = 4
+	rim.Color = Color3.fromRGB(58, 40, 30)
+	rim.Parent = b
+	local outline = Instance.new("UIStroke")
+	outline.Thickness = 2.5
+	outline.Color = Color3.fromRGB(58, 40, 30)
+	outline.Parent = b
+	local shine = Instance.new("UIGradient")
+	shine.Rotation = 90
+	shine.Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(205, 205, 205))
+	shine.Parent = b
+	local press = Instance.new("UIScale")
+	press.Name = "Press"
+	press.Parent = b
 	b.InputBegan:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
 			held[name] = input
 			b.BackgroundTransparency = 0
+			press.Scale = 0.9
 		end
 	end)
 	return b
 end
 
-local bonkButton = button("Bonk", "꿀밤", 112, -28, Color3.fromRGB(230, 90, 70))
+local bonkButton = button("Bonk", "👊\n꿀밤", 124, -28, Color3.fromRGB(240, 96, 76))
 -- Only there while there is a seed to throw. View keeps the attribute up to date.
-local throwButton = button("Throw", "던지기", 92, -160, Color3.fromRGB(235, 170, 40))
+local throwButton = button("Throw", "🌻\n던지기", 100, -172, Color3.fromRGB(240, 176, 44))
 throwButton.Visible = false
 player:GetAttributeChangedSignal("HRCarrying"):Connect(function()
 	throwButton.Visible = player:GetAttribute("HRCarrying") == true
 	if not throwButton.Visible then
 		held.Throw = nil
 		throwButton.BackgroundTransparency = 0.2
+		throwButton.Press.Scale = 1
 	end
 end)
 
@@ -1508,6 +1748,7 @@ UserInputService.InputEnded:Connect(function(input)
 		if pressing == input or (input.UserInputType == Enum.UserInputType.MouseButton1 and pressing.UserInputType == Enum.UserInputType.MouseButton1) then
 			held[name] = nil
 			gui[name].BackgroundTransparency = 0.2
+			gui[name].Press.Scale = 1
 		end
 	end
 end)
@@ -1540,12 +1781,24 @@ end
 local sent = { mx = 0, my = 0, bonk = false, throw = false }
 local sentAt = 0
 
+local bonks = 0
+local wasBonk = false
+
 RunService.Heartbeat:Connect(function()
 	local move = moveVector()
 	local mx = math.round(move.X * 100) / 100
 	local my = math.round(move.Y * 100) / 100
 	local bonk = bonkKey or held.Bonk ~= nil
 	local throw = throwKey or held.Throw ~= nil
+	-- View draws the player's own hamster from these without waiting for the server.
+	if player:GetAttribute("HRMove") ~= move then
+		player:SetAttribute("HRMove", move)
+	end
+	if bonk and not wasBonk then
+		bonks += 1
+		player:SetAttribute("HRBonk", bonks)
+	end
+	wasBonk = bonk
 	local buttons = bonk ~= sent.bonk or throw ~= sent.throw
 	local moved = mx ~= sent.mx or my ~= sent.my
 	-- Buttons go out at once; a stick being rolled around goes out 30 times a second.
@@ -1558,11 +1811,11 @@ RunService.Heartbeat:Connect(function()
 	-- View uses this for the "hold still" hint at the flower.
 	player:SetAttribute("HRMoving", mx ~= 0 or my ~= 0)
 end)
-]]></ProtectedString></Properties></Item><Item class="LocalScript"><Properties><string name="Name">View</string><ProtectedString name="Source"><![CDATA[-- Everything the player sees: the camera fixed straight above the map, a hamster
+]]></ProtectedString></Properties></Item><Item class="LocalScript"><Properties><string name="Name">View</string><ProtectedString name="Source"><![CDATA[-- Everything the player sees: the camera looking down on the meadow, a hamster
 -- for every seat, and the words on screen. It draws what the server says and
--- decides nothing.
+-- decides nothing. The one liberty it takes is drawing the player's own hamster
+-- a little ahead of the server, so that the keys answer at once.
 
-local Debris = game:GetService("Debris")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -1570,7 +1823,11 @@ local StarterGui = game:GetService("StarterGui")
 local TweenService = game:GetService("TweenService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Config"))
+local Map = require(ReplicatedStorage:WaitForChild("Map"))
+local Sim = require(ReplicatedStorage:WaitForChild("Sim"))
 local Snapshot = require(ReplicatedStorage:WaitForChild("Snapshot"))
+local Fx = require(script.Parent:WaitForChild("Fx"))
+local Hamster = require(script.Parent:WaitForChild("Hamster"))
 
 local player = Players.LocalPlayer
 local remotes = ReplicatedStorage:WaitForChild("HashRushRemotes")
@@ -1578,20 +1835,22 @@ local roundRemote = remotes:WaitForChild("Round")
 local snapRemote = remotes:WaitForChild("Snap")
 local mapFolder = workspace:WaitForChild("HashRushMap")
 
-local WORLD_W = mapFolder:GetAttribute("WorldW")
-local WORLD_H = mapFolder:GetAttribute("WorldH")
-local HOME_X1 = mapFolder:GetAttribute("HomeX1")
-local FLOWER_X = mapFolder:GetAttribute("FlowerX")
-local FLOWER_Y = mapFolder:GetAttribute("FlowerY")
-local GATHER_R = mapFolder:GetAttribute("GatherR")
+local WORLD_W = Map.world.w
+local WORLD_H = Map.world.h
+local HOME_X1 = Map.home.x1
+local FLOWER = Map.flower
 local homePart = mapFolder:WaitForChild("Home")
 local homeEdge = mapFolder:WaitForChild("HomeEdge")
+local sunflower = mapFolder:WaitForChild("Sunflower")
+local sunflowerAt = sunflower:GetPivot()
 
-local FONT = Enum.Font.GothamBold
-local UPRIGHT = CFrame.Angles(0, 0, math.rad(90)) -- stands a cylinder on its end
+local FONT = Enum.Font.FredokaOne
 local WHITE = Color3.new(1, 1, 1)
-local RED = Color3.fromRGB(255, 80, 70)
-local GOLD = Color3.fromRGB(255, 210, 60)
+local INK = Color3.fromRGB(58, 40, 30)
+local PANEL = Color3.fromRGB(64, 44, 34)
+local CREAM = Color3.fromRGB(255, 244, 222)
+local RED = Color3.fromRGB(255, 86, 74)
+local GOLD = Color3.fromRGB(255, 214, 70)
 
 task.spawn(function()
 	for _, kind in { Enum.CoreGuiType.Backpack, Enum.CoreGuiType.Health, Enum.CoreGuiType.EmotesMenu, Enum.CoreGuiType.PlayerList } do
@@ -1606,19 +1865,22 @@ end)
 
 -- Camera ------------------------------------------------------------------
 
-local FOV = 20 -- narrow, so the view is close to flat
+local FOV = 20 -- narrow, so the picture stays close to flat
+local TILT = math.rad(16) -- off straight down, enough to see the sides of things
+local punch = 0 -- a hit pushes the camera in for a moment
 
-local function placeCamera()
+local function placeCamera(dt)
 	local camera = workspace.CurrentCamera
 	camera.CameraType = Enum.CameraType.Scriptable
-	camera.FieldOfView = FOV
+	punch = math.max(0, punch - dt * 5)
+	camera.FieldOfView = FOV - punch * 0.7
 	local view = camera.ViewportSize
 	local half = math.tan(math.rad(FOV / 2))
-	-- High enough for the whole map, with room for the top bar.
-	local height = math.max(WORLD_H * 1.18 / (2 * half), WORLD_W * 1.04 / (2 * half * view.X / view.Y))
-	local centre = Vector3.new(WORLD_W / 2, 0, WORLD_H * 0.46)
+	-- Far enough for the whole field, with room for the top bar.
+	local distance = math.max(WORLD_H * 1.2 * math.cos(TILT) / (2 * half), WORLD_W * 1.05 / (2 * half * view.X / view.Y))
+	local centre = Vector3.new(WORLD_W / 2, 0, WORLD_H * 0.45) + Fx.cameraOffset(dt)
 	-- Screen right is +X and screen down is +Z, the same way round as the sim.
-	camera.CFrame = CFrame.lookAt(centre + Vector3.new(0, height, 0), centre, Vector3.new(0, 0, -1))
+	camera.CFrame = CFrame.lookAt(centre + Vector3.new(0, math.cos(TILT), math.sin(TILT)) * distance, centre)
 end
 
 -- Screen ------------------------------------------------------------------
@@ -1632,53 +1894,123 @@ local function make(className, props, parent)
 	return object
 end
 
-local function text(props, parent)
+local function text(props, parent, outline)
 	local label = make("TextLabel", {
 		BackgroundTransparency = 1,
 		Font = FONT,
 		TextColor3 = WHITE,
 		TextScaled = true,
-		TextStrokeTransparency = 0.4,
 		Text = "",
 	}, nil)
 	for key, value in props do
 		label[key] = value
 	end
 	label.Parent = parent
+	if outline ~= false then
+		make("UIStroke", { Thickness = outline or 3, Color = INK }, label)
+	end
 	return label
 end
 
-local hud = make("ScreenGui", { Name = "HashRushHud", ResetOnSpawn = false, IgnoreGuiInset = true }, player:WaitForChild("PlayerGui"))
-local timerLabel = text({ AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.fromScale(0.5, 0.01), Size = UDim2.fromScale(0.4, 0.055) }, hud)
-local scoreRow = make("Frame", { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.fromScale(0.5, 0.07), Size = UDim2.new(0.96, 0, 0, 24), BackgroundTransparency = 1 }, hud)
-make("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Center, Padding = UDim.new(0, 6) }, scoreRow)
-local bigLabel = text({ AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.45), Size = UDim2.fromScale(0.5, 0.22), Visible = false }, hud)
-local bannerLabel = text({ AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.2), Size = UDim2.fromScale(0.8, 0.09), TextColor3 = GOLD, Visible = false }, hud)
-local noticeLabel = text({ AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.fromScale(0.5, 0.97), Size = UDim2.fromScale(0.7, 0.05) }, hud)
+-- A rounded card with a dark rim.
+local function panel(props, parent, radius)
+	local frame = make("Frame", { BackgroundColor3 = PANEL, BorderSizePixel = 0 }, nil)
+	for key, value in props do
+		frame[key] = value
+	end
+	frame.Parent = parent
+	make("UICorner", { CornerRadius = UDim.new(0, radius or 18) }, frame)
+	make("UIStroke", { Thickness = 3, Color = INK }, frame)
+	return frame
+end
 
-local resultPanel = make("Frame", {
-	AnchorPoint = Vector2.new(0.5, 0.5),
-	Position = UDim2.fromScale(0.5, 0.5),
-	Size = UDim2.fromScale(0.5, 0.6),
-	BackgroundColor3 = Color3.fromRGB(40, 30, 20),
-	BackgroundTransparency = 0.15,
-	Visible = false,
-}, hud)
-make("UICorner", { CornerRadius = UDim.new(0.05, 0) }, resultPanel)
-local resultTitle = text({ Position = UDim2.fromScale(0.05, 0.04), Size = UDim2.fromScale(0.9, 0.17), TextColor3 = GOLD }, resultPanel)
-local resultWhy = text({ Position = UDim2.fromScale(0.05, 0.21), Size = UDim2.fromScale(0.9, 0.07) }, resultPanel)
-local resultList = text({ Position = UDim2.fromScale(0.1, 0.3), Size = UDim2.fromScale(0.8, 0.56), TextYAlignment = Enum.TextYAlignment.Top }, resultPanel)
--- With one or two names the scaled text would otherwise dwarf the title.
-make("UITextSizeConstraint", { MaxTextSize = 30 }, resultList)
-local resultNext = text({ Position = UDim2.fromScale(0.05, 0.88), Size = UDim2.fromScale(0.9, 0.08) }, resultPanel)
+local function pop(scale, from)
+	scale.Scale = from or 0.3
+	TweenService:Create(scale, TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+end
+
+local screen = make("ScreenGui", { Name = "HashRushHud", ResetOnSpawn = false, IgnoreGuiInset = true }, player:WaitForChild("PlayerGui"))
+-- Everything is laid out for a screen 720 tall and scaled to the real one.
+local hud = make("Frame", { BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1) }, screen)
+local hudScale = make("UIScale", {}, hud)
+local function fitHud()
+	local view = workspace.CurrentCamera.ViewportSize
+	local s = math.clamp(math.min(view.Y / 720, view.X / 900), 0.45, 2)
+	hudScale.Scale = s
+	hud.Size = UDim2.fromScale(1 / s, 1 / s)
+end
+
+-- A red rim when a seed is about to get home, and a flash on a hit.
+local alarmRim = make("Frame", { BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Visible = false }, screen)
+local alarmStroke = make("UIStroke", { Thickness = 16, Color = RED, Transparency = 0.4 }, alarmRim)
+local flashFrame = make("Frame", { BackgroundColor3 = WHITE, BackgroundTransparency = 1, BorderSizePixel = 0, Size = UDim2.fromScale(1, 1), ZIndex = 30 }, screen)
+local function flash(color, strength)
+	flashFrame.BackgroundColor3 = color
+	flashFrame.BackgroundTransparency = 1 - strength
+	TweenService:Create(flashFrame, TweenInfo.new(0.25), { BackgroundTransparency = 1 }):Play()
+end
+
+local timerPanel = panel({ AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 10), Size = UDim2.fromOffset(190, 50) }, hud, 25)
+local timerLabel = text({ Size = UDim2.new(1, -24, 1, -10), Position = UDim2.fromOffset(12, 5) }, timerPanel, false)
+local timerScale = make("UIScale", {}, timerPanel)
+local scoreRow = make("Frame", { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 68), Size = UDim2.new(1, -24, 0, 30), BackgroundTransparency = 1 }, hud)
+make("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Center, VerticalAlignment = Enum.VerticalAlignment.Center, Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }, scoreRow)
+
+-- Who bonked whom, newest at the top.
+local feed = make("Frame", { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -14, 0, 112), Size = UDim2.fromOffset(300, 200), BackgroundTransparency = 1 }, hud)
+make("UIListLayout", { HorizontalAlignment = Enum.HorizontalAlignment.Right, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, feed)
+local feedCount = 0
+
+local bigLabel = text({ AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.45), Size = UDim2.fromOffset(520, 190), Visible = false }, hud, 7)
+local bigScale = make("UIScale", {}, bigLabel)
+local bannerLabel = text({ AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.24), Size = UDim2.fromOffset(860, 76), TextColor3 = GOLD, Visible = false }, hud, 5)
+local bannerScale = make("UIScale", {}, bannerLabel)
+local noticePanel = panel({ AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -18), Size = UDim2.fromOffset(520, 46), Visible = false }, hud, 23)
+local noticeLabel = text({ Size = UDim2.new(1, -30, 1, -14), Position = UDim2.fromOffset(15, 7) }, noticePanel, false)
+local function notice(message)
+	noticeLabel.Text = message
+	noticePanel.Visible = message ~= ""
+end
+
+-- How to play, shown while waiting in the lobby.
+local helpPanel = panel({ AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.47), Size = UDim2.fromOffset(560, 330), Visible = false }, hud, 28)
+text({ Position = UDim2.fromOffset(30, 18), Size = UDim2.new(1, -60, 0, 56), Text = "🐹 Hash Rush", TextColor3 = GOLD }, helpPanel, 4)
+do
+	local lines = {
+		{ "🌻", "해바라기 옆에서 가만히 있으면 해씨를 캐요" },
+		{ "🏠", "해씨를 물고 집으로 돌아오면 승리!" },
+		{ "👊", "꿀밤으로 상대를 둥지로 돌려보내요" },
+		{ "💨", "해씨를 던져서 줄지어 선 상대를 쓰러뜨려요" },
+	}
+	for i, line in lines do
+		local row = make("Frame", { BackgroundColor3 = Color3.fromRGB(88, 62, 46), BorderSizePixel = 0, Position = UDim2.fromOffset(28, 34 + i * 56), Size = UDim2.new(1, -56, 0, 46) }, helpPanel)
+		make("UICorner", { CornerRadius = UDim.new(0, 14) }, row)
+		text({ Position = UDim2.fromOffset(8, 5), Size = UDim2.fromOffset(40, 36), Text = line[1] }, row, false)
+		text({ Position = UDim2.fromOffset(56, 9), Size = UDim2.new(1, -68, 0, 28), Text = line[2], TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = CREAM }, row, false)
+	end
+end
+
+local resultPanel = panel({ AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.48), Size = UDim2.fromOffset(600, 430), Visible = false }, hud, 30)
+local resultScale = make("UIScale", {}, resultPanel)
+local resultTitle = text({ Position = UDim2.fromOffset(24, 18), Size = UDim2.new(1, -48, 0, 66), TextColor3 = GOLD }, resultPanel, 4)
+local resultWhy = text({ Position = UDim2.fromOffset(24, 86), Size = UDim2.new(1, -48, 0, 26), TextColor3 = CREAM }, resultPanel, false)
+local resultRows = make("Frame", { Position = UDim2.fromOffset(28, 126), Size = UDim2.new(1, -56, 0, 250), BackgroundTransparency = 1 }, resultPanel)
+make("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, resultRows)
+local nextBack = make("Frame", { BackgroundColor3 = INK, BorderSizePixel = 0, Position = UDim2.new(0, 28, 1, -42), Size = UDim2.new(1, -56, 0, 24) }, resultPanel)
+make("UICorner", { CornerRadius = UDim.new(0.5, 0) }, nextBack)
+local nextBar = make("Frame", { BackgroundColor3 = GOLD, BorderSizePixel = 0, Size = UDim2.fromScale(1, 1) }, nextBack)
+make("UICorner", { CornerRadius = UDim.new(0.5, 0) }, nextBar)
+local resultNext = text({ Size = UDim2.new(1, 0, 1, -4), Position = UDim2.fromOffset(0, 2), ZIndex = 2 }, nextBack, 2)
 
 local bannerShown = 0
-local function banner(message)
+local function banner(message, color)
 	bannerShown += 1
 	local mine = bannerShown
 	bannerLabel.Text = message
+	bannerLabel.TextColor3 = color or GOLD
 	bannerLabel.Visible = true
-	task.delay(1.6, function()
+	pop(bannerScale)
+	task.delay(1.8, function()
 		if bannerShown == mine then
 			bannerLabel.Visible = false
 		end
@@ -1689,177 +2021,53 @@ end
 
 local viewFolder = make("Folder", { Name = "HashRushView" }, workspace)
 
-local function part(props, parent)
-	local p = make("Part", {
-		Anchored = true,
-		CanCollide = false,
-		CanQuery = false,
-		CanTouch = false,
-		CastShadow = false,
-		Material = Enum.Material.SmoothPlastic,
-		TopSurface = Enum.SurfaceType.Smooth,
-		BottomSurface = Enum.SurfaceType.Smooth,
-	}, nil)
-	for key, value in props do
-		p[key] = value
-	end
-	p.Parent = parent or viewFolder
-	return p
-end
-
-local function disc(radius, height, color, parent)
-	return part({ Shape = Enum.PartType.Cylinder, Size = Vector3.new(height, radius * 2, radius * 2), Color = color }, parent)
-end
-
--- Words that rise from a spot on the map and fade: "꿀밤!", "뿅!", "던지기!".
--- They start above the name over a hamster, so the two do not overlap.
-local function floatText(x, y, message, color)
-	local anchor = part({ Size = Vector3.one, Transparency = 1, Position = Vector3.new(x, 2, y) })
-	local gui = make("BillboardGui", { Size = UDim2.fromScale(9, 2.6), AlwaysOnTop = true, StudsOffsetWorldSpace = Vector3.new(0, 0, -7) }, anchor)
-	local label = text({ Size = UDim2.fromScale(1, 1), Text = message, TextColor3 = color or WHITE, TextStrokeTransparency = 0 }, gui)
-	local info = TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-	TweenService:Create(gui, info, { StudsOffsetWorldSpace = Vector3.new(0, 0, -10) }):Play()
-	TweenService:Create(label, TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
-	Debris:AddItem(anchor, 0.9)
-end
-
-local function flash(x, y, radius, color, seconds)
-	local p = disc(radius, 0.1, color)
-	p.CFrame = CFrame.new(x, 2.2, y) * UPRIGHT
-	p.Transparency = 0.2
-	TweenService:Create(p, TweenInfo.new(seconds), { Transparency = 1 }):Play()
-	Debris:AddItem(p, seconds + 0.1)
-end
-
 local round = -1
 local roster = {} -- [seat] = { id, userId, name, wins, kills }
-local hamsters = {} -- [seat] = what is drawn for it
+local hamsters = {} -- [seat] = Hamster
 local mySeat = nil
 local latest = nil -- the newest snapshot of this round
 local resultUntil = nil
+local resultFor = 1
+local flowerKick = 0 -- the sunflower shakes when a seed comes loose
+
+local function seatColor(seat)
+	local rgb = Config.COLORS[seat]
+	return Color3.fromRGB(rgb[1], rgb[2], rgb[3])
+end
 
 local function clearHamsters()
 	for _, h in hamsters do
-		h.model:Destroy()
+		h:destroy()
 	end
 	table.clear(hamsters)
 end
 
-local function makeHamster(info)
-	local rgb = Config.COLORS[info.id]
-	local color = Color3.fromRGB(rgb[1], rgb[2], rgb[3])
-	local dark = color:Lerp(Color3.new(0, 0, 0), 0.3)
-	local me = info.id == mySeat
-	local model = make("Model", { Name = "Hamster" .. info.id }, viewFolder)
-	local h = {
-		model = model,
-		me = me,
-		name = info.name,
-		body = disc(Config.HAMSTER_R, 1, color, model),
-		earL = disc(0.5, 0.2, dark, model),
-		earR = disc(0.5, 0.2, dark, model),
-		nose = part({ Shape = Enum.PartType.Ball, Size = Vector3.one * 0.7, Color = Color3.fromRGB(255, 150, 170) }, model),
-		seed = part({ Shape = Enum.PartType.Ball, Size = Vector3.one * 1.3, Color = Color3.fromRGB(50, 40, 35), Transparency = 1 }, model),
-		-- Shows where a thrown seed would go while the throw winds up.
-		aim = part({ Size = Vector3.new(1, 0.1, 0.6), Transparency = 1 }, model),
-		ring = if me then disc(Config.HAMSTER_R + 0.45, 0.05, WHITE, model) else nil,
-	}
-	local gui = make("BillboardGui", { Size = UDim2.fromScale(15, 4.2), AlwaysOnTop = true, StudsOffsetWorldSpace = Vector3.new(0, 0, -(Config.HAMSTER_R + 2.4)) }, h.body)
-	h.status = text({ Size = UDim2.fromScale(1, 0.36), TextColor3 = GOLD }, gui)
-	local barBack = make("Frame", { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.fromScale(0.5, 0.4), Size = UDim2.fromScale(0.4, 0.13), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.4, BorderSizePixel = 0, Visible = false }, gui)
-	h.barBack = barBack
-	h.bar = make("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = GOLD, BorderSizePixel = 0 }, barBack)
-	h.label = text({ Position = UDim2.fromScale(0, 0.58), Size = UDim2.fromScale(1, 0.4), Text = info.name, TextColor3 = if me then GOLD else WHITE }, gui)
-	return h
-end
-
-local function setText(label, value)
-	if label.Text ~= value then
-		label.Text = value
-	end
-end
-
--- Puts a hamster where the snapshot says, sliding there rather than jumping.
-local function drawHamster(h, p, dt)
-	if not h.x or math.abs(p.x - h.x) + math.abs(p.y - h.y) > 5 then
-		h.x, h.y = p.x, p.y -- back at the nest, or the first time it is seen
-	else
-		local k = 1 - math.exp(-dt * 30)
-		h.x += (p.x - h.x) * k
-		h.y += (p.y - h.y) * k
-	end
-	local at = Vector3.new(h.x, 0, h.y)
-	local forward = Vector3.new(p.fx, 0, p.fy)
-	local side = Vector3.new(-p.fy, 0, p.fx)
-	h.body.CFrame = CFrame.new(at + Vector3.new(0, 0.8, 0)) * UPRIGHT
-	h.body.Transparency = if p.dazed then 0.5 else 0
-	h.earL.CFrame = CFrame.new(at + forward * 0.2 + side * 1.05 + Vector3.new(0, 1.4, 0)) * UPRIGHT
-	h.earR.CFrame = CFrame.new(at + forward * 0.2 - side * 1.05 + Vector3.new(0, 1.4, 0)) * UPRIGHT
-	h.nose.Position = at + forward * 1.3 + Vector3.new(0, 1.2, 0)
-	h.seed.Position = at + forward * 0.5 + Vector3.new(0, 1.5, 0)
-	h.seed.Transparency = if p.carrying then 0 else 1
-	if h.ring then
-		h.ring.CFrame = CFrame.new(at + Vector3.new(0, 0.33, 0)) * UPRIGHT
-	end
-
-	if p.charge > 0 then
-		local length = Config.THROW.range * math.min(1, p.charge / Config.THROW.charge)
-		h.aim.Size = Vector3.new(length, 0.1, 0.6)
-		h.aim.CFrame = CFrame.new(at + forward * (Config.HAMSTER_R + length / 2) + Vector3.new(0, 2, 0)) * CFrame.Angles(0, -math.atan2(p.fy, p.fx), 0)
-		h.aim.Color = if p.charge > Config.THROW.max - 0.35 then RED elseif p.charge >= Config.THROW.charge then GOLD else WHITE
-		h.aim.Transparency = 0.3
-	else
-		h.aim.Transparency = 1
-	end
-
-	-- A carrier close to home sets the alarm off.
-	setText(h.label, (if p.alarm then "🚨 " elseif p.carrying then "🌻 " else "") .. h.name)
-	h.label.TextColor3 = if p.alarm then RED elseif h.me then GOLD else WHITE
-
-	local status = ""
-	local nibbling = latest.nibbler == p.id
-	if p.dazed then
-		status = "💫 기절"
-	elseif nibbling then
-		status = "해씨 캐는 중"
-	end
-	-- Hints only its own player sees.
-	if h.me and not p.carrying and not p.dazed then
-		local inRing = (Vector2.new(p.x, p.y) - Vector2.new(FLOWER_X, FLOWER_Y)).Magnitude <= GATHER_R
-		if inRing and (nibbling or latest.nibbler == 0) and player:GetAttribute("HRMoving") then
-			status = "가만히 있어야 캐져요!"
-		elseif inRing and not nibbling and latest.nibbler ~= 0 then
-			status = "앞 햄스터가 캐는 중… 대기"
-		end
-	end
-	setText(h.status, status)
-	h.barBack.Visible = nibbling
-	if nibbling then
-		h.bar.Size = UDim2.fromScale(latest.gather, 1)
-	end
-end
-
 local function drawScores()
 	for _, child in scoreRow:GetChildren() do
-		if child:IsA("TextLabel") then
+		if child:IsA("Frame") then
 			child:Destroy()
 		end
 	end
 	for seat = 1, Config.MAX_PLAYERS do
 		local info = roster[seat]
 		if info then
-			local rgb = Config.COLORS[seat]
-			local chip = make("TextLabel", {
-				LayoutOrder = seat,
-				AutomaticSize = Enum.AutomaticSize.X,
-				Size = UDim2.fromScale(0, 1),
-				BackgroundColor3 = Color3.fromRGB(rgb[1], rgb[2], rgb[3]),
-				Font = FONT,
-				TextSize = 15,
-				TextColor3 = Color3.new(0, 0, 0),
-				Text = ("  %s %d승  "):format(info.name, info.wins),
-			}, scoreRow)
+			local chip = make("Frame", { LayoutOrder = seat, AutomaticSize = Enum.AutomaticSize.X, Size = UDim2.fromOffset(0, 30), BackgroundColor3 = PANEL, BorderSizePixel = 0 }, scoreRow)
 			make("UICorner", { CornerRadius = UDim.new(0.5, 0) }, chip)
+			make("UIStroke", { Thickness = if seat == mySeat then 3 else 2, Color = if seat == mySeat then GOLD else INK }, chip)
+			make("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, VerticalAlignment = Enum.VerticalAlignment.Center, Padding = UDim.new(0, 6) }, chip)
+			make("UIPadding", { PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 12) }, chip)
+			local dot = make("Frame", { Size = UDim2.fromOffset(20, 20), BackgroundColor3 = seatColor(seat), BorderSizePixel = 0 }, chip)
+			make("UICorner", { CornerRadius = UDim.new(0.5, 0) }, dot)
+			make("UIStroke", { Thickness = 2, Color = INK }, dot)
+			make("TextLabel", {
+				AutomaticSize = Enum.AutomaticSize.X,
+				Size = UDim2.fromOffset(0, 22),
+				BackgroundTransparency = 1,
+				Font = FONT,
+				TextSize = 18,
+				TextColor3 = CREAM,
+				Text = ("%s  ⭐%d"):format(info.name, info.wins),
+			}, chip)
 		end
 	end
 end
@@ -1880,42 +2088,112 @@ local function nameOf(seat)
 	return if roster[seat] then roster[seat].name else "?"
 end
 
+local function addFeed(message)
+	feedCount += 1
+	local row = panel({ LayoutOrder = -feedCount, AutomaticSize = Enum.AutomaticSize.X, Size = UDim2.fromOffset(0, 30) }, feed, 15)
+	make("UIPadding", { PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12) }, row)
+	make("TextLabel", { AutomaticSize = Enum.AutomaticSize.X, Size = UDim2.fromOffset(0, 30), BackgroundTransparency = 1, Font = FONT, TextSize = 17, TextColor3 = CREAM, Text = message }, row)
+	local scale = make("UIScale", {}, row)
+	pop(scale, 0.5)
+	task.delay(4, function()
+		row:Destroy()
+	end)
+end
+
 local MULTI = { [2] = "더블킬!", [3] = "트리플킬! 슈퍼플레이!", [4] = "쿼드라킬! 슈퍼플레이!" }
+local predictedSwing = 0 -- os.clock() of the last swing drawn before the server said so
 
 local function showEvent(e)
 	local h = e.id and hamsters[e.id]
-	if e.type == "swing" and h and h.x then
-		floatText(h.x, h.y, "꿀밤!")
+	if e.type == "swing" then
+		if h then
+			h:swing()
+		end
+		-- My own swing already sounded when the key went down.
+		if e.id ~= mySeat or os.clock() - predictedSwing > 0.4 then
+			Fx.sound("swing")
+		end
 	elseif e.type == "impact" then
-		flash(e.x + e.dx * 2.6, e.y + e.dy * 2.6, 1.5, if e.hit then GOLD else WHITE, 0.2)
+		if not e.hit then
+			Fx.dust(e.x + e.dx * 2.8, e.y + e.dy * 2.8, 6, 9)
+			Fx.sound("whiff")
+		end
 	elseif e.type == "bonk" then
-		floatText(e.x, e.y, "뿅!", RED)
-		flash(e.x, e.y, 2.2, RED, 0.3)
+		local mine = e.by == mySeat or e.id == mySeat
+		local by = hamsters[e.by]
+		local dx, dy = 1, 0
+		if by and by.x then
+			local len = math.sqrt((e.x - by.x) ^ 2 + (e.y - by.y) ^ 2)
+			if len > 0.01 then
+				dx, dy = (e.x - by.x) / len, (e.y - by.y) / len
+			end
+			by:squash(5)
+		end
+		Fx.stars(e.x, e.y, GOLD, 20)
+		Fx.dust(e.x, e.y, 8, 12)
+		Fx.ring(e.x, e.y, 7, WHITE, 0.3)
+		Fx.words(e.x, e.y, "뿅!", RED, 9)
+		Fx.tumble(e.x, e.y, dx, dy, seatColor(e.id))
+		Fx.sound("hit")
+		Fx.sound("thump")
+		Fx.shake(if mine then 0.75 else 0.4)
+		Fx.hitStop(if mine then 0.1 else 0.05)
+		punch = if mine then 1 else 0.5
+		if e.id == mySeat then
+			flash(RED, 0.4)
+		elseif e.by == mySeat then
+			flash(WHITE, 0.22)
+		end
+		addFeed(("%s 👊 %s%s"):format(nameOf(e.by), nameOf(e.id), if e.seed then " 🌻" else ""))
 		if e.close then
 			banner(nameOf(e.by) .. " 슈퍼플레이!")
 		end
 	elseif e.type == "throw" then
-		floatText(e.x, e.y, "던지기!", GOLD)
-		local seed = part({ Shape = Enum.PartType.Ball, Size = Vector3.one * 1.3, Color = Color3.fromRGB(50, 40, 35), Position = Vector3.new(e.x, 2, e.y) })
-		local reach = Config.THROW.range
-		TweenService:Create(seed, TweenInfo.new(0.2, Enum.EasingStyle.Linear), { Position = Vector3.new(e.x + e.dx * reach, 2, e.y + e.dy * reach) }):Play()
-		Debris:AddItem(seed, 0.25)
+		Fx.words(e.x, e.y, "던지기!", GOLD, 8)
+		Fx.seedShot(e.x, e.y, e.dx, e.dy, Config.THROW.range)
+		Fx.sound("throw")
+		Fx.shake(0.2)
+		if h then
+			h:squash(4)
+		end
 	elseif e.type == "multi" then
 		banner(nameOf(e.by) .. " " .. (MULTI[e.n] or "펜타킬! 슈퍼플레이!"))
-	elseif e.type == "seed" and h and h.x then
-		floatText(h.x, h.y, "🌻 해씨 획득!", GOLD)
+	elseif e.type == "seed" then
+		if h and h.x then
+			Fx.stars(h.x, h.y, GOLD, 12)
+			Fx.words(h.x, h.y, "🌻 해씨 획득!", GOLD, 9)
+			h:squash(-5)
+		end
+		Fx.sound("seed")
+		flowerKick = 1
+	elseif e.type == "spawn" then
+		Fx.dust(e.x, e.y, 6, 8)
+	elseif e.type == "warp" then
+		Fx.dust(e.fromX, e.fromY, 7, 9)
+		Fx.ring(e.fromX, e.fromY, 5, Color3.fromRGB(200, 160, 110), 0.3)
+		Fx.dust(e.x, e.y, 6, 8)
+		Fx.words(e.fromX, e.fromY, "쏙!", CREAM, 7)
+		Fx.sound("warp")
+	elseif e.type == "go" then
+		Fx.sound("go")
 	elseif e.type == "overtime" then
-		banner("연장전! 집이 넓어져요")
+		banner("연장전! 집이 넓어져요", RED)
+		Fx.sound("alarm", 0.7)
 	elseif e.type == "rush" then
-		banner("집이 빠르게 밀려와요!")
+		banner("집이 빠르게 밀려와요!", RED)
+		Fx.sound("alarm", 0.7)
 	end
 end
+
+local MEDALS = { "🥇", "🥈", "🥉" }
 
 local function showResult(msg)
 	setRoster(msg.roster)
 	local names = {}
+	local iWon = false
 	for _, seat in msg.winners do
 		table.insert(names, nameOf(seat))
+		iWon = iWon or seat == mySeat
 	end
 	resultTitle.Text = if #names > 0 then "🏆 " .. table.concat(names, " · ") .. " 승리!" else "판이 끝났어요"
 	resultWhy.Text = if msg.left then "상대가 나가서 판이 끝났어요" elseif msg.timeout then "시간 종료 · 꿀밤 횟수로 정했어요" else "해씨를 물고 집에 돌아왔어요"
@@ -1926,14 +2204,37 @@ local function showResult(msg)
 		end
 		return a.id < b.id
 	end)
-	local lines = {}
-	for _, info in sorted do
-		table.insert(lines, ("%s   %d승 · 꿀밤 %d"):format(info.name, info.wins, info.kills))
+	for _, child in resultRows:GetChildren() do
+		if child:IsA("Frame") then
+			child:Destroy()
+		end
 	end
-	resultList.Text = table.concat(lines, "\n")
+	local rowHeight = math.min(42, math.floor(250 / math.max(1, #sorted)) - 6)
+	for i, info in sorted do
+		local me = info.id == mySeat
+		local row = make("Frame", { LayoutOrder = i, BackgroundColor3 = if me then Color3.fromRGB(110, 78, 48) else Color3.fromRGB(88, 62, 46), BorderSizePixel = 0, Size = UDim2.new(1, 0, 0, rowHeight) }, resultRows)
+		make("UICorner", { CornerRadius = UDim.new(0, 12) }, row)
+		if me then
+			make("UIStroke", { Thickness = 2, Color = GOLD }, row)
+		end
+		text({ Position = UDim2.fromOffset(8, 3), Size = UDim2.new(0, 36, 1, -6), Text = MEDALS[i] or tostring(i) }, row, false)
+		local dot = make("Frame", { AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 52, 0.5, 0), Size = UDim2.fromOffset(22, 22), BackgroundColor3 = seatColor(info.id), BorderSizePixel = 0 }, row)
+		make("UICorner", { CornerRadius = UDim.new(0.5, 0) }, dot)
+		make("UIStroke", { Thickness = 2, Color = INK }, dot)
+		text({ Position = UDim2.fromOffset(84, 6), Size = UDim2.new(1, -280, 1, -12), Text = info.name, TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = CREAM }, row, false)
+		text({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -100, 0, 6), Size = UDim2.new(0, 84, 1, -12), Text = ("⭐ %d승"):format(info.wins), TextColor3 = GOLD }, row, false)
+		text({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -10, 0, 6), Size = UDim2.new(0, 80, 1, -12), Text = ("👊 %d"):format(info.kills), TextColor3 = CREAM }, row, false)
+	end
+	resultFor = msg.next
 	resultUntil = os.clock() + msg.next
 	resultPanel.Visible = true
+	pop(resultScale, 0.6)
 	bigLabel.Visible = false
+	alarmRim.Visible = false
+	Fx.sound("win")
+	if iWon then
+		Fx.confetti(screen)
+	end
 end
 
 roundRemote.OnClientEvent:Connect(function(msg)
@@ -1944,11 +2245,14 @@ roundRemote.OnClientEvent:Connect(function(msg)
 		setRoster({})
 		resultPanel.Visible = false
 		bigLabel.Visible = false
-		timerLabel.Text = "🌻 Hash Rush"
+		alarmRim.Visible = false
+		helpPanel.Visible = true
+		timerLabel.Text = "🌻 대기 중"
+		timerLabel.TextColor3 = WHITE
 		if msg.left then
-			noticeLabel.Text = ("%d초 뒤 시작해요 (%d명)"):format(msg.left, msg.count)
+			notice(("%d초 뒤 시작해요 (%d명)"):format(msg.left, msg.count))
 		else
-			noticeLabel.Text = ("다른 햄스터를 기다리는 중… (%d/%d명)"):format(msg.count, msg.need)
+			notice(("다른 햄스터를 기다리는 중… (%d/%d명)"):format(msg.count, msg.need))
 		end
 	elseif msg.kind == "start" then
 		round = msg.round
@@ -1956,10 +2260,11 @@ roundRemote.OnClientEvent:Connect(function(msg)
 		clearHamsters()
 		setRoster(msg.roster)
 		for _, info in msg.roster do
-			hamsters[info.id] = makeHamster(info)
+			hamsters[info.id] = Hamster.new(viewFolder, info, info.id == mySeat)
 		end
 		resultPanel.Visible = false
-		noticeLabel.Text = if mySeat then "" else "관전 중 · 다음 판부터 참가해요"
+		helpPanel.Visible = false
+		notice(if mySeat then "" else "관전 중 · 다음 판부터 참가해요")
 	elseif msg.kind == "events" then
 		if msg.round == round then
 			for _, e in msg.list do
@@ -1983,35 +2288,145 @@ snapRemote.OnClientEvent:Connect(function(packed)
 	latest = snap
 end)
 
+-- The bonk key answers at once: the paw goes up before the server has heard.
+player:GetAttributeChangedSignal("HRBonk"):Connect(function()
+	local h = mySeat and hamsters[mySeat]
+	local me = nil
+	if latest then
+		for _, p in latest.players do
+			if p.id == mySeat then
+				me = p
+			end
+		end
+	end
+	if not h or not me or latest.phase ~= "playing" or me.dazed or me.x < latest.homeX then
+		return
+	end
+	if os.clock() - predictedSwing < Config.BONK.cooldown then
+		return
+	end
+	predictedSwing = os.clock()
+	h:swing()
+	Fx.sound("swing")
+end)
+
+-- Where to draw my own hamster: where the server last saw it, plus what the keys
+-- have asked for since then that the server cannot have heard about yet.
+local moves = {} -- { t, dx, dy }, oldest first
+local function ahead(p, dt)
+	local now = os.clock()
+	local move = player:GetAttribute("HRMove")
+	local speed = Config.SPEED
+	if p.carrying then
+		speed *= if p.alarm then Config.LAST_STRETCH_SPEED else Config.CARRY_SPEED
+	end
+	if latest.phase ~= "playing" or p.dazed or p.windup or now - predictedSwing < Config.BONK.windup then
+		speed = 0
+	elseif p.recovery then
+		speed *= Config.BONK.recoveryMove
+	end
+	if typeof(move) == "Vector2" and speed > 0 then
+		table.insert(moves, { t = now, dx = move.X * speed * dt, dy = move.Y * speed * dt })
+	end
+	local window = math.clamp(player:GetNetworkPing() * 2 + 0.02, 0.02, 0.25)
+	while moves[1] and now - moves[1].t > window do
+		table.remove(moves, 1)
+	end
+	local spot = { x = p.x, y = p.y }
+	for _, m in moves do
+		spot.x += m.dx
+		spot.y += m.dy
+	end
+	Sim.collide(Map, spot)
+	return spot.x, spot.y
+end
+
 local function clock(seconds)
 	return ("%d:%02d"):format(seconds // 60, seconds % 60)
 end
 
+local time = 0
+local shownCount = nil
+local alarmBeep = 0
+local stepDust = {}
+
 RunService:BindToRenderStep("HashRushView", Enum.RenderPriority.Camera.Value + 1, function(dt)
-	placeCamera()
+	time += dt
+	fitHud()
+	placeCamera(dt)
 	if resultPanel.Visible and resultUntil then
-		resultNext.Text = ("%d초 뒤 다음 판"):format(math.max(0, math.ceil(resultUntil - os.clock())))
+		local left = math.max(0, resultUntil - os.clock())
+		resultNext.Text = ("%d초 뒤 다음 판"):format(math.ceil(left))
+		nextBar.Size = UDim2.fromScale(math.clamp(left / resultFor, 0, 1), 1)
 	end
+
+	-- The sunflower nods in the breeze, and shakes when it is being nibbled.
+	flowerKick = math.max(0, flowerKick - dt * 2.5)
+	local busy = if latest and latest.nibbler ~= 0 then 1 else 0
+	local sway = 0.05 + busy * 0.06 + flowerKick * 0.25
+	local rate = 1.6 + busy * 9 + flowerKick * 14
+	sunflower:PivotTo(sunflowerAt * CFrame.Angles(math.sin(time * rate) * sway, time * 0.25, math.cos(time * rate * 0.83) * sway))
+
 	if not latest then
+		return
+	end
+	-- A big hit holds the world still for a moment.
+	if Fx.frozen() then
 		return
 	end
 
 	local seen = {}
 	local carrying = false
+	local alarm = false
 	for _, p in latest.players do
 		local h = hamsters[p.id]
 		if h then
 			seen[p.id] = true
-			drawHamster(h, p, dt)
+			local x, y = p.x, p.y
 			if h.me then
+				x, y = ahead(p, dt)
 				carrying = p.carrying
+			end
+			-- It slides to where it should be rather than jumping, unless it is far.
+			if h.x and math.abs(x - h.x) + math.abs(y - h.y) <= 5 then
+				local k = 1 - math.exp(-dt * (if h.me then 45 else 30))
+				x = h.x + (x - h.x) * k
+				y = h.y + (y - h.y) * k
+			end
+			alarm = alarm or p.alarm
+
+			local status = ""
+			local nibbling = latest.nibbler == p.id
+			if p.dazed then
+				status = "💫 기절"
+			elseif nibbling then
+				status = "해씨 캐는 중"
+			end
+			-- Hints only its own player sees.
+			if h.me and not p.carrying and not p.dazed then
+				local inRing = (Vector2.new(p.x, p.y) - Vector2.new(FLOWER.x, FLOWER.y)).Magnitude <= FLOWER.gatherR
+				if inRing and (nibbling or latest.nibbler == 0) and player:GetAttribute("HRMoving") then
+					status = "가만히 있어야 캐져요!"
+				elseif inRing and not nibbling and latest.nibbler ~= 0 then
+					status = "앞 햄스터가 캐는 중… 대기"
+				end
+			end
+			h:draw(dt, x, y, p, { nibbler = latest.nibbler, gather = latest.gather, status = status })
+
+			-- Dust under running feet.
+			if h.pace > Config.SPEED * 0.5 then
+				local last = stepDust[p.id] or 0
+				if time - last > 0.16 then
+					stepDust[p.id] = time
+					Fx.dust(x - p.fx * 1.2, y - p.fy * 1.2, 1, 3)
+				end
 			end
 		end
 	end
 	-- Whoever left the game took its hamster along.
 	for seat, h in hamsters do
 		if not seen[seat] then
-			h.model:Destroy()
+			h:destroy()
 			hamsters[seat] = nil
 		end
 	end
@@ -2028,22 +2443,673 @@ RunService:BindToRenderStep("HashRushView", Enum.RenderPriority.Camera.Value + 1
 		homePart.Position = Vector3.new((HOME_X1 + latest.homeX) / 2, at.Y, at.Z)
 		homeEdge.Position = Vector3.new(latest.homeX, homeEdge.Position.Y, homeEdge.Position.Z)
 	end
+	local overtime = latest.time > Config.OVERTIME.start
+	homeEdge.Transparency = if overtime then 0.1 + (math.sin(time * 10) + 1) * 0.25 else 0.15
+
+	-- A seed is nearly home: everyone gets the red rim and the beeps.
+	alarm = alarm and latest.phase == "playing"
+	alarmRim.Visible = alarm
+	if alarm then
+		alarmStroke.Transparency = 0.35 + (math.sin(time * 12) + 1) * 0.3
+		if time - alarmBeep > 0.4 then
+			alarmBeep = time
+			Fx.sound("alarm")
+		end
+	end
 
 	-- The count before the start, then "go" for a moment.
-	bigLabel.Visible = latest.phase == "countdown" or (latest.phase == "playing" and latest.time < 0.7)
-	if latest.phase == "countdown" then
-		bigLabel.Text = tostring(math.max(1, math.ceil(latest.countdown)))
-		timerLabel.Text = clock(0)
+	local counting = latest.phase == "countdown"
+	local big = if counting then tostring(math.max(1, math.ceil(latest.countdown))) elseif latest.phase == "playing" and latest.time < 0.8 then "출발!" else nil
+	bigLabel.Visible = big ~= nil and not resultPanel.Visible
+	if big ~= shownCount then
+		shownCount = big
+		if big then
+			bigLabel.Text = big
+			bigLabel.TextColor3 = if counting then WHITE else GOLD
+			pop(bigScale, 0.2)
+			if counting then
+				Fx.sound("tick")
+			end
+		end
+	end
+	if counting then
+		timerLabel.Text = "준비…"
 		timerLabel.TextColor3 = WHITE
+		timerScale.Scale = 1
 	else
-		bigLabel.Text = "출발!"
-		local overtime = latest.time > Config.OVERTIME.start
-		timerLabel.Text = (if overtime then "연장전 " else "") .. clock(math.floor(latest.time))
+		timerLabel.Text = (if overtime then "🔥 " else "⏱ ") .. clock(math.floor(latest.time))
 		timerLabel.TextColor3 = if overtime then RED else WHITE
+		timerScale.Scale = if overtime then 1 + math.max(0, math.sin(time * 6)) * 0.06 else 1
 	end
 end)
 
-placeCamera()
+fitHud()
+placeCamera(0)
 -- Ready to draw: ask the server where things stand.
 roundRemote:FireServer()
+]]></ProtectedString></Properties></Item><Item class="ModuleScript"><Properties><string name="Name">Hamster</string><ProtectedString name="Source"><![CDATA[-- One hamster as it is drawn: a round body with ears, eyes, cheeks and paws, the
+-- name over its head, and the little motions that make it feel alive. It is told
+-- where it is and what it is doing every frame, and decides nothing.
+-- Local frame of the parts: +X is forward, +Y is up, +Z is its right.
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Config = require(ReplicatedStorage:WaitForChild("Config"))
+
+local R = Config.HAMSTER_R
+-- Drawn a little bigger than it collides, so it reads well from far above.
+local GROW = 1.22
+local FONT = Enum.Font.FredokaOne
+local WHITE = Color3.new(1, 1, 1)
+local GOLD = Color3.fromRGB(255, 214, 70)
+local RED = Color3.fromRGB(255, 86, 74)
+local INK = Color3.fromRGB(58, 40, 30)
+local CREAM = Color3.fromRGB(255, 240, 214)
+local PINK = Color3.fromRGB(255, 150, 170)
+local UPRIGHT = CFrame.Angles(0, 0, math.rad(90)) -- stands a cylinder on its end
+
+local Hamster = {}
+Hamster.__index = Hamster
+
+local function basePart(parent, color)
+	local p = Instance.new("Part")
+	p.Anchored = true
+	p.CanCollide = false
+	p.CanQuery = false
+	p.CanTouch = false
+	p.CastShadow = false
+	p.Material = Enum.Material.SmoothPlastic
+	p.TopSurface = Enum.SurfaceType.Smooth
+	p.BottomSurface = Enum.SurfaceType.Smooth
+	p.Color = color
+	p.Parent = parent
+	return p
+end
+
+-- info: { id, name }. `me` marks the local player's own hamster.
+function Hamster.new(parent, info, me)
+	local rgb = Config.COLORS[info.id]
+	local fur = Color3.fromRGB(rgb[1], rgb[2], rgb[3])
+	local dark = fur:Lerp(INK, 0.32)
+	local model = Instance.new("Model")
+	model.Name = "Hamster" .. info.id
+	model.Parent = parent
+
+	local self = setmetatable({
+		id = info.id,
+		name = info.name,
+		me = me,
+		fur = fur,
+		model = model,
+		pieces = {}, -- { part, offset, size }
+		x = nil,
+		y = nil,
+		yaw = 0,
+		stride = 0, -- how far along its waddle it is
+		pace = 0, -- smoothed speed, studs per second
+		pop = 0, -- a squash that springs back
+		popSpeed = 0,
+		swingAt = nil, -- os.clock() when the current swing began
+		landed = false,
+		clock = math.random() * 10,
+		puff = 0, -- cheeks, 0..1
+		daze = 0,
+	}, Hamster)
+
+	local function blob(key, offset, size, color, shadow)
+		local p = basePart(model, color)
+		p.Size = size
+		local mesh = Instance.new("SpecialMesh")
+		mesh.MeshType = Enum.MeshType.Sphere
+		mesh.Parent = p
+		p.CastShadow = shadow == true
+		local piece = { part = p, offset = offset * GROW, size = size * GROW }
+		self.pieces[key] = piece
+		return piece
+	end
+
+	blob("body", Vector3.new(0, 1.3, 0), Vector3.new(3.3, 2.5, 3.05), fur, true)
+	blob("stripe", Vector3.new(-0.35, 2.36, 0), Vector3.new(2.1, 0.5, 1.0), dark)
+	blob("muzzle", Vector3.new(1.0, 1.05, 0), Vector3.new(1.6, 1.45, 1.9), CREAM)
+	blob("tail", Vector3.new(-1.65, 1.0, 0), Vector3.new(0.6, 0.6, 0.6), CREAM)
+	for _, s in { -1, 1 } do
+		local k = if s < 0 then "L" else "R"
+		blob("ear" .. k, Vector3.new(0.5, 2.5, s * 1.05), Vector3.new(0.5, 1.0, 1.0), dark, true)
+		blob("earIn" .. k, Vector3.new(0.62, 2.56, s * 1.05), Vector3.new(0.42, 0.62, 0.62), PINK)
+		blob("eye" .. k, Vector3.new(1.18, 2.05, s * 0.62), Vector3.new(0.46, 0.5, 0.46), INK)
+		blob("glint" .. k, Vector3.new(1.3, 2.24, s * 0.56), Vector3.new(0.18, 0.18, 0.18), WHITE)
+		blob("cheek" .. k, Vector3.new(1.15, 1.25, s * 1.08), Vector3.new(0.75, 0.6, 0.75), PINK)
+		blob("pawF" .. k, Vector3.new(0.95, 0.3, s * 1.05), Vector3.new(0.8, 0.55, 0.65), CREAM)
+		blob("pawB" .. k, Vector3.new(-0.95, 0.3, s * 1.05), Vector3.new(0.85, 0.55, 0.7), CREAM)
+	end
+	blob("nose", Vector3.new(1.76, 1.42, 0), Vector3.new(0.34, 0.28, 0.42), PINK)
+	-- The paw that does the bonking.
+	blob("fist", Vector3.new(0.4, 3.3, 0), Vector3.new(1.25, 1.25, 1.25), CREAM).part.Transparency = 1
+	-- The seed, held in the mouth.
+	blob("seed", Vector3.new(1.95, 1.2, 0), Vector3.new(1.3, 0.6, 0.8), Color3.fromRGB(52, 42, 38)).part.Transparency = 1
+	blob("seedStripe", Vector3.new(1.97, 1.36, 0), Vector3.new(1.0, 0.32, 0.26), CREAM).part.Transparency = 1
+	-- Stars that circle a dazed head.
+	for i = 1, 3 do
+		blob("star" .. i, Vector3.zero, Vector3.new(0.6, 0.6, 0.6), GOLD).part.Transparency = 1
+		self.pieces["star" .. i].part.Material = Enum.Material.Neon
+	end
+
+	if me then
+		local ring = basePart(model, WHITE)
+		ring.Shape = Enum.PartType.Cylinder
+		ring.Material = Enum.Material.Neon
+		ring.Transparency = 0.25
+		self.ring = ring
+	end
+
+	-- Shows where a thrown seed would go while the throw winds up.
+	local aim = basePart(model, WHITE)
+	aim.Material = Enum.Material.Neon
+	aim.Transparency = 1
+	self.aim = aim
+
+	-- The name tag rides on a part that never squashes.
+	local tag = basePart(model, WHITE)
+	tag.Size = Vector3.one
+	tag.Transparency = 1
+	self.tag = tag
+	local gui = Instance.new("BillboardGui")
+	gui.Size = UDim2.fromScale(16, 4.6)
+	gui.StudsOffset = Vector3.new(0, 3.9, 0)
+	gui.AlwaysOnTop = true
+	gui.LightInfluence = 0
+	gui.Parent = tag
+
+	local function label(position, size, color)
+		local l = Instance.new("TextLabel")
+		l.BackgroundTransparency = 1
+		l.Position = position
+		l.Size = size
+		l.Font = FONT
+		l.TextScaled = true
+		l.TextColor3 = color
+		l.Text = ""
+		l.Parent = gui
+		local stroke = Instance.new("UIStroke")
+		stroke.Thickness = 2.5
+		stroke.Color = INK
+		stroke.Parent = l
+		return l
+	end
+	self.status = label(UDim2.fromScale(0, 0), UDim2.fromScale(1, 0.34), GOLD)
+	local barBack = Instance.new("Frame")
+	barBack.AnchorPoint = Vector2.new(0.5, 0)
+	barBack.Position = UDim2.fromScale(0.5, 0.39)
+	barBack.Size = UDim2.fromScale(0.42, 0.14)
+	barBack.BackgroundColor3 = INK
+	barBack.BorderSizePixel = 0
+	barBack.Visible = false
+	barBack.Parent = gui
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0.5, 0)
+	corner.Parent = barBack
+	local barStroke = Instance.new("UIStroke")
+	barStroke.Thickness = 2
+	barStroke.Color = INK
+	barStroke.Parent = barBack
+	local bar = Instance.new("Frame")
+	bar.Size = UDim2.fromScale(0, 1)
+	bar.BackgroundColor3 = GOLD
+	bar.BorderSizePixel = 0
+	bar.Parent = barBack
+	corner:Clone().Parent = bar
+	self.barBack = barBack
+	self.bar = bar
+	self.label = label(UDim2.fromScale(0, 0.58), UDim2.fromScale(1, 0.4), if me then GOLD else WHITE)
+	self.label.Text = info.name
+	return self
+end
+
+function Hamster:destroy()
+	self.model:Destroy()
+end
+
+-- A quick squash that springs back: landing a hit, picking a seed, popping in.
+function Hamster:squash(amount)
+	self.popSpeed -= amount
+end
+
+-- Starts the bonk motion now. The snapshot starts it too; whichever comes first.
+function Hamster:swing()
+	if not self.swingAt or os.clock() - self.swingAt > 0.3 then
+		self.swingAt = os.clock()
+		self.landed = false
+	end
+end
+
+local function setText(label, value)
+	if label.Text ~= value then
+		label.Text = value
+	end
+end
+
+-- p: the hamster's line of the snapshot. x, y: where to draw it (already smoothed).
+-- view: { nibbler, gather, status } for the tag.
+function Hamster:draw(dt, x, y, p, view)
+	local moved = 0
+	if self.x then
+		moved = math.sqrt((x - self.x) ^ 2 + (y - self.y) ^ 2)
+		if moved > 4 then
+			-- Back at the nest, or out of a burrow: it pops into place.
+			moved = 0
+			self.pop = 0.45
+		end
+	end
+	self.x, self.y = x, y
+	self.clock += dt
+	local speed = if dt > 0 then moved / dt else 0
+	self.pace += (speed - self.pace) * (1 - math.exp(-dt * 14))
+	local going = math.clamp(self.pace / Config.SPEED, 0, 1)
+	self.stride += dt * (4 + going * 16) * (if going > 0.05 then 1 else 0)
+
+	-- It turns towards where it faces, the short way round.
+	local want = math.atan2(p.fy, p.fx)
+	local turn = (want - self.yaw + math.pi) % (2 * math.pi) - math.pi
+	self.yaw += turn * (1 - math.exp(-dt * 22))
+
+	-- The squash spring.
+	self.popSpeed += (-self.pop * 260 - self.popSpeed * 16) * dt
+	self.pop += self.popSpeed * dt
+	self.pop = math.clamp(self.pop, -0.5, 0.6)
+
+	if p.windup or p.recovery then
+		self:swing()
+	end
+	local swingT = if self.swingAt then os.clock() - self.swingAt else math.huge
+	local WINDUP = Config.BONK.windup
+	local lean = 0 -- backwards before the hit, forwards as it lands
+	local lunge = 0
+	local fist = self.pieces.fist
+	if swingT < WINDUP then
+		local k = swingT / WINDUP
+		lean = -0.3 * k
+		fist.part.Transparency = 0
+		fist.offset = Vector3.new(0.2 - 0.5 * k, 3.1 + 0.6 * k, 0) * GROW
+		fist.size = Vector3.one * (0.9 + 0.6 * k) * GROW
+	elseif swingT < WINDUP + 0.2 then
+		local k = (swingT - WINDUP) / 0.2
+		local hit = math.min(1, k * 3.2) -- slams down in a third of the time, then holds
+		lean = 0.34 * (1 - k)
+		lunge = 0.85 * (1 - k) * hit
+		fist.part.Transparency = if k > 0.7 then (k - 0.7) / 0.3 else 0
+		fist.offset = Vector3.new(-0.3, 3.7, 0):Lerp(Vector3.new(2.9, 0.9, 0), hit) * GROW
+		fist.size = Vector3.one * 1.6 * GROW
+		if not self.landed then
+			self.landed = true
+			self.pop = -0.16
+		end
+	else
+		fist.part.Transparency = 1
+	end
+
+	local dazed = p.dazed
+	self.daze += ((if dazed then 1 else 0) - self.daze) * (1 - math.exp(-dt * 12))
+	self.puff += ((if p.carrying then 1 else 0) - self.puff) * (1 - math.exp(-dt * 14))
+
+	-- Squash and stretch: the waddle, breathing, and the spring.
+	local bob = math.abs(math.sin(self.stride)) * 0.3 * going
+	local breathe = math.sin(self.clock * 2.6) * 0.018 * (1 - going)
+	local tall = 1 + self.pop + breathe + bob * 0.18 - self.daze * 0.28
+	local wide = 1 - self.pop * 0.5 - breathe * 0.5 + self.daze * 0.16
+	local scale = Vector3.new(wide, tall, wide)
+	local roll = math.sin(self.stride) * 0.11 * going
+	local root = CFrame.new(x, bob, y)
+		* CFrame.Angles(0, -self.yaw, 0)
+		* CFrame.new(lunge, 0, 0)
+		* CFrame.Angles(roll, 0, lean)
+
+	local alpha = if dazed then 0.45 else 0
+	for key, piece in self.pieces do
+		local part = piece.part
+		local offset = piece.offset
+		local size = piece.size
+		if key == "fist" then
+			part.CFrame = root * CFrame.new(offset)
+			part.Size = size
+			continue
+		elseif key == "seed" or key == "seedStripe" then
+			part.Transparency = if p.carrying then 0 else 1
+		elseif string.sub(key, 1, 4) == "star" then
+			local i = tonumber(string.sub(key, 5))
+			local a = self.clock * 6 + i * 2.094
+			part.Transparency = if dazed then 0 else 1
+			part.CFrame = CFrame.new(x + math.cos(a) * 2, 4.4 + math.sin(a * 2) * 0.15, y + math.sin(a) * 2)
+			continue
+		elseif string.sub(key, 1, 3) == "paw" then
+			-- Paws patter: front and back on each side go opposite ways.
+			local front = string.sub(key, 4, 4) == "F"
+			local right = string.sub(key, 5, 5) == "R"
+			local phase = self.stride + (if front == right then 0 else math.pi)
+			offset += Vector3.new(math.sin(phase) * 0.55 * going, math.max(0, math.cos(phase)) * 0.25 * going, 0)
+			part.Transparency = alpha
+		elseif string.sub(key, 1, 5) == "cheek" then
+			-- A mouthful of seed puffs the cheeks out.
+			size *= 1 + self.puff * 0.9
+			part.Color = PINK:Lerp(CREAM, self.puff * 0.7)
+			part.Transparency = alpha
+		elseif string.sub(key, 1, 3) == "eye" then
+			-- It blinks now and then, and squeezes its eyes shut when dazed.
+			local shut = dazed or (self.clock % 3.4) < 0.11
+			size = Vector3.new(size.X, if shut then 0.1 else size.Y, size.Z)
+			part.Transparency = alpha
+		elseif string.sub(key, 1, 5) == "glint" then
+			part.Transparency = if dazed or (self.clock % 3.4) < 0.11 then 1 else 0
+		elseif string.sub(key, 1, 3) == "ear" then
+			-- Ears flick as it runs.
+			offset += Vector3.new(0, math.sin(self.stride * 2) * 0.06 * going, 0)
+			part.Transparency = alpha
+		else
+			part.Transparency = alpha
+		end
+		part.Size = size * scale
+		part.CFrame = root * CFrame.new(offset * scale)
+	end
+
+	if self.ring then
+		local pulse = 1 + math.sin(self.clock * 4) * 0.05
+		self.ring.Size = Vector3.new(0.08, (R + 0.7) * 2 * pulse, (R + 0.7) * 2 * pulse)
+		self.ring.CFrame = CFrame.new(x, 0.36, y) * UPRIGHT
+	end
+	self.tag.Position = Vector3.new(x, 1.5, y)
+
+	local aim = self.aim
+	if p.charge > 0 then
+		local THROW = Config.THROW
+		local ready = p.charge >= THROW.charge
+		local length = THROW.range * math.min(1, p.charge / THROW.charge)
+		local forward = Vector3.new(p.fx, 0, p.fy)
+		aim.Size = Vector3.new(length, 0.12, if ready then THROW.width * 2 else 0.7)
+		aim.CFrame = CFrame.new(Vector3.new(x, 0.5, y) + forward * (R + length / 2)) * CFrame.Angles(0, -want, 0)
+		aim.Color = if p.charge > THROW.max - 0.35 then RED elseif ready then GOLD else WHITE
+		aim.Transparency = if ready then 0.55 else 0.4
+	else
+		aim.Transparency = 1
+	end
+
+	-- A carrier close to home sets the alarm off.
+	setText(self.label, (if p.alarm then "🚨 " elseif p.carrying then "🌻 " else "") .. self.name)
+	self.label.TextColor3 = if p.alarm then RED elseif self.me then GOLD else WHITE
+	local nibbling = view.nibbler == p.id
+	setText(self.status, view.status)
+	self.barBack.Visible = nibbling
+	if nibbling then
+		self.bar.Size = UDim2.fromScale(view.gather, 1)
+	end
+end
+
+return Hamster
+]]></ProtectedString></Properties></Item><Item class="ModuleScript"><Properties><string name="Name">Fx</string><ProtectedString name="Source"><![CDATA[-- Everything that makes a hit feel like a hit: sounds, bursts of stars and dust,
+-- words that pop out of the ground, a camera that shakes and a moment where the
+-- world holds still. None of it changes the game.
+
+local Debris = game:GetService("Debris")
+local SoundService = game:GetService("SoundService")
+local TweenService = game:GetService("TweenService")
+
+local FONT = Enum.Font.FredokaOne
+local INK = Color3.fromRGB(58, 40, 30)
+local UPRIGHT = CFrame.Angles(0, 0, math.rad(90))
+
+local Fx = {}
+
+local folder = Instance.new("Folder")
+folder.Name = "HashRushFx"
+folder.Parent = workspace
+
+-- Sounds --------------------------------------------------------------------
+-- Only sounds that ship with Roblox are used, pitched to taste, so the place
+-- needs no uploaded assets.
+
+local SOUNDS = {
+	swing = { "action_jump.mp3", 1.7, 0.45 },
+	hit = { "oof.ogg", 1.35, 0.9 },
+	thump = { "impact_explosion_03.mp3", 2.4, 0.3 },
+	whiff = { "action_falling.ogg", 2.2, 0.18 },
+	seed = { "action_get_up.mp3", 1.9, 0.6 },
+	throw = { "action_jump.mp3", 0.9, 0.6 },
+	warp = { "impact_water.mp3", 1.5, 0.4 },
+	tick = { "volume_slider.ogg", 1, 0.7 },
+	go = { "volume_slider.ogg", 1.6, 0.9 },
+	alarm = { "volume_slider.ogg", 2.2, 0.35 },
+	win = { "action_get_up.mp3", 1.2, 0.8 },
+	land = { "action_jump_land.mp3", 1.3, 0.35 },
+}
+
+local sounds = {}
+for name, spec in SOUNDS do
+	local sound = Instance.new("Sound")
+	sound.Name = name
+	sound.SoundId = "rbxasset://sounds/" .. spec[1]
+	sound.PlaybackSpeed = spec[2]
+	sound.Volume = spec[3]
+	sound.Parent = SoundService
+	sounds[name] = sound
+end
+
+-- `pitch` multiplies the sound's usual speed; a little spread keeps repeats alive.
+function Fx.sound(name, pitch)
+	local sound = sounds[name]
+	if not sound then
+		return
+	end
+	local copy = sound:Clone()
+	copy.PlaybackSpeed = sound.PlaybackSpeed * (pitch or 1) * (0.96 + math.random() * 0.08)
+	copy.Parent = SoundService
+	copy:Play()
+	Debris:AddItem(copy, 3)
+end
+
+-- Camera shake and hit-stop -------------------------------------------------
+
+local trauma = 0
+local frozenUntil = 0
+
+function Fx.shake(amount)
+	trauma = math.min(1.2, trauma + amount)
+end
+
+-- Holds the picture still for a moment; the bigger the hit, the longer.
+function Fx.hitStop(seconds)
+	frozenUntil = math.max(frozenUntil, os.clock() + seconds)
+end
+
+function Fx.frozen()
+	return os.clock() < frozenUntil
+end
+
+-- Called once a frame; returns how far to push the camera.
+function Fx.cameraOffset(dt)
+	trauma = math.max(0, trauma - dt * 2.6)
+	if trauma <= 0 then
+		return Vector3.zero
+	end
+	local power = trauma * trauma * 1.6
+	return Vector3.new((math.random() - 0.5) * 2 * power, 0, (math.random() - 0.5) * 2 * power)
+end
+
+-- Things in the world -------------------------------------------------------
+
+local function part(props)
+	local p = Instance.new("Part")
+	p.Anchored = true
+	p.CanCollide = false
+	p.CanQuery = false
+	p.CanTouch = false
+	p.CastShadow = false
+	p.Material = Enum.Material.SmoothPlastic
+	for key, value in props do
+		p[key] = value
+	end
+	p.Parent = folder
+	return p
+end
+
+local function emitter(x, y, height, props, count)
+	local holder = part({ Size = Vector3.one, Transparency = 1, Position = Vector3.new(x, height, y) })
+	local e = Instance.new("ParticleEmitter")
+	e.Enabled = false
+	e.Rate = 0
+	e.LightInfluence = 0
+	for key, value in props do
+		e[key] = value
+	end
+	e.Parent = holder
+	e:Emit(count)
+	Debris:AddItem(holder, 1.5)
+end
+
+-- Stars flying out of a hit.
+function Fx.stars(x, y, color, count)
+	emitter(x, y, 2, {
+		Texture = "rbxasset://textures/particles/sparkles_main.dds",
+		Color = ColorSequence.new(color),
+		LightEmission = 0.7,
+		Lifetime = NumberRange.new(0.3, 0.6),
+		Speed = NumberRange.new(14, 30),
+		Drag = 5,
+		SpreadAngle = Vector2.new(180, 180),
+		Rotation = NumberRange.new(0, 360),
+		RotSpeed = NumberRange.new(-300, 300),
+		Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 2.2), NumberSequenceKeypoint.new(1, 0) }),
+	}, count or 14)
+end
+
+-- A puff of dust kicked off the ground.
+function Fx.dust(x, y, count, spread)
+	emitter(x, y, 0.5, {
+		Texture = "rbxasset://textures/particles/smoke_main.dds",
+		Color = ColorSequence.new(Color3.fromRGB(246, 232, 200)),
+		Lifetime = NumberRange.new(0.3, 0.55),
+		Speed = NumberRange.new(2, spread or 7),
+		Drag = 4,
+		SpreadAngle = Vector2.new(180, 180),
+		Rotation = NumberRange.new(0, 360),
+		Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.9), NumberSequenceKeypoint.new(1, 2.6) }),
+		Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.35), NumberSequenceKeypoint.new(1, 1) }),
+	}, count or 5)
+end
+
+-- A ring that races outwards along the ground.
+function Fx.ring(x, y, radius, color, seconds)
+	local p = part({ Shape = Enum.PartType.Cylinder, Color = color, Material = Enum.Material.Neon, Transparency = 0.15 })
+	p.Size = Vector3.new(0.12, 1, 1)
+	p.CFrame = CFrame.new(x, 0.45, y) * UPRIGHT
+	local info = TweenInfo.new(seconds, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+	TweenService:Create(p, info, { Size = Vector3.new(0.12, radius * 2, radius * 2), Transparency = 1 }):Play()
+	Debris:AddItem(p, seconds + 0.1)
+end
+
+-- Words that pop out of a spot on the map, hang for a beat and float away.
+function Fx.words(x, y, message, color, studs)
+	studs = studs or 9
+	local anchor = part({ Size = Vector3.one, Transparency = 1, Position = Vector3.new(x, 2, y) })
+	local gui = Instance.new("BillboardGui")
+	gui.Size = UDim2.fromScale(studs * 2.2, studs * 0.42)
+	gui.StudsOffset = Vector3.new(0, 7.4, 0)
+	gui.AlwaysOnTop = true
+	gui.LightInfluence = 0
+	gui.Parent = anchor
+	local label = Instance.new("TextLabel")
+	label.BackgroundTransparency = 1
+	label.Size = UDim2.fromScale(1, 1)
+	label.AnchorPoint = Vector2.new(0.5, 0.5)
+	label.Position = UDim2.fromScale(0.5, 0.5)
+	label.Font = FONT
+	label.TextScaled = true
+	label.TextColor3 = color or Color3.new(1, 1, 1)
+	label.Rotation = math.random(-9, 9)
+	label.Text = message
+	label.Parent = gui
+	local stroke = Instance.new("UIStroke")
+	stroke.Thickness = 3
+	stroke.Color = INK
+	stroke.Parent = label
+	local scale = Instance.new("UIScale")
+	scale.Scale = 0.2
+	scale.Parent = label
+	TweenService:Create(scale, TweenInfo.new(0.16, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+	local away = TweenInfo.new(0.45, Enum.EasingStyle.Quad, Enum.EasingDirection.In, 0, false, 0.4)
+	TweenService:Create(gui, away, { StudsOffset = Vector3.new(0, 10, 0) }):Play()
+	TweenService:Create(label, away, { TextTransparency = 1 }):Play()
+	TweenService:Create(stroke, away, { Transparency = 1 }):Play()
+	Debris:AddItem(anchor, 0.95)
+end
+
+-- Whoever was bonked tumbles away from the blow and is gone.
+function Fx.tumble(x, y, dx, dy, color)
+	local p = part({ Color = color, Size = Vector3.new(3.2, 2.4, 3) })
+	local mesh = Instance.new("SpecialMesh")
+	mesh.MeshType = Enum.MeshType.Sphere
+	mesh.Parent = p
+	p.CFrame = CFrame.new(x, 1.4, y)
+	local goal = CFrame.new(x + dx * 15, 7, y + dy * 15) * CFrame.Angles(4, 3, 5)
+	local info = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	TweenService:Create(p, info, { CFrame = goal, Size = Vector3.new(0.4, 0.3, 0.4), Transparency = 0.6 }):Play()
+	Debris:AddItem(p, 0.55)
+end
+
+-- A thrown seed streaking along its line.
+function Fx.seedShot(x, y, dx, dy, reach)
+	local seed = part({ Color = Color3.fromRGB(52, 42, 38), Size = Vector3.new(1.7, 0.8, 1) })
+	local mesh = Instance.new("SpecialMesh")
+	mesh.MeshType = Enum.MeshType.Sphere
+	mesh.Parent = seed
+	local a0 = Instance.new("Attachment")
+	a0.Position = Vector3.new(0, 0, 0.5)
+	a0.Parent = seed
+	local a1 = Instance.new("Attachment")
+	a1.Position = Vector3.new(0, 0, -0.5)
+	a1.Parent = seed
+	local trail = Instance.new("Trail")
+	trail.Attachment0 = a0
+	trail.Attachment1 = a1
+	trail.Lifetime = 0.18
+	trail.LightEmission = 1
+	trail.Color = ColorSequence.new(Color3.fromRGB(255, 230, 120))
+	trail.Transparency = NumberSequence.new(0.2, 1)
+	trail.Parent = seed
+	local turn = CFrame.Angles(0, -math.atan2(dy, dx), 0)
+	seed.CFrame = CFrame.new(x, 1.6, y) * turn
+	local info = TweenInfo.new(0.16, Enum.EasingStyle.Linear)
+	TweenService:Create(seed, info, { CFrame = CFrame.new(x + dx * reach, 1.6, y + dy * reach) * turn }):Play()
+	Debris:AddItem(seed, 0.4)
+	task.delay(0.16, function()
+		seed.Transparency = 1
+	end)
+end
+
+-- Paper raining down the screen for a win.
+function Fx.confetti(gui)
+	local colors = {
+		Color3.fromRGB(255, 214, 70),
+		Color3.fromRGB(255, 120, 150),
+		Color3.fromRGB(110, 190, 255),
+		Color3.fromRGB(150, 220, 120),
+		Color3.fromRGB(255, 255, 255),
+	}
+	for _ = 1, 70 do
+		local bit = Instance.new("Frame")
+		bit.BorderSizePixel = 0
+		bit.BackgroundColor3 = colors[math.random(#colors)]
+		bit.Size = UDim2.fromOffset(math.random(8, 14), math.random(12, 20))
+		bit.Position = UDim2.new(math.random(), 0, -0.05, 0)
+		bit.Rotation = math.random(0, 360)
+		bit.ZIndex = 20
+		bit.Parent = gui
+		local seconds = 1.4 + math.random() * 1.6
+		local info = TweenInfo.new(seconds, Enum.EasingStyle.Quad, Enum.EasingDirection.In, 0, false, math.random() * 0.6)
+		TweenService:Create(bit, info, {
+			Position = UDim2.new(bit.Position.X.Scale + (math.random() - 0.5) * 0.2, 0, 1.1, 0),
+			Rotation = bit.Rotation + math.random(-540, 540),
+		}):Play()
+		Debris:AddItem(bit, seconds + 0.7)
+	end
+end
+
+return Fx
 ]]></ProtectedString></Properties></Item></Item></Item></roblox>

@@ -3,25 +3,49 @@
   "tree": {
     "$className": "DataModel",
     "ReplicatedStorage": {
-      "Config": { "$path": "src/shared/Config.luau" },
-      "Snapshot": { "$path": "src/shared/Snapshot.luau" }
+      "Config": {
+        "$path": "src/shared/Config.luau"
+      },
+      "Snapshot": {
+        "$path": "src/shared/Snapshot.luau"
+      },
+      "Map": {
+        "$path": "src/shared/Map.luau"
+      },
+      "Sim": {
+        "$path": "src/shared/Sim.luau"
+      }
     },
     "ServerScriptService": {
-      "Sim": { "$path": "src/server/Sim.luau" },
-      "Map": { "$path": "src/server/Map.luau" },
-      "Round": { "$path": "src/server/Round.server.luau" }
+      "Round": {
+        "$path": "src/server/Round.server.luau"
+      }
     },
     "StarterPlayer": {
       "StarterPlayerScripts": {
-        "Input": { "$path": "src/client/Input.client.luau" },
-        "View": { "$path": "src/client/View.client.luau" }
+        "Input": {
+          "$path": "src/client/Input.client.luau"
+        },
+        "View": {
+          "$path": "src/client/View.client.luau"
+        },
+        "Hamster": {
+          "$path": "src/client/Hamster.luau"
+        },
+        "Fx": {
+          "$path": "src/client/Fx.luau"
+        }
       }
     },
     "Workspace": {
-      "$properties": { "StreamingEnabled": false }
+      "$properties": {
+        "StreamingEnabled": false
+      }
     },
     "Players": {
-      "$properties": { "CharacterAutoLoads": false }
+      "$properties": {
+        "CharacterAutoLoads": false
+      }
     },
     "Lighting": {
       "$properties": {
@@ -29,8 +53,16 @@
         "Brightness": 2,
         "ClockTime": 15,
         "EnvironmentSpecularScale": 0,
-        "Ambient": [0.75, 0.75, 0.75],
-        "OutdoorAmbient": [0.75, 0.75, 0.75]
+        "Ambient": [
+          0.75,
+          0.75,
+          0.75
+        ],
+        "OutdoorAmbient": [
+          0.75,
+          0.75,
+          0.75
+        ]
       }
     }
   }

@@ -9,8 +9,8 @@ local RunService = game:GetService("RunService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Config"))
 local Snapshot = require(ReplicatedStorage:WaitForChild("Snapshot"))
-local Map = require(script.Parent:WaitForChild("Map"))
-local Sim = require(script.Parent:WaitForChild("Sim"))
+local Map = require(ReplicatedStorage:WaitForChild("Map"))
+local Sim = require(ReplicatedStorage:WaitForChild("Sim"))
 
 Players.CharacterAutoLoads = false
 
