@@ -401,7 +401,8 @@ test('behind a rival that runs ahead and turns to swing, the top bot is out of r
       if (swing) next = t / TICK_RATE + 1 + ((n * 7 + t) % 10) / 10;
       step(g, [brain.think(g, 0), { mx: (p.x - lead.x) / pd, my: (p.y - lead.y) / pd, bonk: swing, ax: (bot.x - lead.x) / d, ay: (bot.y - lead.y) / d }]);
       if (bot.deaths) return 'bonked';
-      if (lead.deaths) return 'won';
+      // Knocked out or robbed, the seed is stopped either way.
+      if (lead.deaths || bot.carrying) return 'won';
     }
     return 'neither';
   };

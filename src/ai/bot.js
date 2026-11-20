@@ -1,7 +1,7 @@
 // Computer-controlled hamster. A bot only reads the public game state and returns
 // the same input object a human does, so any slot can be swapped between the two.
 
-import { DT, SPEED, CARRY_SPEED, LAST_STRETCH, HAMSTER_R, BONK, THROW, gatherTime } from '../sim/constants.js';
+import { DT, SPEED, CARRY_SPEED, LAST_STRETCH, HAMSTER_R, BONK, THROW, gatherTime, pickTime } from '../sim/constants.js';
 import { distToSegment, isFree, segmentClear, segmentHitsRect } from '../sim/map.js';
 import { inHome, allied } from '../sim/game.js';
 import { mulberry32 } from '../sim/rng.js';
@@ -26,6 +26,10 @@ export const DIFFICULTY = {
   // nerve: it times a cannon instead of stopping the moment one shows red: it walks
   //   on through the line while it can be out again before the seed is fired, and
   //   holds back only when it cannot.
+  // guard: carrying a seed, it swings at a rival rubbing up against it before the
+  //   gauge fills, instead of carrying on as if nobody were there. A swing that
+  //   lands sends the thief home; a swing at all is the only way to shake one off,
+  //   as nobody outruns an empty-handed hamster with a seed.
   // freeze: how long it dithers before a swing it has decided on (seconds)
   // rally: whether it joins the chase after a seed it cannot head off in time
   // The rookie keeps to four simple things: go for a seed, go and stop a rival who
@@ -36,7 +40,7 @@ export const DIFFICULTY = {
   normal: { reaction: 0.24, lead: 0.4, margin: 2, jitter: 4, bait: 0.25, hold: 0.5, deny: 0.7, hunt: 0.7, opportunism: 0.8, caution: 0.8, freeze: 0.09, rally: true, toss: 0.3, volley: 0.8 },
   // search: instead of the fixed rules below, it plays each plan forward in a copy
   //   of the game and picks the best (see search.js). Hands as good as hard's.
-  hard: { reaction: 0.15, lead: 0.9, margin: 3, jitter: 1, bait: 0.55, hold: 1, deny: 1, hunt: 1, opportunism: 1.5, caution: 1.2, freeze: 0, rally: true, toss: 0.5, volley: 1, thrifty: 330, nerve: true },
+  hard: { reaction: 0.15, lead: 0.9, margin: 3, jitter: 1, bait: 0.55, hold: 1, deny: 1, hunt: 1, opportunism: 1.5, caution: 1.2, freeze: 0, rally: true, toss: 0.5, volley: 1, thrifty: 330, nerve: true, guard: true },
 };
 // dance: up close it feints instead of walking in: a dash at the rival to draw a
 //   swing, a step back out of reach so the swing misses, then in for the hit.
@@ -130,6 +134,7 @@ function snapshot(g, p) {
     seeds: p.seeds,
     nibbler: g.nibbler === p.id,
     home: inHome(g, p),
+    pickOn: p.pickOn,
   };
 }
 
@@ -174,6 +179,9 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
     tossRoll: { id: -1, until: 0, yes: false },
     stuck: { x: 0, y: 0, at: 0 },
     nudge: { until: 0, x: 0, y: 0 },
+    // When each rival was last seen starting a swing, and whether it was winding up
+    // then: a swing cannot follow another for BONK.cooldown.
+    swung: new Map(),
   };
 
   function think(g, id) {
@@ -194,6 +202,12 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
     // Everything below is about rivals; team-mates are neither targets nor obstacles.
     const seen = history[0].filter((s) => s.id !== id && !allied(s, me));
     const mates = history[0].filter((s) => s.id !== id && allied(s, me));
+    for (const e of seen) {
+      const was = mem.swung.get(e.id);
+      const winding = e.swing === 'windup';
+      if (winding && !was?.winding) mem.swung.set(e.id, { at: now - cfg.reaction, winding });
+      else if (was) was.winding = winding;
+    }
     const meHome = inHome(g, me);
     // Spots just inside the burrow that a seed carrier can aim for.
     const entries = map.rowYs.map((y) => ({ x: g.homeX - 14, y })).filter((p) => isFree(map, p.x, p.y, HAMSTER_R));
@@ -798,8 +812,11 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
     // pressed up against it takes the seed. So a carrier that is not running at me
     // gets rubbed up against instead of swung at, and once the gauge is going the
     // bot keeps at it. One coming straight at me is still met with a swing. The
-    // top bot does not: right up against a carrier it is in reach of the carrier's
-    // swing, so it follows out of reach and punishes a swing at nothing (see `trail`).
+    // top bot only does when the carrier cannot answer: right up against a carrier
+    // it is in reach of the carrier's swing, so otherwise it follows out of reach
+    // and punishes a swing at nothing (see `trail`). It goes in when that wait is
+    // not worth it: the carrier has just swung and cannot again before the gauge
+    // fills, it is nearly home, or it has kept running without ever turning.
     let rubbing = -1;
     if (!me.carrying && !meHome && me.pickBlock <= 0 && !me.swing && !flinching) {
       for (const e of seen) {
@@ -808,7 +825,16 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
         const dy = e.y - me.y;
         const d = Math.hypot(dx, dy) || 1;
         const away = (e.vx * dx + e.vy * dy) / d;
-        if (cfg.trail) continue;
+        if (cfg.trail && me.pickOn !== e.id) {
+          const left = pickTime(g.players.length, now);
+          const swung = mem.swung.get(e.id);
+          const free = swung ? Math.max(0, swung.at + BONK.cooldown - now) : 0;
+          const unanswered = free + BONK.windup > left + 0.03;
+          // Waiting for a swing only pays while there is time for one: not this close
+          // to home, nor behind one that has run on for a second without turning.
+          const runner = mem.flee.id === e.id && now - mem.flee.since >= 1;
+          if (!unanswered && !runner && !lastStandFor(e)) continue;
+        }
         if (me.pickOn !== e.id && (d > 110 || away < -0.2 * SPEED)) continue;
         rubbing = e.id;
         steerTo({ x: e.x + e.vx * 0.15, y: e.y + e.vy * 0.15 });
@@ -988,7 +1014,9 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
         const hostile = closing > 0.3 * SPEED || e.swing === 'windup';
         // Standing right where I am trying to go: the only way past is through.
         const inMyWay = d < BONK.reach && (wantX * dx + wantY * dy) / d > 0.5;
-        const wanted = inMyWay || e.carrying || e.id === mem.targetId || e.swing === 'recovery' || (!me.carrying && e.nibbler);
+        // Rubbing up against my seed: that one is after it as surely as a swing is.
+        const thief = cfg.guard && me.carrying && e.pickOn === id;
+        const wanted = thief || inMyWay || e.carrying || e.id === mem.targetId || e.swing === 'recovery' || (!me.carrying && e.nibbler);
         // At my heels, both of us running the same way, for long enough to be sure.
         let ambush = false;
         if (cfg.ambush) {
@@ -1005,7 +1033,7 @@ export function createBot({ difficulty = 'normal', seed = 1 } = {}) {
         // A rival with a seed has to come through, so that one is swung at as ever.
         // Not against a rival standing at the flower with its head down.
         const busy = e.nibbler && Math.hypot(e.vx, e.vy) < 20;
-        if (cfg.wary && !ambush && !e.swing && !e.carrying && !busy) {
+        if (cfg.wary && !ambush && !thief && !e.swing && !e.carrying && !busy) {
           const fooled = mem.fooled.get(e.id) || 0;
           const turns = mem.habit.get(e.id)?.turns || [];
           const there = d <= BONK.reach - 3 && closing > -0.2 * SPEED;

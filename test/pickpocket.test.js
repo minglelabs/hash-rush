@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createGame, step } from '../src/sim/game.js';
 import { COUNTDOWN, PICK, TICK_RATE, gatherTime, pickTime } from '../src/sim/constants.js';
 import { MAP } from '../src/sim/map.js';
+import { createBot } from '../src/ai/bot.js';
 
 const IDLE = { mx: 0, my: 0, bonk: false };
 const LEFT = { mx: -1, my: 0, bonk: false };
@@ -107,4 +108,29 @@ test('two at once: only the one furthest along keeps going', () => {
   run(g, 0.2, [IDLE, IDLE, IDLE]);
   assert.ok(a.pick > 0.4);
   assert.equal(c.pick, 0);
+});
+
+test('a top bot carrying a seed swings at a rival rubbing up against it', () => {
+  for (const difficulty of ['hard', 'ace']) {
+    const g = started(Array.from({ length: 4 }, () => ({})));
+    const [bot, thief] = g.players;
+    const brain = createBot({ difficulty, seed: 5 });
+    const y = MAP.laneYs[1];
+    Object.assign(bot, { x: 800, y, carrying: true });
+    Object.assign(thief, { x: 800 + 2 * 15 + 2, y });
+    for (let i = 0; i < 2 * TICK_RATE && bot.carrying && !thief.deaths; i++) step(g, [brain.think(g, 0), LEFT, IDLE, IDLE]);
+    assert.equal(thief.steals, 0, `${difficulty} bot let its seed be taken`);
+    assert.equal(thief.deaths, 1, `${difficulty} bot never swung at the thief`);
+  }
+});
+
+test('the ace takes the seed off a carrier that runs on without ever turning', () => {
+  const g = started(Array.from({ length: 4 }, () => ({})));
+  const [bot, carrier] = g.players;
+  const brain = createBot({ difficulty: 'ace', seed: 5 });
+  const y = MAP.laneYs[1];
+  Object.assign(carrier, { x: 1150, y, carrying: true });
+  Object.assign(bot, { x: 1150 + 90, y });
+  for (let i = 0; i < 6 * TICK_RATE && carrier.carrying && g.phase === 'playing'; i++) step(g, [brain.think(g, 0), LEFT, IDLE, IDLE]);
+  assert.equal(bot.steals, 1, `carrier got to ${Math.round(carrier.x - g.homeX)} px from home with its seed`);
 });
