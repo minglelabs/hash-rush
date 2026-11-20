@@ -175,6 +175,14 @@ local function lastStretch(g, p)
 end
 Sim.lastStretch = lastStretch
 
+-- Team-mates cannot bonk each other and walk straight through one another. A
+-- hamster without a team (-1) is on its own side, so a round with no teams is
+-- everyone against everyone.
+local function allied(a, b)
+	return a.team >= 0 and a.team == b.team
+end
+Sim.allied = allied
+
 local function shuffle(list, rng)
 	for i = #list, 2, -1 do
 		local j = math.floor(rng() * i) + 1
@@ -182,7 +190,8 @@ local function shuffle(list, rng)
 	end
 end
 
--- slots: { { id = number, name = string }, ... }. rng returns a number in [0, 1).
+-- slots: { { id = number, name = string, team = number? }, ... }, team 0 or 1
+-- in a team round and left out otherwise. rng returns a number in [0, 1).
 function Sim.new(map, slots, rng)
 	rng = rng or math.random
 	local nests = table.clone(if #slots > #map.nests then map.bigNests else map.nests)
@@ -193,6 +202,7 @@ function Sim.new(map, slots, rng)
 		local p = {
 			id = slot.id,
 			name = slot.name,
+			team = slot.team or -1,
 			nest = nests[i],
 			x = nests[i].x,
 			y = nests[i].y,
@@ -258,7 +268,7 @@ local function pickAim(g, p, mx, my, moveLen)
 	local bestX, bestY
 	local bestD = BONK.assist
 	for _, e in g.players do
-		if e ~= p and not inHome(g, e) then
+		if e ~= p and not allied(p, e) and not inHome(g, e) then
 			local tx = e.x + e.vx * BONK.windup - p.x
 			local ty = e.y + e.vy * BONK.windup - p.y
 			local d = hypot(tx, ty)
@@ -291,7 +301,7 @@ local function separate(g)
 				local nx = b.x - a.x
 				local ny = b.y - a.y
 				local d = hypot(nx, ny)
-				if d < min then
+				if d < min and not allied(a, b) then
 					if d < 1e-6 then
 						nx = 1
 						ny = 0
@@ -341,30 +351,46 @@ local function respawn(g, p)
 	table.insert(g.events, { type = "spawn", id = p.id, x = p.x, y = p.y })
 end
 
--- Nobody brought a seed home in time: most knock-outs wins, then fewest times
--- knocked out, then most seeds picked. Players still level share the win.
+-- Nobody brought a seed home in time: the side with the most knock-outs takes
+-- the round, then the fewest times knocked out, then the most seeds picked. Sides
+-- still level after that share the win. A team counts as one side.
 local function timeoutWinners(players)
+	local sides = {}
+	local byKey = {}
+	for _, p in players do
+		local key = if p.team >= 0 then "t" .. p.team else "p" .. p.id
+		local side = byKey[key]
+		if not side then
+			side = { ids = {}, kills = 0, deaths = 0, seeds = 0 }
+			byKey[key] = side
+			table.insert(sides, side)
+		end
+		table.insert(side.ids, p.id)
+		side.kills += p.kills + p.throws
+		side.deaths += p.deaths
+		side.seeds += p.seeds
+	end
 	local function better(a, b)
-		local ka = a.kills + a.throws
-		local kb = b.kills + b.throws
-		if ka ~= kb then
-			return ka > kb
+		if a.kills ~= b.kills then
+			return a.kills > b.kills
 		end
 		if a.deaths ~= b.deaths then
 			return a.deaths < b.deaths
 		end
 		return a.seeds > b.seeds
 	end
-	local top = players[1]
-	for _, p in players do
-		if better(p, top) then
-			top = p
+	local top = sides[1]
+	for _, side in sides do
+		if better(side, top) then
+			top = side
 		end
 	end
 	local winners = {}
-	for _, p in players do
-		if not better(top, p) then
-			table.insert(winners, p.id)
+	for _, side in sides do
+		if not better(top, side) then
+			for _, id in side.ids do
+				table.insert(winners, id)
+			end
 		end
 	end
 	return winners
@@ -541,7 +567,7 @@ local function pickpocket(g)
 		if not p.carrying and not p.swing and p.pickBlock <= 0 and p.dazed <= 0 and not inHome(g, p) then
 			local nearest = PICK.reach
 			for _, c in players do
-				if c ~= p and c.carrying and not inHome(g, c) then
+				if c ~= p and c.carrying and not allied(p, c) and not inHome(g, c) then
 					local d = hypot(c.x - p.x, c.y - p.y)
 					if d <= nearest then
 						on = c
@@ -651,7 +677,7 @@ function Sim.step(g, inputs)
 			a.cooldown = BONK.cooldown
 			local victims = {}
 			for _, v in players do
-				if v ~= a and not bonked[v] and not inHome(g, v) then
+				if v ~= a and not bonked[v] and not inHome(g, v) and (THROW.friendlyFire or not allied(a, v)) then
 					local dx = v.x - a.x
 					local dy = v.y - a.y
 					local along = dx * a.fx + dy * a.fy
@@ -671,7 +697,7 @@ function Sim.step(g, inputs)
 			local nearest = BONK.reach
 			if not inHome(g, a) then
 				for _, v in players do
-					if v ~= a and not bonked[v] and not inHome(g, v) then
+					if v ~= a and not allied(a, v) and not bonked[v] and not inHome(g, v) then
 						local dx = v.x - a.x
 						local dy = v.y - a.y
 						local d = hypot(dx, dy)
@@ -684,7 +710,20 @@ function Sim.step(g, inputs)
 				end
 			end
 			if victim then
-				strike(g, a, { victim }, bonked, false)
+				-- Team-mates can stand inside each other, and that is a risk: a hit on
+				-- one of a clump takes out everyone overlapping it.
+				local clump = { victim }
+				local at = 1
+				while at <= #clump do
+					local c = clump[at]
+					for _, v in players do
+						if not table.find(clump, v) and allied(c, v) and not bonked[v] and not inHome(g, v) and hypot(v.x - c.x, v.y - c.y) < 2 * R then
+							table.insert(clump, v)
+						end
+					end
+					at += 1
+				end
+				strike(g, a, clump, bonked, false)
 			end
 			table.insert(g.events, { type = "impact", id = a.id, x = a.x, y = a.y, dx = a.swing.dx, dy = a.swing.dy, hit = victim ~= nil })
 		end
@@ -711,7 +750,14 @@ function Sim.step(g, inputs)
 
 	for _, p in players do
 		if p.carrying and inHome(g, p) then
-			finish(g, { p.id }, false)
+			-- Its whole team wins with it.
+			local winners = {}
+			for _, o in players do
+				if o == p or allied(o, p) then
+					table.insert(winners, o.id)
+				end
+			end
+			finish(g, winners, false)
 			return g
 		end
 	end
