@@ -36,9 +36,9 @@ export const gatherTime = (players, time = 0) => {
 };
 
 // Pickpocketing: an empty-handed rival who keeps rubbing up against a seed carrier,
-// moving or not, takes the seed off it in half the time a seed takes to nibble.
+// moving or not, takes the seed off it in a third of the time a seed takes to nibble.
 // The one who lost it cannot take it straight back for `block` seconds.
-export const PICK = { reach: 2 * HAMSTER_R + 6, share: 0.5, block: 1 };
+export const PICK = { reach: 2 * HAMSTER_R + 6, share: 1 / 3, block: 1 };
 export const pickTime = (players, time = 0) => gatherTime(players, time) * PICK.share;
 
 export const BONK = {

@@ -17,9 +17,9 @@ function run(g, seconds, inputs) {
   for (let i = 0; i < Math.round(seconds * TICK_RATE); i++) step(g, inputs);
 }
 
-test('pickpocketing takes half as long as nibbling a seed', () => {
-  assert.equal(pickTime(2, 0), gatherTime(2, 0) / 2);
-  assert.equal(pickTime(8, 80), gatherTime(8, 80) / 2);
+test('pickpocketing takes a third as long as nibbling a seed', () => {
+  assert.ok(Math.abs(pickTime(2, 0) - gatherTime(2, 0) / 3) < 1e-12);
+  assert.ok(Math.abs(pickTime(8, 80) - gatherTime(8, 80) / 3) < 1e-12);
 });
 
 test('rubbing up against a carrier that is standing still takes its seed', () => {
