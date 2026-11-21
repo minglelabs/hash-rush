@@ -31,8 +31,6 @@ for _, level in { "easy", "normal", "hard", "ace" } do
 	end
 end
 table.insert(LEVELS, "rl")
-local LEVEL_NAMES = { easy = "쉬움", normal = "보통", hard = "어려움", ace = "고수", rl = "RL" }
-local BOT_NAMES = { "도토리", "콩알", "밤톨", "호두", "땅콩", "쌀알", "잣" }
 
 local remotes = Instance.new("Folder")
 remotes.Name = "HashRushRemotes"
@@ -130,6 +128,7 @@ local function roster()
 			id = seat,
 			userId = -seat,
 			name = bot.name,
+			bot = bot.level,
 			wins = wins[bot.name] or 0,
 			kills = if p then p.kills + p.throws else 0,
 			team = if p and p.team >= 0 then p.team else nil,
@@ -184,7 +183,7 @@ local function sendLobby()
 		left = left,
 		people = people,
 		bots = botsFor(math.max(1, readied)),
-		level = LEVEL_NAMES[botLevel] or botLevel,
+		level = Config.BOT_LEVELS[botLevel].name,
 		teams = teams,
 	}
 	roundRemote:FireAllClients(lastLobby)
@@ -209,7 +208,8 @@ local function startRound()
 		local i = #slots + 1
 		local seed = rng:NextInteger(1, 2 ^ 30)
 		local brain = if botLevel == "rl" then RLBot.new({ seed = seed, offset = k }) else Bot.new({ difficulty = botLevel, seed = seed })
-		bots[i] = { brain = brain, name = "🤖 " .. BOT_NAMES[k] }
+		-- A bot is named after its seat's hamster in the web game.
+		bots[i] = { brain = brain, name = Config.NAMES[i], level = botLevel }
 		simInputs[i] = { mx = 0, my = 0, bonk = false, throw = false }
 		slots[i] = { id = i, name = bots[i].name }
 	end
@@ -311,13 +311,31 @@ local function tick()
 	end
 end
 
+-- How many rounds a player has played, as far as the stats know: the client
+-- offers the tutorial to whoever has none. Left unset when the stats cannot be read.
+local function lookUp(player)
+	if not store then
+		return
+	end
+	task.spawn(function()
+		local ok, stats = pcall(function()
+			return store:GetAsync("u" .. player.UserId)
+		end)
+		if ok and player.Parent then
+			player:SetAttribute("HRGames", if stats then stats.games else 0)
+		end
+	end)
+end
+
 Players.PlayerAdded:Connect(function(player)
 	table.insert(joined, player)
 	raw[player] = { mx = 0, my = 0, bonk = false, throw = false, tapped = false }
+	lookUp(player)
 end)
 for _, player in Players:GetPlayers() do
 	table.insert(joined, player)
 	raw[player] = { mx = 0, my = 0, bonk = false, throw = false, tapped = false }
+	lookUp(player)
 end
 
 Players.PlayerRemoving:Connect(function(player)

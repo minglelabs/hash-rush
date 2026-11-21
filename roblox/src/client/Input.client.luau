@@ -275,6 +275,13 @@ RunService.Heartbeat:Connect(function()
 		player:SetAttribute("HRBonk", bonks)
 	end
 	wasBonk = bonk
+	-- The tutorial plays its own round on this machine, from these.
+	if player:GetAttribute("HRBonkHeld") ~= bonk then
+		player:SetAttribute("HRBonkHeld", bonk)
+	end
+	if player:GetAttribute("HRThrowHeld") ~= throw then
+		player:SetAttribute("HRThrowHeld", throw)
+	end
 	local buttons = bonk ~= sent.bonk or throw ~= sent.throw
 	local moved = mx ~= sent.mx or my ~= sent.my
 	-- Buttons go out at once; a stick being rolled around goes out 30 times a second.
