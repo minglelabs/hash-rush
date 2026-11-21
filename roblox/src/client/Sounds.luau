@@ -3,7 +3,7 @@
 -- tools/audio/build.py: run it again rather than editing this. Without ids
 -- Fx plays Roblox's own sounds in their place.
 return {
-	effects = nil,
+	effects = 85219973142525,
 	-- One loudness for effects and music: the balance the web game has.
 	volume = 1,
 	-- Each effect: where it starts in the effects file and how long it is, in seconds.
@@ -29,8 +29,12 @@ return {
 		chat = { 22.1289, 0.1697 },
 	},
 	music = {
-		-- Every round tune back to back: game, hop, sprint, tango, boogie, parade.
-		game = { id = nil, starts = { 0.0, 121.739, 238.406, 351.919, 479.192, 599.192 } },
-		lobby = { id = nil },
+		-- The round tunes back to back, in files short enough for Roblox, played
+		-- one after the other; each tune starts where it says in its file.
+		game = {
+			{ id = 121944402092878, starts = { 0.0, 121.739, 238.406 } }, -- game, hop, sprint
+			{ id = 113812252161376, starts = { 0.0, 127.273, 247.273 } }, -- tango, boogie, parade
+		},
+		lobby = { id = 134905893616866 },
 	},
 }

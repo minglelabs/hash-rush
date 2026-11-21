@@ -5,10 +5,12 @@ and writes src/client/Sounds.luau, which says where each effect sits in its file
   python3 roblox/tools/audio/build.py
   python3 roblox/tools/audio/build.py --effects ID --game ID --lobby ID
 
-The ids are the ones Roblox gives the uploads; they are kept in ids.json, so a
-later run without them keeps them. The uploads: out/effects.ogg, out/music-round.ogg
-(every round tune back to back, in the web game's playlist order) and
-out/music-lobby.ogg. The levels are the web game's own, untouched. Needs ffmpeg."""
+The ids are the ones Roblox gives the uploads (--game takes one per round file);
+they are kept in ids.json, so a later run without them keeps them. The uploads:
+out/effects.ogg, out/music-round-1.ogg, -2.ogg ... (the round tunes back to back in
+the web game's playlist order, cut where a file would pass Roblox's limit on
+audio length) and out/music-lobby.ogg. The levels are the web game's own,
+untouched. Needs ffmpeg."""
 import argparse
 import json
 import re
@@ -24,8 +26,9 @@ IDS = HERE / "ids.json"
 MUSIC_JS = ROOT.parent / "src" / "client" / "music.js"
 
 parser = argparse.ArgumentParser()
-for name in ("effects", "game", "lobby"):
-    parser.add_argument("--" + name, type=int)
+parser.add_argument("--effects", type=int)
+parser.add_argument("--game", type=int, nargs="+")
+parser.add_argument("--lobby", type=int)
 args = parser.parse_args()
 ids = json.loads(IDS.read_text()) if IDS.exists() else {}
 for name in ("effects", "game", "lobby"):
@@ -47,16 +50,38 @@ def ffmpeg(*a):
 
 
 ffmpeg("-i", str(OUT / "effects.wav"), "-c:a", "libvorbis", "-q:a", "6", str(OUT / "effects.ogg"))
-listing = OUT / "game.txt"
-listing.write_text("".join(f"file 'music-{n}.wav'\n" for n in order), encoding="utf-8")
-ffmpeg("-f", "concat", "-safe", "0", "-i", str(listing), "-c:a", "libvorbis", "-q:a", "5", str(OUT / "music-round.ogg"))
 ffmpeg("-i", str(OUT / "music-lobby.wav"), "-c:a", "libvorbis", "-q:a", "5", str(OUT / "music-lobby.ogg"))
 
-sprite = json.loads((OUT / "effects.json").read_text(encoding="utf-8"))
-starts, at = [], 0.0
+# Roblox turned the twelve minutes of round tunes down as one file ("Audio duration
+# too long"), so they go in files of whole tunes, each kept under this.
+LONGEST = 6.5 * 60
+parts = [[]]
 for n in order:
-    starts.append(round(at, 3))
-    at += seconds(OUT / f"music-{n}.wav")
+    length = seconds(OUT / f"music-{n}.wav")
+    if parts[-1] and sum(l for _, l in parts[-1]) + length > LONGEST:
+        parts.append([])
+    parts[-1].append((n, length))
+for old in OUT.glob("music-round*.ogg"):
+    old.unlink()
+files = []
+for k, part in enumerate(parts, 1):
+    listing = OUT / f"round-{k}.txt"
+    listing.write_text("".join(f"file 'music-{n}.wav'\n" for n, _ in part), encoding="utf-8")
+    files.append(f"music-round-{k}.ogg")
+    ffmpeg("-f", "concat", "-safe", "0", "-i", str(listing), "-c:a", "libvorbis", "-q:a", "5", str(OUT / files[-1]))
+
+sprite = json.loads((OUT / "effects.json").read_text(encoding="utf-8"))
+game_ids = ids.get("game") or []
+if isinstance(game_ids, int) or len(game_ids) != len(parts):
+    game_ids = [None] * len(parts)
+
+
+def starts_of(part):
+    out, at = [], 0.0
+    for _, length in part:
+        out.append(round(at, 3))
+        at += length
+    return out
 
 
 def luau(v):
@@ -77,14 +102,18 @@ lines = [
     *(f"\t\t{name} = {{ {start}, {length} }}," for name, (start, length) in sprite.items()),
     "\t},",
     "\tmusic = {",
-    f"\t\t-- Every round tune back to back: {', '.join(order)}.",
-    f"\t\tgame = {{ id = {luau(ids.get('game'))}, starts = {{ {', '.join(str(s) for s in starts)} }} }},",
+    "\t\t-- The round tunes back to back, in files short enough for Roblox, played",
+    "\t\t-- one after the other; each tune starts where it says in its file.",
+    "\t\tgame = {",
+    *(f"\t\t\t{{ id = {luau(i)}, starts = {{ {', '.join(str(s) for s in starts_of(part))} }} }}, -- {', '.join(n for n, _ in part)}"
+      for i, part in zip(game_ids, parts)),
+    "\t\t},",
     f"\t\tlobby = {{ id = {luau(ids.get('lobby'))} }},",
     "\t},",
     "}",
     "",
 ]
 SOUNDS.write_text("\n".join(lines), encoding="utf-8")
-for f in ("effects.ogg", "music-round.ogg", "music-lobby.ogg"):
+for f in ("effects.ogg", *files, "music-lobby.ogg"):
     print(f, f"{(OUT / f).stat().st_size / 1e6:.1f} MB")
 print("wrote", SOUNDS.relative_to(ROOT.parent))
