@@ -275,6 +275,8 @@ export async function joinServerRoom(server, room, on) {
     query.set('host', '1');
     query.set('guest', '1');
   }
+  // A room made on the web through HashChat starts in the public list.
+  if (params.get('listed') === '1') query.set('listed', '1');
   const qs = query.toString();
   const url = `${server.replace(/\/+$/, '')}/rooms/${encodeURIComponent(room)}${qs ? `?${qs}` : ''}`;
   const ws = new WebSocket(url);

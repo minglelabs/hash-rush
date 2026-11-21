@@ -46,12 +46,21 @@ export function createRoomList({ items, status, pages, here = null, base = './' 
       li.append(info);
       return li;
     }
-    const link = `${base}?room=${r.room}`;
+    const link = r.server ? r.join : `${base}?room=${r.room}`;
     const join = document.createElement('button');
     join.className = 'primary';
     join.textContent = t('joinRoom');
     join.disabled = r.open === 0;
     join.addEventListener('click', () => (location.href = link));
+    // A HashChat room (on its game server): joined through HashChat, no watch link.
+    if (r.server) {
+      const tag = document.createElement('span');
+      tag.className = 'badge';
+      tag.textContent = 'HashChat';
+      title.after(tag);
+      li.append(info, join);
+      return li;
+    }
     const watch = document.createElement('button');
     watch.textContent = t('watchRoom');
     watch.addEventListener('click', () => (location.href = `${link}&watch`));

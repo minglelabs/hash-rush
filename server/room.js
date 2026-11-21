@@ -78,6 +78,8 @@ export function roomOptionsFromQuery(query) {
     map: query.get('map') || 'meadow',
     teams: query.has('teams') ? query.get('teams') === '1' : undefined,
     hosted: query.get('host') === '1',
+    // A room a web player makes through HashChat (/api/hash-rush/new) starts listed.
+    listed: query.get('listed') === '1',
   };
 }
 
@@ -87,9 +89,11 @@ export class Room {
   // room up in the lobby (teams, map, computers) and starts each round; nothing
   // starts by itself. The host can hand the room to somebody else, and when the
   // host leaves it passes to the next person. Without it the room runs itself.
-  constructor({ id, map = 'meadow', teams, botLevel = 'hard', hosted = false, now = Date.now, random = Math.random, onResult = null } = {}) {
+  constructor({ id, map = 'meadow', teams, botLevel = 'hard', hosted = false, listed = false, now = Date.now, random = Math.random, onResult = null } = {}) {
     this.id = id;
     this.hosted = !!hosted;
+    // A hosted room shows in the public room list (GET /rooms) once its host turns this on.
+    this.listed = !!hosted && !!listed;
     // The host, as a record owner (ownerOf): it follows the person, not the seat.
     this.host = '';
     this.fill = MIN_PLAYERS;
@@ -247,6 +251,7 @@ export class Room {
           this.botLevels = {};
         }
       }
+      if (typeof msg.listed === 'boolean') this.listed = msg.listed;
       if (Number.isInteger(msg.fill)) {
         this.fill = Math.max(FILL_MIN, Math.min(MAX_SLOTS, msg.fill));
         this.vsComputers = false;
@@ -320,6 +325,25 @@ export class Room {
 
   get humans() {
     return this.slots.filter((s) => s.kind === 'remote' && s.conn);
+  }
+
+  // This room in the public room list, or null when it is not listed (only a
+  // hosted room whose host turned it on, with somebody in it).
+  listing() {
+    const people = this.humans;
+    if (!this.hosted || !this.listed || !people.length) return null;
+    return {
+      id: this.id,
+      host: this.hostName().slice(0, 8),
+      people: people.length,
+      seats: MAX_SLOTS,
+      // The computers the next round seats take empty seats; the rest are open to join.
+      bots: this.computerSeats().length,
+      open: Math.max(0, this.slots.filter((s) => s.kind === 'open').length - this.computerSeats().length),
+      map: this.mapId,
+      teams: this.teams,
+      playing: !!this.game && this.game.phase !== 'over',
+    };
   }
 
   get empty() {
@@ -586,7 +610,7 @@ export class Room {
     // whether it is the host (`me`).
     const hosted = this.hosted ? { hosted: true, host: this.hostSeat(), hostName: this.hostName(), bots: this.botLevel } : {};
     const lobby = (you, conn) => ({
-      t: 'lobby', slots: view, spect, teams: this.teams, map: this.mapId, pw: '', you, wins: this.wins, tot: this.career, rd: this.rounds, hist: this.hist, nx, fill: this.roundFill(), ct: this.teams && this.vsComputers ? this.computersSide() : -1, title: TITLE,
+      t: 'lobby', slots: view, spect, teams: this.teams, map: this.mapId, pw: '', you, wins: this.wins, tot: this.career, rd: this.rounds, hist: this.hist, nx, fill: this.roundFill(), listed: this.listed, ct: this.teams && this.vsComputers ? this.computersSide() : -1, title: TITLE,
       ...hosted,
       ...(this.hosted ? { me: this.isHost(conn) } : {}),
     });
