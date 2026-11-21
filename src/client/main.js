@@ -23,6 +23,7 @@ import { identity, shareName, signResult, remember, lastRating, loadRanking } fr
 import { createPredictor } from './predict.js';
 import { winRate } from './rankPage.js';
 import { createRoomList } from './roomList.js';
+import { watchServerRooms, mergeRoomLists } from './hashchatRooms.js';
 import { createChat, floatLine, cleanChat, lineLife } from './chatbar.js';
 import { embedMode, connectApp, phaseOf, bringsKeyboard, createChatBubbles } from './embed.js';
 import { isDesktop, linkBase, roundAchievements, steamName } from './desktop.js';
@@ -740,13 +741,27 @@ function toggleRoomList() {
   $('roomItems').textContent = '';
   $('roomsStatus').textContent = t('roomsLoading');
   const render = createRoomList({ items: $('roomItems'), status: $('roomsStatus'), pages: $('roomsPager'), here: net.room || joinId, base: location.pathname });
-  watchRooms(render)
+  // The browser-hosted rooms and the HashChat app's listed rooms, in one list.
+  const lists = mergeRoomLists(render);
+  const stopServer = watchServerRooms(lists.server);
+  stopWatching = stopServer;
+  watchRooms(lists.p2p)
     .then((stop) => {
       // Closed again while still connecting.
-      if ($('rooms').hidden) stop();
-      else stopWatching = stop;
+      if ($('rooms').hidden) {
+        stop();
+        stopServer();
+      } else {
+        stopWatching = () => {
+          stop();
+          stopServer();
+        };
+      }
     })
-    .catch(() => ($('roomsStatus').textContent = t('roomsFail')));
+    .catch(() => {
+      // The HashChat rooms can still show without the browser rooms.
+      if (!$('roomItems').children.length) $('roomsStatus').textContent = t('roomsFail');
+    });
 }
 
 // ---------- ranking ----------
@@ -1280,6 +1295,8 @@ function hostData(msg) {
     // chat room's players have all left and the game goes on with the web
     // players. The host's controls then send to the server.
     net.serverHost = !!msg.hosted && msg.me === true;
+    // The room-list switch shows the server room's state while this page hosts it.
+    if (net.serverHost && typeof msg.listed === 'boolean') $('listed').checked = msg.listed;
     net.fill = Number.isInteger(msg.fill) ? msg.fill : 0;
     // Hosting, the round's buttons end the round for everybody instead of leaving.
     for (const id of ['quit', 'back']) $(id).textContent = t(net.serverHost ? 'endRound' : 'leaveRoom');
@@ -2867,7 +2884,7 @@ for (const [id, page] of [['rankBtn', 'ranking.html'], ['feedbackBtn', 'board.ht
 // The desktop app has a way out of the game, as PC games do.
 $('quitApp').hidden = !desktop;
 $('quitApp').addEventListener('click', () => window.hashRushDesktop?.quit());
-$('listed').addEventListener('change', announce);
+$('listed').addEventListener('change', () => (net.serverHost ? net.host?.send({ t: 'setup', listed: $('listed').checked }) : announce()));
 $('pwField').addEventListener('input', () => {
   roomPw = cleanPw($('pwField').value);
   renderLobby();

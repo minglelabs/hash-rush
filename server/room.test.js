@@ -744,3 +744,25 @@ test('a hosted room offers the learned computer (rl) per seat, and each computer
   for (let i = 0; i < 200 && room.game.phase !== 'over'; i++) room.tick();
   assert.ok(Math.hypot(rl.x - start.x, rl.y - start.y) > 1 || rl.seeds || rl.kills, 'the rl computer never moved');
 });
+
+test('the host lists a hosted room in the public room list; unlisted or empty rooms are not in it', () => {
+  const { room } = setup({ id: 'mingle-abc-g12345678', hosted: true });
+  const a = fakeConn('a');
+  room.join(a);
+  room.receive(a, { t: 'hello', name: 'Mia' });
+  assert.equal(room.listing(), null);
+  assert.equal(a.last('lobby').listed, false);
+  const b = fakeConn('b');
+  room.join(b);
+  room.receive(b, { t: 'hello', name: 'Leo' });
+  room.receive(b, { t: 'setup', listed: true });
+  assert.equal(room.listing(), null, 'only the host lists it');
+  room.receive(a, { t: 'setup', listed: true });
+  assert.equal(a.last('lobby').listed, true);
+  const row = room.listing();
+  assert.equal(row.host, 'Mia');
+  assert.equal(row.people, 2);
+  assert.equal(row.playing, false);
+  room.receive(a, { t: 'go' });
+  assert.equal(room.listing().playing, true);
+});

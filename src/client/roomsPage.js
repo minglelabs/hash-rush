@@ -4,6 +4,7 @@
 import { t } from './i18n.js';
 import { watchRooms, openBroker } from './net.js';
 import { createRoomList } from './roomList.js';
+import { watchServerRooms, mergeRoomLists } from './hashchatRooms.js';
 import { myName } from './page.js';
 import { createChat, floatLine, cleanChat } from './chatbar.js';
 
@@ -21,9 +22,12 @@ export function openRooms() {
     }),
   );
   $('roomsStatus').textContent = t('roomsLoading');
-  watchRooms(createRoomList({ items: $('roomItems'), status: $('roomsStatus'), pages: $('roomsPager') })).catch(
-    () => ($('roomsStatus').textContent = t('roomsFail')),
-  );
+  // The browser-hosted rooms and the HashChat app's listed rooms, in one list.
+  const lists = mergeRoomLists(createRoomList({ items: $('roomItems'), status: $('roomsStatus'), pages: $('roomsPager') }));
+  watchServerRooms(lists.server);
+  watchRooms(lists.p2p).catch(() => {
+    if (!$('roomItems').children.length) $('roomsStatus').textContent = t('roomsFail');
+  });
   openPlaza();
 }
 

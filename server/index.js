@@ -72,6 +72,20 @@ function wrap(ws) {
 }
 
 const server = http.createServer((request, response) => {
+  // The public room list: hosted rooms whose host listed them. Read by the
+  // HashChat app's server (to hand out tickets) and by the web page.
+  if (request.url === '/rooms' || request.url?.startsWith('/rooms?')) {
+    const origin = request.headers.origin || '';
+    const headers = { 'content-type': 'application/json', 'cache-control': 'no-store' };
+    if (origin && (!ALLOWED.length || ALLOWED.includes(origin))) {
+      headers['access-control-allow-origin'] = origin;
+      headers.vary = 'origin';
+    }
+    const list = [...rooms.values()].map((room) => room.listing()).filter(Boolean).slice(0, 100);
+    response.writeHead(200, headers);
+    response.end(JSON.stringify({ rooms: list }));
+    return;
+  }
   if (request.url === '/health') {
     let players = 0;
     for (const room of rooms.values()) players += room.humans.length;
