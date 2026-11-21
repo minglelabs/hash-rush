@@ -1,0 +1,16 @@
+"lang"
+{
+	"Language"	"koreana"
+	"Tokens"
+	{
+		"#Status_Lobby"	"대기실에 있음"
+		"#Status_Playing"	"{#Map_%map%}에서 레이스 중"
+		"#Map_meadow"	"초원"
+		"#Map_desert"	"사막"
+		"#Map_factory"	"공장"
+		"#Map_ice"	"얼음"
+		"#Map_beach"	"해변"
+		"#Map_graveyard"	"묘지"
+		"#Map_sky"	"하늘"
+	}
+}

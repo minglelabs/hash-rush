@@ -1,0 +1,16 @@
+"lang"
+{
+	"Language"	"english"
+	"Tokens"
+	{
+		"#Status_Lobby"	"In the lobby"
+		"#Status_Playing"	"Racing on {#Map_%map%}"
+		"#Map_meadow"	"Meadow"
+		"#Map_desert"	"Desert"
+		"#Map_factory"	"Factory"
+		"#Map_ice"	"Ice"
+		"#Map_beach"	"Beach"
+		"#Map_graveyard"	"Graveyard"
+		"#Map_sky"	"Sky"
+	}
+}

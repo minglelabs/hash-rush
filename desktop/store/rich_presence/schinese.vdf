@@ -1,0 +1,16 @@
+"lang"
+{
+	"Language"	"schinese"
+	"Tokens"
+	{
+		"#Status_Lobby"	"在大厅"
+		"#Status_Playing"	"正在{#Map_%map%}比赛"
+		"#Map_meadow"	"草原"
+		"#Map_desert"	"沙漠"
+		"#Map_factory"	"工厂"
+		"#Map_ice"	"冰原"
+		"#Map_beach"	"海滩"
+		"#Map_graveyard"	"墓地"
+		"#Map_sky"	"天空"
+	}
+}

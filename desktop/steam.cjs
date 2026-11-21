@@ -46,9 +46,17 @@ function achieve(ids) {
   for (const id of ids) if (typeof id === 'string' && /^[A-Z0-9_]{1,64}$/.test(id)) safe(() => client.achievement.activate(id));
 }
 
-function presence(text) {
+// What friends see: in the lobby, or racing on a map (`map` is its id). The
+// words come from the tokens in store/rich_presence/*.vdf, uploaded on the
+// Steamworks site; `status` is the plain fallback.
+function presence(map) {
   if (!client) return;
-  safe(() => client.localplayer.setRichPresence('status', text ? String(text).slice(0, 255) : undefined));
+  const id = /^[a-z]{1,20}$/.test(String(map || '')) ? map : '';
+  safe(() => {
+    client.localplayer.setRichPresence('map', id || undefined);
+    client.localplayer.setRichPresence('steam_display', id ? '#Status_Playing' : '#Status_Lobby');
+    client.localplayer.setRichPresence('status', id ? `Racing on ${id}` : 'In the lobby');
+  });
 }
 
 function safe(fn, fallback) {

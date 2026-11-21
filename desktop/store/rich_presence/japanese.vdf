@@ -1,0 +1,16 @@
+"lang"
+{
+	"Language"	"japanese"
+	"Tokens"
+	{
+		"#Status_Lobby"	"ロビーにいます"
+		"#Status_Playing"	"{#Map_%map%}でレース中"
+		"#Map_meadow"	"草原"
+		"#Map_desert"	"砂漠"
+		"#Map_factory"	"工場"
+		"#Map_ice"	"氷"
+		"#Map_beach"	"ビーチ"
+		"#Map_graveyard"	"墓地"
+		"#Map_sky"	"空"
+	}
+}
