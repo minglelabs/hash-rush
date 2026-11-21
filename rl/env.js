@@ -48,6 +48,10 @@ export const DEFAULTS = {
   // Share of team rounds played as the game's hosted rooms start: a side of two
   // against a side of one to six.
   duo: 0,
+  // Share of free-for-all rounds with bots where every seat but the first is a bot
+  // of one and the same level: one learner among a pack that all play alike, as
+  // a person meets three easy bots that all run for the seed.
+  pack: 0,
   botLevels: [0, 1, 2], // easy, normal, hard
   // Reward: the score table's own weights, and the win on top as the biggest prize.
   scoreWeight: 1,
@@ -193,8 +197,9 @@ export function createEnvs(settings = {}) {
       sideLevel = Array.from({ length: teams }, (_, t) => (t !== sides[0] && rnd() < cfg.botSeat ? pick(cfg.botLevels) : -1));
       if (sideLevel.every((l) => l < 0)) sideLevel[(sides[0] + 1 + Math.floor(rnd() * (teams - 1))) % teams] = pick(cfg.botLevels);
     }
+    const pack = cfg.pack > 0 && !teamed && withBots && !cfg.allBots && rnd() < cfg.pack ? pick(cfg.botLevels) : -1;
     const lineup = cfg.lineup || Array.from({ length: n }, (_, i) => ({
-      level: sideLevel ? sideLevel[sides[i]] : withBots && (i > 0 || cfg.allBots) && rnd() < cfg.botSeat ? pick(cfg.botLevels) : -1,
+      level: sideLevel ? sideLevel[sides[i]] : pack >= 0 ? (i > 0 ? pack : -1) : withBots && (i > 0 || cfg.allBots) && rnd() < cfg.botSeat ? pick(cfg.botLevels) : -1,
       team: teamed ? sides[i] : -1,
     }));
     for (let i = 0; i < lineup.length; i++) {
