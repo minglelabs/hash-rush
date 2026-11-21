@@ -7,7 +7,7 @@ What the code already does, and what has to be set up on the Steamworks site.
 - **Desktop app** (Electron, `desktop/`): `npm run dist:all` builds
   `dist/win-unpacked`, `dist/linux-unpacked` and `dist/mac-universal`.
 - **Steam** (`steam.cjs`, steamworks.js): the Steam name becomes the player's default
-  name, achievements unlock at the end of a round, Rich Presence `status` shows the
+  name, achievements unlock at the end of a round, Rich Presence shows the
   map being played, and the Steam overlay is on. Without Steam the game runs the same.
 - **Controller**: the left stick or D-pad steers, A/RB bonks, B/X/LB throws. Outside a
   round the D-pad moves through the menus, A presses, B and Start work like Escape.
@@ -31,8 +31,8 @@ What the code already does, and what has to be set up on the Steamworks site.
    | `WIN_ALL_MAPS` | World Tour | Win on every map |
 
    Each also needs a locked and an unlocked icon (64×64 JPG).
-3. **Rich Presence**: add a localization token file with `#Status_Lobby` etc. if you
-   want `steam_display`. As is, the `status` key shows in the friends list.
+3. **Rich Presence**: upload `store/rich_presence/*.vdf` under Rich Presence
+   Localization. Friends then see "Racing on Desert" or "In the lobby" in their own language.
 4. **Steam Cloud** (Auto-Cloud): set a root and path:
    - Windows: `WinAppDataRoaming` / `Hash Rush/`
    - macOS: `MacAppSupport` / `Hash Rush/`
@@ -53,6 +53,8 @@ What the code already does, and what has to be set up on the Steamworks site.
 - **macOS signing and notarization**: the mac build is unsigned now (`dist:mac` skips
   it). This needs a Developer ID Application certificate.
 - **Windows signing**: optional, but SmartScreen warns about unsigned exe files.
-- **Store page**: capsules, screenshots, trailer, description, IARC rating, price.
+- **Store page**: images, screenshots, trailer and text are in `store/` (see
+  [store/STORE_TEXT.md](store/STORE_TEXT.md)). `tools/steam-art.cjs` draws them again.
+  Still to do: the IARC rating survey and the price.
 - **Online play from Steam**: invites still go through the web link. Steam lobby
   invites (`matchmaking`) are a later step.

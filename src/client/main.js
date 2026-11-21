@@ -225,7 +225,7 @@ function steamRound() {
 if (desktop) {
   setInterval(() => {
     const playing = game && game.phase !== 'over' && !$('stage').hidden;
-    window.hashRushDesktop.presence(playing ? `${t('mapNames')?.[game.map.id] || game.map.id}` : '');
+    window.hashRushDesktop.presence(playing ? game.map.id : '');
   }, 15000);
 }
 document.documentElement.classList.toggle('embed', embed);
