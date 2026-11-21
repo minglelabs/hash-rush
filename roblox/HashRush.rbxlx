@@ -79,18 +79,16 @@ Config.LOOKS = {
 }
 -- In a team round the outline, the name and the nest take the team's colour.
 Config.TEAMS = {
-	[0] = { color = hex("#e5484d"), name = "🔴 레드" },
-	[1] = { color = hex("#2f6fed"), name = "🔵 블루" },
+	[0] = { color = hex("#e5484d") },
+	[1] = { color = hex("#2f6fed") },
 }
--- The web game's names for the seats' hamsters; a bot takes its seat's.
-Config.NAMES = { "나", "구름", "초코", "먼지", "콩이", "보리", "밤톨", "호두" }
--- How a bot's level is written under it, each in its own colour.
+-- The colour a bot's level is written in under it. The words are in Lang.
 Config.BOT_LEVELS = {
-	easy = { name = "초보", color = hex("#1f9d55") },
-	normal = { name = "중수", color = hex("#e08a00") },
-	hard = { name = "고수", color = hex("#d63031") },
-	ace = { name = "초고수", color = hex("#8e44ad") },
-	rl = { name = "RL", color = hex("#0984e3") },
+	easy = { color = hex("#1f9d55") },
+	normal = { color = hex("#e08a00") },
+	hard = { color = hex("#d63031") },
+	ace = { color = hex("#8e44ad") },
+	rl = { color = hex("#0984e3") },
 }
 
 -- A hamster's colour: its team's in a team round, its seat's otherwise.
@@ -99,6 +97,290 @@ function Config.colorOf(seat: number, team: number?): Color3
 end
 
 return Config
+]]></ProtectedString></Properties></Item><Item class="ModuleScript"><Properties><string name="Name">Lang</string><ProtectedString name="Source"><![CDATA[-- Every word the game shows, in Korean and in English. A player whose Roblox
+-- language is Korean gets Korean; everyone else gets English. The client picks
+-- with `Lang.pick(player)`; the server never shows words of its own beyond the
+-- map's signs, which the client writes again in its own language.
+--   Lang.t("key")             the word
+--   Lang.t("key", a, b)       string.format'ed with a, b, or called with them
+--                             when the word is a function
+
+local Lang = {}
+Lang.code = "ko"
+
+-- "구름이" or "초코가", as the web game writes a name before a verb.
+local function subject(name: string): string
+	local last = utf8.codepoint(name, utf8.offset(name, -1) or 1)
+	local hangul = last >= 0xAC00 and last <= 0xD7A3
+	return name .. (if hangul and (last - 0xAC00) % 28 ~= 0 then "이" else "가")
+end
+Lang.subject = subject
+
+local WORDS = {}
+
+WORDS.ko = {
+	-- Names and sides
+	me = "나",
+	names = { "나", "구름", "초코", "먼지", "콩이", "보리", "밤톨", "호두" },
+	levels = { easy = "초보", normal = "중수", hard = "고수", ace = "초고수", rl = "RL" },
+	teams = { [0] = "🔴 레드", [1] = "🔵 블루" },
+
+	-- Touch buttons
+	bonkButton = "👊\n꿀밤",
+	throwButton = "🌻\n던지기",
+
+	-- Lobby
+	ready = "✅ 준비 완료!",
+	readyPrompt = "▶ 준비!",
+	readyKey = " (Enter)",
+	lobbyBots = "🤖 봇 %d마리 · %s",
+	botCount = "🤖 봇 %d",
+	level = "난이도 %s",
+	solo = "👤 개인전",
+	teamMode = "⚔ 팀전",
+	waiting = "🌻 대기 중",
+	tutorial = "🎓 튜토리얼",
+	startsIn = "%d초 뒤 시작해요 · 준비 %d/%d명",
+	needRival = "상대가 필요해요 · 햄스터 %d마리를 더 기다리거나 봇을 넣어요",
+	allReady = "모두 준비하면 시작해요 · 준비 %d/%d명",
+	watching = "관전 중 · 판이 끝나면 준비를 눌러 참가해요",
+	help = {
+		{ "🌻", "해바라기 옆에서 2초 가만히! 해씨는 한 번에 한 마리씩" },
+		{ "🏠", "해씨를 물고 왼쪽 모래밭 집에 들어가면 승리" },
+		{ "👊", "Space 꿀밤: 바로 옆에서만 맞아요. 맞으면 둥지로" },
+		{ "🌀", "보라색 소용돌이: 빈손일 때 둥지로 순간이동" },
+		{ "💨", "해씨를 든 채 F를 꾹: 줄 선 상대를 한꺼번에" },
+	},
+	helpTouch = {
+		{ "🌻", "해바라기 옆에서 2초 가만히! 해씨는 한 번에 한 마리씩" },
+		{ "🏠", "해씨를 물고 왼쪽 모래밭 집에 들어가면 승리" },
+		{ "👊", "👊 버튼 꿀밤: 바로 옆에서만 맞아요. 맞으면 둥지로" },
+		{ "🌀", "보라색 소용돌이: 빈손일 때 둥지로 순간이동" },
+		{ "💨", "해씨를 든 채 🌻 버튼을 꾹: 줄 선 상대를 한꺼번에" },
+	},
+
+	-- Round
+	getReady = "준비…",
+	go = "출발!",
+	practice = "🎓 연습",
+	multi = { "더블킬!", "트리플킬!", "쿼드라킬!", "펜타킬!", "헥사킬!", "헵타킬!" },
+	gotSeedMe = "🌻 해씨 획득! 노랗게 빛나는 🏠 집으로 달려요!",
+	gotSeedMate = function(name)
+		return "🌻 " .. subject(name) .. " 씨를 물었어요! 지켜줘요!"
+	end,
+	gotSeedFoe = function(name)
+		return "🌻 " .. subject(name) .. " 씨를 물었어요! 막아요!"
+	end,
+	bonkWord = "뿅!",
+	lostSeed = "씨를 놓쳤어요! 다시 해바라기로!",
+	feedBonk = function(by, seed, whom)
+		return ("%s %s뿅! %s"):format(by, if seed then "🌻" else "", whom)
+	end,
+	superplay = "%s 슈퍼플레이!",
+	multiBanner = function(name, kill, super)
+		return name .. " " .. kill .. (if super then " 슈퍼플레이!" else "")
+	end,
+	throwWord = "던지기!",
+	seedWord = "🌻 해씨 획득!",
+	stealWord = "소매치기!",
+	feedSteal = "%s 🌻소매치기! %s",
+	gotStolen = "해씨를 소매치기 당했어요!",
+	warpWord = "쏙!",
+	overtime = "⏰ 연장전! 씨가 빨리 나오고, 쓰러지면 기절!",
+	rush = "🚨 막판! 집이 해바라기까지 밀려옵니다",
+	alarmMe = "🚨 집이 코앞! 끝까지 달려요!",
+	alarmMate = function(name)
+		return "🚨 " .. subject(name) .. " 해씨를 물고 집에 다 왔어요! 지켜줘요!"
+	end,
+	alarmFoe = function(name)
+		return "🚨 " .. subject(name) .. " 해씨를 물고 집에 다 왔어요! 막아요!"
+	end,
+	cover = "지켜요!",
+	block = "막아요!",
+	toHome = "집으로!",
+	flower = "해바라기",
+	dazed = "💫 기절",
+	digging = "해씨 캐는 중",
+	snatching = "슬쩍하는 중",
+	noWarpCarrying = "씨를 물고는 순간이동 못 해요! 걸어서 집으로!",
+	holdStill = "가만히 있어야 캐져요!",
+	queue = "앞 햄스터가 캐는 중… 대기",
+
+	-- Result
+	teamWin = "🏆 %s 팀 승리!",
+	win = function(names, _count)
+		return "🏆 " .. names .. " 승리!"
+	end,
+	noWinner = "판이 끝났어요",
+	whyLeft = "상대가 나가서 판이 끝났어요",
+	whyTimeout = "시간 종료 · 꿀밤 횟수로 정했어요",
+	whyHome = "해씨를 물고 집에 돌아왔어요",
+	wins = "⭐ %d승",
+
+	-- Tutorial
+	tutorStart = "▶ 시작하기!",
+	tutorSkip = "건너뛰기 ✕",
+	cheer = "👍 잘했어요!",
+	steps = {
+		{ title = "움직이기", text = "WASD나 방향키로 움직여요. 휴대폰은 화면 왼쪽을 끌어요.\n🌻 해바라기까지 가 보세요!", label = "해바라기" },
+		{ title = "해씨 캐기", text = "해바라기 옆에서 가만히 있으면 해씨가 나와요.\n움직이거나 꿀밤을 치면 처음부터예요!", label = "가만히!" },
+		{ title = "집으로", text = "해씨를 물었어요! 왼쪽 모래밭 🏠 집으로 돌아가면 이겨요.\n해씨를 물면 조금 느려지고, 꿀밤 한 대면 놓쳐요.", label = "집으로!" },
+		{ title = "꿀밤", text = "상대 바로 옆에서 Space를 눌러 꿀밤! 휴대폰은 👊 버튼이에요.\n맞은 햄스터는 둥지로 돌아가요. 헛치면 잠깐 굳으니 조심!", label = "꿀밤!" },
+		{
+			title = "던지기",
+			text = "해씨를 든 채 F를 꾹 눌렀다 떼면 보는 쪽으로 던져요. 휴대폰은 🌻 버튼이에요.\n줄 선 상대가 한꺼번에 쓰러져요. 대신 해씨는 사라져요!",
+			label = "이쪽으로!",
+			again = "아깝다! 상대 쪽을 보고 다시 던져요.",
+		},
+		{ title = "소매치기", text = "해씨 든 상대에게 딱 붙어 있으면 해씨를 슬쩍 가져와요.\n빼앗긴 쪽은 1초 동안 되찾을 수 없어요.", label = "붙어요!" },
+		{ title = "순간이동", text = "보라색 🌀 소용돌이에 들어가면 둥지로 순간이동해요. 해씨가 없을 때만 돼요.\n앞서가는 상대를 집 앞에서 막으러 갈 때 써요!", label = "들어가요!" },
+		{ title = "끝!", text = "이제 준비 버튼을 눌러 진짜 판을 해 봐요!\n1:20부터는 연장전: 집이 넓어지고, 쓰러지면 잠깐 기절해요." },
+	},
+
+	-- Map signs
+	homeSign = "🏠 집",
+	homeHint = "씨를 물고 여기로!",
+	swirlSign = "🌀 집으로 순간이동",
+}
+
+WORDS.en = {
+	me = "You",
+	names = { "Me", "Cloud", "Choco", "Dusty", "Bean", "Barley", "Chestnut", "Walnut" },
+	levels = { easy = "Easy", normal = "Normal", hard = "Hard", ace = "Expert", rl = "RL" },
+	teams = { [0] = "🔴 Red", [1] = "🔵 Blue" },
+
+	bonkButton = "👊\nBonk",
+	throwButton = "🌻\nThrow",
+
+	ready = "✅ Ready!",
+	readyPrompt = "▶ Ready?",
+	readyKey = " (Enter)",
+	lobbyBots = "🤖 %d bots · %s",
+	botCount = "🤖 Bots %d",
+	level = "Level: %s",
+	solo = "👤 Solo",
+	teamMode = "⚔ Teams",
+	waiting = "🌻 Lobby",
+	tutorial = "🎓 Tutorial",
+	startsIn = "Starting in %d s · %d/%d ready",
+	needRival = "Need a rival · wait for %d more hamsters or add bots",
+	allReady = "Starts when everyone is ready · %d/%d ready",
+	watching = "Watching · press Ready after this round to join",
+	help = {
+		{ "🌻", "Stand still by the sunflower for 2 s. One hamster digs at a time" },
+		{ "🏠", "Carry the seed into the home on the sand at the left to win" },
+		{ "👊", "Space to bonk: hits only right next to you. Bonked = back to nest" },
+		{ "🌀", "Purple swirl: warp to your nest, with empty paws only" },
+		{ "💨", "Hold F with a seed: knock down a whole line at once" },
+	},
+	helpTouch = {
+		{ "🌻", "Stand still by the sunflower for 2 s. One hamster digs at a time" },
+		{ "🏠", "Carry the seed into the home on the sand at the left to win" },
+		{ "👊", "👊 button to bonk: hits only right next to you. Bonked = back to nest" },
+		{ "🌀", "Purple swirl: warp to your nest, with empty paws only" },
+		{ "💨", "Hold 🌻 with a seed: knock down a whole line at once" },
+	},
+
+	getReady = "Get ready…",
+	go = "GO!",
+	practice = "🎓 Practice",
+	multi = { "Double!", "Triple!", "Quadra!", "Penta!", "Hexa!", "Hepta!" },
+	gotSeedMe = "🌻 Got a seed! Run to the glowing 🏠 home!",
+	gotSeedMate = "🌻 %s has a seed! Cover them!",
+	gotSeedFoe = "🌻 %s has a seed! Stop them!",
+	bonkWord = "BONK!",
+	lostSeed = "Dropped the seed! Back to the sunflower!",
+	feedBonk = function(by, seed, whom)
+		return ("%s 👊 %s%s"):format(by, whom, if seed then " 🌻" else "")
+	end,
+	superplay = "%s SUPER PLAY!",
+	multiBanner = function(name, kill, super)
+		return name .. " " .. kill .. (if super then " SUPER PLAY!" else "")
+	end,
+	throwWord = "THROW!",
+	seedWord = "🌻 Seed!",
+	stealWord = "Snatched!",
+	feedSteal = "%s 🤏🌻 %s",
+	gotStolen = "Your seed got snatched!",
+	warpWord = "Zip!",
+	overtime = "⏰ Overtime! Seeds come faster, and a bonk stuns!",
+	rush = "🚨 Final rush! Home is sliding up to the sunflower",
+	alarmMe = "🚨 Almost home! Keep running!",
+	alarmMate = "🚨 %s is almost home with a seed! Cover them!",
+	alarmFoe = "🚨 %s is almost home with a seed! Stop them!",
+	cover = "Cover!",
+	block = "Stop!",
+	toHome = "Home!",
+	flower = "Sunflower",
+	dazed = "💫 Stunned",
+	digging = "Digging a seed",
+	snatching = "Snatching",
+	noWarpCarrying = "No warping with a seed! Walk it home!",
+	holdStill = "Hold still to dig!",
+	queue = "Someone is digging… wait your turn",
+
+	teamWin = "🏆 %s team wins!",
+	win = function(names, count)
+		return "🏆 " .. names .. (if count > 1 then " win!" else " wins!")
+	end,
+	noWinner = "Round over",
+	whyLeft = "A player left, so the round ended",
+	whyTimeout = "Time's up · decided by bonks",
+	whyHome = "Brought a seed home",
+	wins = "⭐ %d W",
+
+	tutorStart = "▶ Let's play!",
+	tutorSkip = "Skip ✕",
+	cheer = "👍 Nice!",
+	steps = {
+		{ title = "Move", text = "Move with WASD or the arrow keys. On a phone, drag on the left of the screen.\nGo to the 🌻 sunflower!", label = "Sunflower" },
+		{ title = "Dig a seed", text = "Stand still by the sunflower and a seed pops out.\nMoving or bonking starts it over!", label = "Hold still!" },
+		{ title = "Go home", text = "You've got a seed! Bring it to the 🏠 home on the sand at the left to win.\nCarrying slows you a little, and one bonk makes you drop it.", label = "Home!" },
+		{ title = "Bonk", text = "Right next to a rival, press Space to bonk! On a phone, tap 👊.\nA bonked hamster goes back to its nest. Miss, and you freeze for a moment!", label = "Bonk!" },
+		{
+			title = "Throw",
+			text = "Holding a seed, hold F and let go to throw it where you face. On a phone, the 🌻 button.\nEveryone in the line goes down, but the seed is gone!",
+			label = "This way!",
+			again = "So close! Face the rival and throw again.",
+		},
+		{ title = "Snatch", text = "Stick close to a rival holding a seed to snatch it.\nWhoever lost it can't take it back for 1 second.", label = "Get close!" },
+		{ title = "Warp", text = "Step into a purple 🌀 swirl to warp to your nest. Empty paws only.\nUse it to cut off a rival heading home!", label = "In you go!" },
+		{ title = "Done!", text = "Press Ready and play a real round!\nFrom 1:20 it's overtime: home grows, and a bonk stuns for a moment." },
+	},
+
+	homeSign = "🏠 HOME",
+	homeHint = "Bring seeds here!",
+	swirlSign = "🌀 Warp to nest",
+}
+
+Lang.WORDS = WORDS
+
+-- Korean for a Korean Roblox language, English for any other.
+function Lang.use(locale: string?)
+	Lang.code = if type(locale) == "string" and locale:lower():sub(1, 2) == "ko" then "ko" else "en"
+end
+
+-- The player's language. In Studio, ReplicatedStorage's "Locale" attribute
+-- (say "en-us") stands in for it, to see the other language.
+function Lang.pick(player: Player)
+	local forced = game:GetService("ReplicatedStorage"):GetAttribute("Locale")
+	Lang.use(if type(forced) == "string" and forced ~= "" then forced else player.LocaleId)
+end
+
+function Lang.t(key: string, ...: any): any
+	local word = WORDS[Lang.code][key]
+	if word == nil then
+		word = WORDS.ko[key]
+	end
+	if type(word) == "function" then
+		return word(...)
+	elseif type(word) == "string" and select("#", ...) > 0 then
+		return word:format(...)
+	end
+	return word
+end
+
+return Lang
 ]]></ProtectedString></Properties></Item><Item class="ModuleScript"><Properties><string name="Name">Map</string><ProtectedString name="Source"><![CDATA[-- The meadow: home on the left, the sunflower on the right and a hedge maze in
 -- between. Everything is data, in studs. Sim x runs left to right (world X), sim y
 -- runs top to bottom on screen (world Z).
@@ -203,6 +485,7 @@ local Map = {
 -- light. The folder's attributes tell the client where things are.
 function Map.render()
 	local Lighting = game:GetService("Lighting")
+	local Lang = require(game:GetService("ReplicatedStorage"):WaitForChild("Lang"))
 	local folder = Instance.new("Folder")
 	folder.Name = "HashRushMap"
 	local rng = Random.new(11)
@@ -512,12 +795,13 @@ function Map.render()
 	surface.PixelsPerStud = 40
 	surface.LightInfluence = 0
 	surface.Parent = homeSign
-	for _, line in { { "🏠 집", 0, 0.62 }, { "씨를 물고 여기로!", 0.62, 0.38 } } do
+	for _, line in { { "homeSign", 0, 0.62 }, { "homeHint", 0.62, 0.38 } } do
 		local label = Instance.new("TextLabel")
+		label.Name = line[1]
 		label.BackgroundTransparency = 1
 		label.Position = UDim2.fromScale(0, line[2])
 		label.Size = UDim2.fromScale(1, line[3])
-		label.Text = line[1]
+		label.Text = Lang.t(line[1])
 		label.TextScaled = true
 		label.Font = Enum.Font.FredokaOne
 		label.TextColor3 = rgb(201, 160, 104)
@@ -582,7 +866,8 @@ function Map.render()
 		local label = Instance.new("TextLabel")
 		label.Size = UDim2.fromScale(1, 1)
 		label.BackgroundTransparency = 1
-		label.Text = "🌀 집으로 순간이동"
+		label.Name = "swirlSign"
+		label.Text = Lang.t("swirlSign")
 		label.TextScaled = true
 		label.Font = Enum.Font.FredokaOne
 		label.TextColor3 = rgb(120, 70, 200)
@@ -670,6 +955,17 @@ function Map.render()
 	folder:SetAttribute("GatherR", FLOWER.gatherR)
 	folder.Parent = workspace
 	return folder
+end
+
+-- The signs on the meadow were written by the server; the client writes them
+-- again in its player's language.
+function Map.label(folder: Instance)
+	local Lang = require(game:GetService("ReplicatedStorage"):WaitForChild("Lang"))
+	for _, item in folder:GetDescendants() do
+		if item:IsA("TextLabel") and (item.Name == "homeSign" or item.Name == "homeHint" or item.Name == "swirlSign") then
+			item.Text = Lang.t(item.Name)
+		end
+	end
 end
 
 return Map
@@ -5242,6 +5538,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Config"))
+local Lang = require(ReplicatedStorage:WaitForChild("Lang"))
 local Snapshot = require(ReplicatedStorage:WaitForChild("Snapshot"))
 local Map = require(ReplicatedStorage:WaitForChild("Map"))
 local Sim = require(ReplicatedStorage:WaitForChild("Sim"))
@@ -5414,7 +5711,7 @@ local function sendLobby()
 		left = left,
 		people = people,
 		bots = botsFor(math.max(1, readied)),
-		level = Config.BOT_LEVELS[botLevel].name,
+		level = botLevel,
 		teams = teams,
 	}
 	roundRemote:FireAllClients(lastLobby)
@@ -5439,8 +5736,9 @@ local function startRound()
 		local i = #slots + 1
 		local seed = rng:NextInteger(1, 2 ^ 30)
 		local brain = if botLevel == "rl" then RLBot.new({ seed = seed, offset = k }) else Bot.new({ difficulty = botLevel, seed = seed })
-		-- A bot is named after its seat's hamster in the web game.
-		bots[i] = { brain = brain, name = Config.NAMES[i], level = botLevel }
+		-- A bot is named after its seat's hamster in the web game. Each client
+		-- writes the name in its own language; this one keeps the score.
+		bots[i] = { brain = brain, name = Lang.WORDS.ko.names[i], level = botLevel }
 		simInputs[i] = { mx = 0, my = 0, bonk = false, throw = false }
 		slots[i] = { id = i, name = bots[i].name }
 	end
@@ -6125,6 +6423,7 @@ return Fx
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage:WaitForChild("Config"))
+local Lang = require(ReplicatedStorage:WaitForChild("Lang"))
 
 local R = Config.HAMSTER_R
 -- Drawn a little bigger than it collides, so it reads well from far above.
@@ -6313,7 +6612,7 @@ function Hamster.new(parent, info, me)
 	self.label = label(UDim2.fromScale(0, 0.46), UDim2.fromScale(1, 0.32), color, WHITE)
 	self.label.Text = info.name
 	local level = info.bot and Config.BOT_LEVELS[info.bot]
-	local under = if me then { name = "나", color = color } else level
+	local under = if me then { name = Lang.t("me"), color = color } elseif level then { name = Lang.t("levels")[info.bot], color = level.color } else nil
 	if under then
 		label(UDim2.fromScale(0, 0.78), UDim2.fromScale(1, 0.22), under.color, WHITE).Text = under.name
 	end
@@ -6510,7 +6809,10 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 
+local Lang = require(ReplicatedStorage:WaitForChild("Lang"))
+
 local player = Players.LocalPlayer
+Lang.pick(player)
 local remote = ReplicatedStorage:WaitForChild("HashRushRemotes"):WaitForChild("Input")
 
 -- Roblox's own movement and jump controls are not used.
@@ -6695,9 +6997,9 @@ local function button(name, text, size, offsetY, color)
 	return b
 end
 
-local bonkButton = button("Bonk", "👊\n꿀밤", 124, -28, Color3.fromRGB(240, 96, 76))
+local bonkButton = button("Bonk", Lang.t("bonkButton"), 124, -28, Color3.fromRGB(240, 96, 76))
 -- Only there while there is a seed to throw. View keeps the attribute up to date.
-local throwButton = button("Throw", "🌻\n던지기", 100, -172, Color3.fromRGB(240, 176, 44))
+local throwButton = button("Throw", Lang.t("throwButton"), 100, -172, Color3.fromRGB(240, 176, 44))
 throwButton.Visible = false
 player:GetAttributeChangedSignal("HRCarrying"):Connect(function()
 	throwButton.Visible = player:GetAttribute("HRCarrying") == true
@@ -6845,6 +7147,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Config"))
+local Lang = require(ReplicatedStorage:WaitForChild("Lang"))
 local Map = require(ReplicatedStorage:WaitForChild("Map"))
 local Sim = require(ReplicatedStorage:WaitForChild("Sim"))
 local Snapshot = require(ReplicatedStorage:WaitForChild("Snapshot"))
@@ -6861,61 +7164,52 @@ local function near(p, x, y, r)
 	return (p.x - x) ^ 2 + (p.y - y) ^ 2 <= r * r
 end
 
--- Each step: a title and what to do, how to set the meadow up (nil carries on
--- with the one before), where to point, and when it is done. Set-up places each
--- seat: place(seat, x, y, facing x, facing y, carrying), nil x for its nest.
+-- Each step: how to set the meadow up (nil carries on with the one before),
+-- where to point, and when it is done. Its title, what to do and the word over
+-- the spot are Lang's "steps", in the same order. Set-up places each seat:
+-- place(seat, x, y, facing x, facing y, carrying), nil x for its nest.
 local STEPS = {
 	{
-		title = "움직이기",
-		text = "WASD나 방향키로 움직여요. 휴대폰은 화면 왼쪽을 끌어요.\n🌻 해바라기까지 가 보세요!",
 		setup = function(place)
 			place(1, nil, nil)
 		end,
 		target = function()
-			return Vector3.new(FLOWER.x, 0, FLOWER.y), "🌻", "해바라기"
+			return Vector3.new(FLOWER.x, 0, FLOWER.y), "🌻"
 		end,
 		done = function(g, me)
 			return near(me, FLOWER.x, FLOWER.y, FLOWER.gatherR)
 		end,
 	},
 	{
-		title = "해씨 캐기",
-		text = "해바라기 옆에서 가만히 있으면 해씨가 나와요.\n움직이거나 꿀밤을 치면 처음부터예요!",
 		target = function()
-			return Vector3.new(FLOWER.x, 0, FLOWER.y), "🌻", "가만히!"
+			return Vector3.new(FLOWER.x, 0, FLOWER.y), "🌻"
 		end,
 		done = function(g, me)
 			return me.carrying
 		end,
 	},
 	{
-		title = "집으로",
-		text = "해씨를 물었어요! 왼쪽 모래밭 🏠 집으로 돌아가면 이겨요.\n해씨를 물면 조금 느려지고, 꿀밤 한 대면 놓쳐요.",
 		target = function(g, me)
-			return Vector3.new(g.homeX - 3, 0, math.clamp(me.y, HOME.y1 + 4, HOME.y2 - 4)), "🏠", "집으로!"
+			return Vector3.new(g.homeX - 3, 0, math.clamp(me.y, HOME.y1 + 4, HOME.y2 - 4)), "🏠"
 		end,
 		done = function(g)
 			return g.phase == "over"
 		end,
 	},
 	{
-		title = "꿀밤",
-		text = "상대 바로 옆에서 Space를 눌러 꿀밤! 휴대폰은 👊 버튼이에요.\n맞은 햄스터는 둥지로 돌아가요. 헛치면 잠깐 굳으니 조심!",
 		setup = function(place)
 			place(1, STRIP, 20, 0, 1)
 			place(2, STRIP, 26)
 		end,
 		target = function(g)
 			local dummy = g.byId[2]
-			return Vector3.new(dummy.x, 0, dummy.y), "👊", "꿀밤!"
+			return Vector3.new(dummy.x, 0, dummy.y), "👊"
 		end,
 		event = function(e)
 			return e.type == "bonk" and e.by == 1
 		end,
 	},
 	{
-		title = "던지기",
-		text = "해씨를 든 채 F를 꾹 눌렀다 떼면 보는 쪽으로 던져요. 휴대폰은 🌻 버튼이에요.\n줄 선 상대가 한꺼번에 쓰러져요. 대신 해씨는 사라져요!",
 		setup = function(place)
 			place(1, STRIP, 11, 0, 1, true)
 			place(2, STRIP, 17)
@@ -6923,7 +7217,7 @@ local STEPS = {
 		end,
 		target = function(g)
 			local dummy = g.byId[2]
-			return Vector3.new(dummy.x, 0, dummy.y), "🌻", "이쪽으로!"
+			return Vector3.new(dummy.x, 0, dummy.y), "🌻"
 		end,
 		event = function(e)
 			return e.type == "throw" and e.id == 1 and e.hit > 0
@@ -6932,39 +7226,32 @@ local STEPS = {
 		retry = function(e)
 			return e.type == "throw" and e.id == 1 and e.hit == 0
 		end,
-		again = "아깝다! 상대 쪽을 보고 다시 던져요.",
 	},
 	{
-		title = "소매치기",
-		text = "해씨 든 상대에게 딱 붙어 있으면 해씨를 슬쩍 가져와요.\n빼앗긴 쪽은 1초 동안 되찾을 수 없어요.",
 		setup = function(place)
 			place(1, STRIP, 18, 0, 1)
 			place(2, STRIP, 26, nil, nil, true)
 		end,
 		target = function(g)
 			local dummy = g.byId[2]
-			return Vector3.new(dummy.x, 0, dummy.y), "🤏", "붙어요!"
+			return Vector3.new(dummy.x, 0, dummy.y), "🤏"
 		end,
 		event = function(e)
 			return e.type == "steal" and e.by == 1
 		end,
 	},
 	{
-		title = "순간이동",
-		text = "보라색 🌀 소용돌이에 들어가면 둥지로 순간이동해요. 해씨가 없을 때만 돼요.\n앞서가는 상대를 집 앞에서 막으러 갈 때 써요!",
 		setup = function(place)
 			place(1, WARP.x - 6, WARP.y + 6)
 		end,
 		target = function()
-			return Vector3.new(WARP.x, 0, WARP.y), "🌀", "들어가요!"
+			return Vector3.new(WARP.x, 0, WARP.y), "🌀"
 		end,
 		event = function(e)
 			return e.type == "warp" and e.id == 1
 		end,
 	},
 	{
-		title = "끝!",
-		text = "이제 준비 버튼을 눌러 진짜 판을 해 봐요!\n1:20부터는 연장전: 집이 넓어지고, 쓰러지면 잠깐 기절해요.",
 		last = true,
 	},
 }
@@ -6976,7 +7263,7 @@ Tutorial.STEPS = #STEPS
 	begin(roster)            a new round is set up; seat 1 is the player
 	snapshot(snap)           the round as it is now, as the server would send it
 	event(e)                 something happened in it
-	say(index, step, again)  the step to show; `again` is a word to try again
+	say(index, words, again) the step to show: { title, text, last }; `again` asks for another go
 	target(at?, icon, label) where to point, or nil
 	cheer()                  a step done
 	finish()                 the tutorial is over
@@ -6995,7 +7282,7 @@ function Tutorial.run(hooks)
 			table.insert(list, {
 				id = seat,
 				userId = if seat == 1 then player.UserId else -seat,
-				name = if seat == 1 then player.DisplayName else Config.NAMES[seat],
+				name = if seat == 1 then player.DisplayName else Lang.t("names")[seat],
 				wins = 0,
 				kills = 0,
 			})
@@ -7010,7 +7297,7 @@ function Tutorial.run(hooks)
 		end)
 		local slots = {}
 		for seat = 1, #spots do
-			slots[seat] = { id = seat, name = if seat == 1 then player.DisplayName else Config.NAMES[seat] }
+			slots[seat] = { id = seat, name = if seat == 1 then player.DisplayName else Lang.t("names")[seat] }
 		end
 		game_ = Sim.new(Map, slots, function()
 			return rng:NextNumber()
@@ -7031,6 +7318,12 @@ function Tutorial.run(hooks)
 		hooks.begin(roster(#spots))
 	end
 
+	-- The step's words, in the player's language; `again` asks for another go.
+	local function say(at, again)
+		local words = Lang.t("steps")[at]
+		hooks.say(at, { title = words.title, text = words.text, last = STEPS[at].last }, if again then words.again else nil)
+	end
+
 	local function goTo(next)
 		index = next
 		local step = STEPS[index]
@@ -7041,7 +7334,7 @@ function Tutorial.run(hooks)
 		if step.setup then
 			setUp(step)
 		end
-		hooks.say(index, step)
+		say(index)
 	end
 
 	local function stop()
@@ -7100,20 +7393,19 @@ function Tutorial.run(hooks)
 				end)
 				return
 			elseif retry then
-				local again = step.again
 				local this = index
 				index = -1
 				task.delay(1, function()
 					if not stopped then
 						goTo(this)
-						hooks.say(this, step, again)
+						say(this, true)
 					end
 				end)
 				return
 			end
 		end
-		local at, icon, label = step.target(game_, game_.byId[1])
-		hooks.target(at, icon, label)
+		local at, icon = step.target(game_, game_.byId[1])
+		hooks.target(at, icon, Lang.t("steps")[index].label)
 	end)
 
 	goTo(1)
@@ -7148,17 +7440,23 @@ local Config = require(ReplicatedStorage:WaitForChild("Config"))
 local Map = require(ReplicatedStorage:WaitForChild("Map"))
 local Sim = require(ReplicatedStorage:WaitForChild("Sim"))
 local Snapshot = require(ReplicatedStorage:WaitForChild("Snapshot"))
+local Lang = require(ReplicatedStorage:WaitForChild("Lang"))
 local Fx = require(script.Parent:WaitForChild("Fx"))
 local Hamster = require(script.Parent:WaitForChild("Hamster"))
 local Tutorial = require(script.Parent:WaitForChild("Tutorial"))
 
 local player = Players.LocalPlayer
+Lang.pick(player)
+local UserInputService = game:GetService("UserInputService")
+-- A phone or tablet with no keyboard: the words name its buttons, not keys.
+local touchOnly = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 local remotes = ReplicatedStorage:WaitForChild("HashRushRemotes")
 local roundRemote = remotes:WaitForChild("Round")
 local readyRemote = remotes:WaitForChild("Ready")
 local lobbyRemote = remotes:WaitForChild("Lobby")
 local snapRemote = remotes:WaitForChild("Snap")
 local mapFolder = workspace:WaitForChild("HashRushMap")
+Map.label(mapFolder)
 
 local WORLD_W = Map.world.w
 local WORLD_H = Map.world.h
@@ -7376,7 +7674,7 @@ make("UIStroke", { Thickness = 3, Color = INK }, readyButton)
 local readyScale = make("UIScale", {}, readyButton)
 local myReady = false
 local function showReady()
-	readyButton.Text = if myReady then "✅ 준비 완료!" else "▶ 준비! (Enter)"
+	readyButton.Text = if myReady then Lang.t("ready") else Lang.t("readyPrompt") .. (if touchOnly then "" else Lang.t("readyKey"))
 	readyButton.BackgroundColor3 = if myReady then Color3.fromRGB(120, 130, 140) else Color3.fromRGB(96, 196, 96)
 end
 local function setReady(want)
@@ -7442,18 +7740,12 @@ local function showPeople(msg)
 		end
 	end
 	if msg.bots > 0 and #msg.people < 8 then
-		line(20, ("🤖 봇 %d마리 · %s"):format(msg.bots, msg.level), GOLD)
+		line(20, Lang.t("lobbyBots", msg.bots, Lang.t("levels")[msg.level] or msg.level), GOLD)
 	end
 end
 text({ Position = UDim2.fromOffset(30, 18), Size = UDim2.new(1, -60, 0, 56), Text = "🐹 Hash Rush", TextColor3 = GOLD }, helpPanel, 4)
 do
-	local lines = {
-		{ "🌻", "해바라기 옆에서 2초 가만히! 해씨는 한 번에 한 마리씩" },
-		{ "🏠", "해씨를 물고 왼쪽 모래밭 집에 들어가면 승리" },
-		{ "👊", "Space 꿀밤: 바로 옆에서만 맞아요. 맞으면 둥지로" },
-		{ "🌀", "보라색 소용돌이: 빈손일 때 둥지로 순간이동" },
-		{ "💨", "해씨를 든 채 F를 꾹: 줄 선 상대를 한꺼번에" },
-	}
+	local lines = Lang.t(if touchOnly then "helpTouch" else "help")
 	for i, line in lines do
 		local row = make("Frame", { BackgroundColor3 = Color3.fromRGB(88, 62, 46), BorderSizePixel = 0, Position = UDim2.fromOffset(28, 30 + i * 54), Size = UDim2.fromOffset(496, 46) }, helpPanel)
 		make("UICorner", { CornerRadius = UDim.new(0, 14) }, row)
@@ -7575,10 +7867,16 @@ local function drawScores()
 	end
 end
 
+-- A bot's name in this player's language; a person's as Roblox has it.
+local function localName(info)
+	return if info.bot then Lang.t("names")[info.id] or info.name else info.name
+end
+
 local function setRoster(list)
 	table.clear(roster)
 	mySeat = nil
 	for _, info in list do
+		info.name = localName(info)
 		roster[info.id] = info
 		if info.userId == player.UserId then
 			mySeat = info.id
@@ -7603,15 +7901,8 @@ local function addFeed(message)
 	end)
 end
 
-local MULTI = { "더블킬!", "트리플킬!", "쿼드라킬!", "펜타킬!", "헥사킬!", "헵타킬!" }
+local MULTI = Lang.t("multi")
 local predictedSwing = 0 -- os.clock() of the last swing drawn before the server said so
-
--- "구름이" or "초코가", as the web game writes a name before a verb.
-local function subject(name)
-	local last = utf8.codepoint(name, utf8.offset(name, -1))
-	local hangul = last >= 0xAC00 and last <= 0xD7A3
-	return name .. (if hangul and (last - 0xAC00) % 28 ~= 0 then "이" else "가")
-end
 
 -- On my side: the same team in a team round.
 local function mate(seat)
@@ -7623,11 +7914,11 @@ end
 -- Somebody has a seed now: what the web game says about it.
 local function gotSeed(seat)
 	if seat == mySeat then
-		banner("🌻 해씨 획득! 노랗게 빛나는 🏠 집으로 달려요!")
+		banner(Lang.t("gotSeedMe"))
 	elseif mate(seat) then
-		banner("🌻 " .. subject(nameOf(seat)) .. " 씨를 물었어요! 지켜줘요!")
+		banner(Lang.t("gotSeedMate", nameOf(seat)))
 	else
-		banner("🌻 " .. subject(nameOf(seat)) .. " 씨를 물었어요! 막아요!", RED)
+		banner(Lang.t("gotSeedFoe", nameOf(seat)), RED)
 	end
 end
 
@@ -7659,7 +7950,7 @@ local function showEvent(e)
 		Fx.stars(e.x, e.y, GOLD, 20)
 		Fx.dust(e.x, e.y, 8, 12)
 		Fx.ring(e.x, e.y, 7, WHITE, 0.3)
-		Fx.words(e.x, e.y, "뿅!", RED, 9)
+		Fx.words(e.x, e.y, Lang.t("bonkWord"), RED, 9)
 		Fx.tumble(e.x, e.y, dx, dy, seatColor(e.id))
 		Fx.sound("bonk")
 		Fx.shake(if mine then 0.75 else 0.4)
@@ -7668,18 +7959,18 @@ local function showEvent(e)
 		if e.id == mySeat then
 			flash(RED, 0.4)
 			if e.seed then
-				banner("씨를 놓쳤어요! 다시 해바라기로!", RED)
+				banner(Lang.t("lostSeed"), RED)
 			end
 		elseif e.by == mySeat then
 			flash(WHITE, 0.22)
 		end
-		addFeed(("%s %s뿅! %s"):format(nameOf(e.by), if e.seed then "🌻" else "", nameOf(e.id)))
+		addFeed(Lang.t("feedBonk", nameOf(e.by), e.seed == true, nameOf(e.id)))
 		if e.close then
-			banner(nameOf(e.by) .. " 슈퍼플레이!")
+			banner(Lang.t("superplay", nameOf(e.by)))
 			Fx.sound("superplay")
 		end
 	elseif e.type == "throw" then
-		Fx.words(e.x, e.y, "던지기!", GOLD, 8)
+		Fx.words(e.x, e.y, Lang.t("throwWord"), GOLD, 8)
 		Fx.seedShot(e.x, e.y, e.dx, e.dy, Config.THROW.range)
 		Fx.sound("toss")
 		Fx.shake(0.2)
@@ -7688,12 +7979,12 @@ local function showEvent(e)
 		end
 	elseif e.type == "multi" then
 		local name = MULTI[math.min(e.n, #MULTI + 1) - 1]
-		banner(nameOf(e.by) .. " " .. name .. (if e.n >= 3 then " 슈퍼플레이!" else ""))
+		banner(Lang.t("multiBanner", nameOf(e.by), name, e.n >= 3))
 		Fx.sound(if e.n >= 3 then "triple" else "double")
 	elseif e.type == "seed" then
 		if h and h.x then
 			Fx.stars(h.x, h.y, GOLD, 12)
-			Fx.words(h.x, h.y, "🌻 해씨 획득!", GOLD, 9)
+			Fx.words(h.x, h.y, Lang.t("seedWord"), GOLD, 9)
 			h:squash(-5)
 		end
 		Fx.sound("seed")
@@ -7702,19 +7993,19 @@ local function showEvent(e)
 	elseif e.type == "steal" then
 		local by = hamsters[e.by]
 		Fx.stars(e.x, e.y, CREAM, 10)
-		Fx.words(e.x, e.y, "소매치기!", CREAM, 8)
+		Fx.words(e.x, e.y, Lang.t("stealWord"), CREAM, 8)
 		Fx.sound("seed")
 		if by then
 			by:squash(-4)
 		end
-		addFeed(("%s 🌻소매치기! %s"):format(nameOf(e.by), nameOf(e.id)))
+		addFeed(Lang.t("feedSteal", nameOf(e.by), nameOf(e.id)))
 		if e.id == mySeat then
-			banner("해씨를 소매치기 당했어요!", RED)
+			banner(Lang.t("gotStolen"), RED)
 		else
 			gotSeed(e.by)
 		end
 		if e.close then
-			banner(nameOf(e.by) .. " 슈퍼플레이!")
+			banner(Lang.t("superplay", nameOf(e.by)))
 			Fx.sound("superplay")
 		end
 	elseif e.type == "spawn" then
@@ -7727,7 +8018,7 @@ local function showEvent(e)
 		Fx.dust(e.fromX, e.fromY, 7, 9)
 		Fx.ring(e.fromX, e.fromY, 5, Color3.fromRGB(190, 150, 255), 0.3)
 		Fx.dust(e.x, e.y, 6, 8)
-		Fx.words(e.fromX, e.fromY, "쏙!", CREAM, 7)
+		Fx.words(e.fromX, e.fromY, Lang.t("warpWord"), CREAM, 7)
 		if e.id == mySeat then
 			snapCamera = true
 			Fx.sound("spawn")
@@ -7737,10 +8028,10 @@ local function showEvent(e)
 	elseif e.type == "go" then
 		Fx.sound("go")
 	elseif e.type == "overtime" then
-		banner("⏰ 연장전! 씨가 빨리 나오고, 쓰러지면 기절!", RED)
+		banner(Lang.t("overtime"), RED)
 		Fx.sound("overtime")
 	elseif e.type == "rush" then
-		banner("🚨 막판! 집이 해바라기까지 밀려옵니다", RED)
+		banner(Lang.t("rush"), RED)
 		Fx.sound("overtime")
 	end
 end
@@ -7761,13 +8052,13 @@ local function showResult(msg)
 		wholeTeam = wholeTeam and roster[seat] and roster[seat].team == winner.team
 	end
 	if wholeTeam then
-		resultTitle.Text = "🏆 " .. Config.TEAMS[winner.team].name .. " 팀 승리!"
+		resultTitle.Text = Lang.t("teamWin", Lang.t("teams")[winner.team])
 		resultTitle.TextColor3 = Config.TEAMS[winner.team].color
 	else
-		resultTitle.Text = if #names > 0 then "🏆 " .. table.concat(names, " · ") .. " 승리!" else "판이 끝났어요"
+		resultTitle.Text = if #names > 0 then Lang.t("win", table.concat(names, " · "), #names) else Lang.t("noWinner")
 		resultTitle.TextColor3 = GOLD
 	end
-	resultWhy.Text = if msg.left then "상대가 나가서 판이 끝났어요" elseif msg.timeout then "시간 종료 · 꿀밤 횟수로 정했어요" else "해씨를 물고 집에 돌아왔어요"
+	resultWhy.Text = Lang.t(if msg.left then "whyLeft" elseif msg.timeout then "whyTimeout" else "whyHome")
 	local sorted = table.clone(msg.roster)
 	table.sort(sorted, function(a, b)
 		if a.wins ~= b.wins then
@@ -7793,7 +8084,7 @@ local function showResult(msg)
 		make("UICorner", { CornerRadius = UDim.new(0.5, 0) }, dot)
 		make("UIStroke", { Thickness = 2, Color = INK }, dot)
 		text({ Position = UDim2.fromOffset(84, 6), Size = UDim2.new(1, -280, 1, -12), Text = info.name, TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = CREAM }, row, false)
-		text({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -100, 0, 6), Size = UDim2.new(0, 84, 1, -12), Text = ("⭐ %d승"):format(info.wins), TextColor3 = GOLD }, row, false)
+		text({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -100, 0, 6), Size = UDim2.new(0, 84, 1, -12), Text = Lang.t("wins", info.wins), TextColor3 = GOLD }, row, false)
 		text({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -10, 0, 6), Size = UDim2.new(0, 80, 1, -12), Text = ("👊 %d"):format(info.kills), TextColor3 = CREAM }, row, false)
 	end
 	resultPanel.Visible = true
@@ -7901,7 +8192,7 @@ local function startTutorial()
 			tutorPanel.Visible = true
 			tutorTitle.Text = ("🎓 %d/%d · %s"):format(index, Tutorial.STEPS, step.title)
 			tutorText.Text = again or step.text
-			tutorButton.Text = if onLastStep then "▶ 시작하기!" else "건너뛰기 ✕"
+			tutorButton.Text = Lang.t(if onLastStep then "tutorStart" else "tutorSkip")
 			tutorButton.BackgroundColor3 = if onLastStep then Color3.fromRGB(96, 196, 96) else Color3.fromRGB(110, 78, 48)
 			pop(tutorScale, 0.85)
 			if onLastStep then
@@ -7912,7 +8203,7 @@ local function startTutorial()
 			tutorTarget = if at then { at = at, icon = icon, label = label } else nil
 		end,
 		cheer = function()
-			banner("👍 잘했어요!")
+			banner(Lang.t("cheer"))
 			Fx.sound("double")
 			tutorTarget = nil
 		end,
@@ -7935,7 +8226,7 @@ local function offerTutorial()
 end
 player:GetAttributeChangedSignal("HRGames"):Connect(offerTutorial)
 
-local tutorialButton = make("TextButton", { Position = UDim2.fromOffset(540, 88), Size = UDim2.fromOffset(252, 50), BackgroundColor3 = Color3.fromRGB(240, 176, 44), BorderSizePixel = 0, AutoButtonColor = false, Font = FONT, TextSize = 24, TextColor3 = WHITE, Text = "🎓 튜토리얼" }, helpPanel)
+local tutorialButton = make("TextButton", { Position = UDim2.fromOffset(540, 88), Size = UDim2.fromOffset(252, 50), BackgroundColor3 = Color3.fromRGB(240, 176, 44), BorderSizePixel = 0, AutoButtonColor = false, Font = FONT, TextSize = 24, TextColor3 = WHITE, Text = Lang.t("tutorial") }, helpPanel)
 make("UICorner", { CornerRadius = UDim.new(0, 16) }, tutorialButton)
 make("UIStroke", { ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Thickness = 3, Color = INK }, tutorialButton)
 make("UIStroke", { Thickness = 2.5, Color = INK }, tutorialButton)
@@ -7958,7 +8249,7 @@ roundRemote.OnClientEvent:Connect(function(msg)
 		end
 		bigLabel.Visible = false
 		alarmRim.Visible = false
-		timerLabel.Text = "🌻 대기 중"
+		timerLabel.Text = Lang.t("waiting")
 		timerLabel.TextColor3 = WHITE
 		timerScale.Scale = 1
 		if not readyButton.Visible then
@@ -7967,23 +8258,23 @@ roundRemote.OnClientEvent:Connect(function(msg)
 			readyButton.Visible = true
 		end
 		botBar.Visible = true
-		botLabel.Text = ("🤖 봇 %d"):format(msg.bots)
-		levelButton.Text = "난이도 " .. msg.level
-		modeButton.Text = if msg.teams then "⚔ 팀전" else "👤 개인전"
+		botLabel.Text = Lang.t("botCount", msg.bots)
+		levelButton.Text = Lang.t("level", Lang.t("levels")[msg.level] or msg.level)
+		modeButton.Text = Lang.t(if msg.teams then "teamMode" else "solo")
 		showPeople(msg)
 		offerTutorial()
 		if msg.left then
-			notice(("%d초 뒤 시작해요 · 준비 %d/%d명"):format(msg.left, msg.ready, msg.count))
+			notice(Lang.t("startsIn", msg.left, msg.ready, msg.count))
 		elseif msg.short > 0 then
-			notice(("상대가 필요해요 · 햄스터 %d마리를 더 기다리거나 봇을 넣어요"):format(msg.short))
+			notice(Lang.t("needRival", msg.short))
 		else
-			notice(("모두 준비하면 시작해요 · 준비 %d/%d명"):format(msg.ready, msg.count))
+			notice(Lang.t("allReady", msg.ready, msg.count))
 		end
 	elseif msg.kind == "start" then
 		beginRound(msg.roster, msg.round)
 		Fx.music("game")
 		Fx.sound("count")
-		notice(if mySeat then "" else "관전 중 · 판이 끝나면 준비를 눌러 참가해요")
+		notice(if mySeat then "" else Lang.t("watching"))
 	elseif msg.kind == "events" then
 		if msg.round == round then
 			for _, e in msg.list do
@@ -8142,7 +8433,7 @@ local function showPointers()
 			if p.id == mySeat then
 				mine = p
 			elseif p.carrying and h and h.x then
-				local side = if mate(p.id) then "지켜요!" else "막아요!"
+				local side = Lang.t(if mate(p.id) then "cover" else "block")
 				pointTo("carrier" .. p.id, Vector3.new(h.x, 1, h.y), if p.alarm then "🚨" else "🌻", nameOf(p.id) .. " · " .. side, seatColor(p.id), p.alarm)
 			end
 		end
@@ -8154,9 +8445,9 @@ local function showPointers()
 			end
 		elseif mine and h and h.x and not mine.dazed then
 			if mine.carrying then
-				pointTo("home", Vector3.new(latest.homeX - 2, 0, math.clamp(h.y, Map.bounds.y1 + 4, Map.bounds.y2 - 4)), "🏠", "집으로!", GOLD, false)
+				pointTo("home", Vector3.new(latest.homeX - 2, 0, math.clamp(h.y, Map.bounds.y1 + 4, Map.bounds.y2 - 4)), "🏠", Lang.t("toHome"), GOLD, false)
 			else
-				pointTo("flower", Vector3.new(FLOWER.x, 1, FLOWER.y), "🌻", "해바라기", GOLD, false)
+				pointTo("flower", Vector3.new(FLOWER.x, 1, FLOWER.y), "🌻", Lang.t("flower"), GOLD, false)
 			end
 		end
 	end
@@ -8229,28 +8520,28 @@ RunService:BindToRenderStep("HashRushView", Enum.RenderPriority.Camera.Value + 1
 			local nibbling = latest.nibbler == p.id
 			local bar = if nibbling then latest.gather else nil
 			if p.dazed then
-				status = "💫 기절"
+				status = Lang.t("dazed")
 			elseif nibbling then
-				status = "해씨 캐는 중"
+				status = Lang.t("digging")
 			elseif p.pick > 0 then
 				-- Rubbing up against a carrier to take its seed.
-				status = "슬쩍하는 중"
+				status = Lang.t("snatching")
 				bar = p.pick
 			end
 			-- Hints only its own player sees.
 			if h.me and p.carrying and latest.phase == "playing" then
 				for _, warp in Map.warps do
 					if (Vector2.new(p.x, p.y) - Vector2.new(warp.x, warp.y)).Magnitude <= warp.r + 0.5 then
-						status = "씨를 물고는 순간이동 못 해요! 걸어서 집으로!"
+						status = Lang.t("noWarpCarrying")
 					end
 				end
 			end
 			if h.me and not p.carrying and not p.dazed then
 				local inRing = (Vector2.new(p.x, p.y) - Vector2.new(FLOWER.x, FLOWER.y)).Magnitude <= FLOWER.gatherR
 				if inRing and (nibbling or latest.nibbler == 0) and player:GetAttribute("HRMoving") then
-					status = "가만히 있어야 캐져요!"
+					status = Lang.t("holdStill")
 				elseif inRing and not nibbling and latest.nibbler ~= 0 then
-					status = "앞 햄스터가 캐는 중… 대기"
+					status = Lang.t("queue")
 				end
 			end
 			h:draw(dt, x, y, p, { bar = bar, status = status })
@@ -8304,11 +8595,11 @@ RunService:BindToRenderStep("HashRushView", Enum.RenderPriority.Camera.Value + 1
 	local key = if carrier then tostring(carrier.id) else ""
 	if key ~= "" and key ~= alarmFor then
 		if carrier.id == mySeat then
-			banner("🚨 집이 코앞! 끝까지 달려요!", RED)
+			banner(Lang.t("alarmMe"), RED)
 		elseif mate(carrier.id) then
-			banner("🚨 " .. subject(nameOf(carrier.id)) .. " 해씨를 물고 집에 다 왔어요! 지켜줘요!", RED)
+			banner(Lang.t("alarmMate", nameOf(carrier.id)), RED)
 		else
-			banner("🚨 " .. subject(nameOf(carrier.id)) .. " 해씨를 물고 집에 다 왔어요! 막아요!", RED)
+			banner(Lang.t("alarmFoe", nameOf(carrier.id)), RED)
 		end
 		Fx.sound("siren")
 	end
@@ -8332,7 +8623,7 @@ RunService:BindToRenderStep("HashRushView", Enum.RenderPriority.Camera.Value + 1
 
 	-- The count before the start, then "go" for a moment.
 	local counting = latest.phase == "countdown"
-	local big = if counting then tostring(math.max(1, math.ceil(latest.countdown))) elseif latest.phase == "playing" and latest.time < 0.8 then "출발!" else nil
+	local big = if counting then tostring(math.max(1, math.ceil(latest.countdown))) elseif latest.phase == "playing" and latest.time < 0.8 then Lang.t("go") else nil
 	bigLabel.Visible = big ~= nil and not resultPanel.Visible and not tutorial
 	if big ~= shownCount then
 		shownCount = big
@@ -8343,11 +8634,11 @@ RunService:BindToRenderStep("HashRushView", Enum.RenderPriority.Camera.Value + 1
 		end
 	end
 	if tutorial then
-		timerLabel.Text = "🎓 연습"
+		timerLabel.Text = Lang.t("practice")
 		timerLabel.TextColor3 = WHITE
 		timerScale.Scale = 1
 	elseif counting then
-		timerLabel.Text = "준비…"
+		timerLabel.Text = Lang.t("getReady")
 		timerLabel.TextColor3 = WHITE
 		timerScale.Scale = 1
 	else
