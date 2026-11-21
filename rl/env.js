@@ -72,6 +72,9 @@ export const DEFAULTS = {
   // it, so the learner can be taught what it would have done (`taught`, botAct).
   // -1: none.
   teacher: -1,
+  // Teach only while a rival is carrying a seed and the seat is not: what the
+  // teacher does then (heads the carrier off, rubs up against it) and nothing else.
+  teachDeny: false,
   // Defence and team jobs (jobs() in src/ai/observe.js).
   // `catch`: extra pay for bonking a rival who has a seed, up to three times as
   //   much the nearer that rival was to home.
@@ -97,6 +100,8 @@ export const DEFAULTS = {
   // right up against it: pickpocketing takes a second of staying in touch, and
   // shaking a pickpocket off takes a swing at it, neither of which luck finds.
   tail: 0,
+  // In such a start the rival's gauge is already filled to a random share of up to this.
+  tailGauge: 0,
   allBots: false, // every seat a scripted bot, to record their play (rl/demo.js)
   // A fixed line-up instead of a random one: [{ level: -1 policy or 0..2 bot, team: -1 or a side }].
   lineup: null,
@@ -243,7 +248,12 @@ export function createEnvs(settings = {}) {
         const y = spot.y + Math.sin(b) * (PICK.reach - 3);
         if (spot.x < g.homeX + 60 || x < g.homeX + 30 || !isFree(g.map, spot.x, spot.y, HAMSTER_R) || !isFree(g.map, x, y, HAMSTER_R)) continue;
         Object.assign(c, { x: spot.x, y: spot.y, carrying: true });
-        Object.assign(pick(rivals), { x, y, carrying: false });
+        const r = pick(rivals);
+        Object.assign(r, { x, y, carrying: false });
+        // With the gauge already part of the way: holding on for the rest is then a
+        // few choices, not fifteen in a row, so a learner that always swings there
+        // gets to see a seed taken, and from fuller gauges learns the emptier ones.
+        if (cfg.tailGauge > 0) Object.assign(r, { pickOn: c.id, pick: rnd() * cfg.tailGauge * pickTime(g.players.length, 0) });
         break;
       }
     }
@@ -301,6 +311,10 @@ export function createEnvs(settings = {}) {
           if (bot) {
             const inp = bot.think(g, i);
             if (k === 0) {
+              if (teachers[i] && cfg.teachDeny) {
+                const p = g.players[i];
+                taught[e * MAX_P + i] = !p.carrying && g.players.some((q) => q.carrying && q.id !== p.id && !allied(p, q)) ? 1 : 0;
+              }
               const still = Math.hypot(inp.mx || 0, inp.my || 0) < 0.3;
               botAct[a] = still ? 0 : 1 + ((Math.round(Math.atan2(inp.my, inp.mx) / (Math.PI / 4)) + 8) % 8);
               botAct[a + 1] = 0;

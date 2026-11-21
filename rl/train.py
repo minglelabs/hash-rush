@@ -305,6 +305,7 @@ def main():
     ap.add_argument("--pack", type=float, default=0.4, help="share of free-for-all rounds with bots where the learner is alone among bots of one level")
     ap.add_argument("--save", type=float, default=3, help="pay for bonking a rival off a teammate's seed while it is picking the pocket")
     ap.add_argument("--tail", type=float, default=0.15, help="share of rounds that start with a seed carrier on its way home and a rival right up against it")
+    ap.add_argument("--tail-gauge", type=float, default=0.9, help="in those starts the rival's pickpocketing gauge is already filled to a random share of up to this")
     ap.add_argument("--side-bots", type=float, default=0.5, help="in team rounds with bots, how often the bots sit by side (a whole side of one level) instead of by seat")
     ap.add_argument("--duo", type=float, default=0.15, help="share of team rounds with a side of two against a side of one to six, as hosted rooms start")
     ap.add_argument("--delay", type=float, default=0.05, help="pay per decision near a rival carrier for the ground it did not cover")
@@ -313,6 +314,7 @@ def main():
     ap.add_argument("--distill-solo", default="", help="policy.pt the learner copies in free-for-all rounds")
     ap.add_argument("--distill-team", default="", help="policy.pt the learner copies in team rounds")
     ap.add_argument("--distill", type=float, default=0, help="weight on matching those policies; held for the first half of the run, then fading to 0")
+    ap.add_argument("--kick-deny", action="store_true", help="copy the teacher only while a rival carries a seed and the learner does not")
     ap.add_argument("--teacher", type=int, default=3, help="the bot level copied with --kick: 0 easy .. 3 ace")
     ap.add_argument("--team-spirit", type=float, default=0.5, help="share of a teammate's pay each hamster gets in team rounds")
     ap.add_argument("--shape", type=float, default=1, help="weight of the progress pay; 0 turns it off")
@@ -339,7 +341,7 @@ def main():
             pass
     stage = min(stage, len(STAGES) - 1)
     spar = lambda: (args.bot_env, args.bot_levels) if args.bot_levels else (args.bot_env, [0, 1, 2]) if args.no_curriculum else STAGES[stage]
-    settings = {"botEnv": spar()[0], "botLevels": spar()[1], "win": args.win, "lose": args.lose, "shape": args.shape, "teams": args.teams, "frameSkip": args.frame_skip, "reaction": args.reaction, "headStart": args.head_start, "teamSpirit": args.team_spirit, "catch": args.catch, "steal": args.steal, "robbed": args.robbed, "pack": args.pack, "save": args.save, "tail": args.tail, "sideBots": args.side_bots, "duo": args.duo, "delay": args.delay, "role": args.role, "teacher": args.teacher if args.kick else -1}
+    settings = {"botEnv": spar()[0], "botLevels": spar()[1], "win": args.win, "lose": args.lose, "shape": args.shape, "teams": args.teams, "frameSkip": args.frame_skip, "reaction": args.reaction, "headStart": args.head_start, "teamSpirit": args.team_spirit, "catch": args.catch, "steal": args.steal, "robbed": args.robbed, "pack": args.pack, "save": args.save, "tail": args.tail, "tailGauge": args.tail_gauge, "sideBots": args.side_bots, "duo": args.duo, "delay": args.delay, "role": args.role, "teacher": args.teacher if args.kick else -1, "teachDeny": args.kick_deny}
     if args.maps != "all":
         settings["maps"] = args.maps.split(",")
     env = Workers(args.workers, args.envs, args.seed, settings)
