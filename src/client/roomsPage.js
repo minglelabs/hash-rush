@@ -1,10 +1,10 @@
 // The room list page: the open rooms, a chat for everyone looking at them, and
 // how the game is played. A player who leaves a room lands here.
 
-import { t } from './i18n.js';
+import { t, lang } from './i18n.js';
 import { watchRooms, openBroker } from './net.js';
 import { createRoomList } from './roomList.js';
-import { watchServerRooms, mergeRoomLists } from './hashchatRooms.js';
+import { watchServerRooms, mergeRoomLists, newServerRoomUrl } from './hashchatRooms.js';
 import { myName } from './page.js';
 import { createChat, floatLine, cleanChat } from './chatbar.js';
 
@@ -14,6 +14,8 @@ const TOPIC = 'minglelabs/hash-rush/v1/plaza';
 const KEEP = 60;
 
 export function openRooms() {
+  // "Make a room" opens a new room on the game server (HashChat app players can join it too).
+  if ($('newRoomLink')) $('newRoomLink').href = newServerRoomUrl(lang);
   $('how').replaceChildren(
     ...t('how').map((html) => {
       const li = document.createElement('li');

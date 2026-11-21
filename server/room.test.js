@@ -766,3 +766,16 @@ test('the host lists a hosted room in the public room list; unlisted or empty ro
   room.receive(a, { t: 'go' });
   assert.equal(room.listing().playing, true);
 });
+
+test('a room a web player makes through HashChat (listed=1) starts in the public list; the host can take it out', () => {
+  const { room } = setup({ id: 'web-0123456789ab', ...roomOptionsFromQuery(new URLSearchParams('host=1&listed=1')) });
+  const web = Object.assign(fakeConn('web'), { canHost: false });
+  room.join(web);
+  room.receive(web, { t: 'hello', name: 'Pc' });
+  assert.equal(web.last('lobby').me, true, 'the maker hosts it');
+  assert.equal(room.listing()?.id, 'web-0123456789ab');
+  room.receive(web, { t: 'setup', listed: false });
+  assert.equal(room.listing(), null);
+  // Not asked for: an app's room stays private.
+  assert.equal(roomOptionsFromQuery(new URLSearchParams('host=1')).listed, false);
+});

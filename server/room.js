@@ -78,6 +78,8 @@ export function roomOptionsFromQuery(query) {
     map: query.get('map') || 'meadow',
     teams: query.has('teams') ? query.get('teams') === '1' : undefined,
     hosted: query.get('host') === '1',
+    // A room a web player makes through HashChat (/api/hash-rush/new) starts listed.
+    listed: query.get('listed') === '1',
   };
 }
 
@@ -87,11 +89,11 @@ export class Room {
   // room up in the lobby (teams, map, computers) and starts each round; nothing
   // starts by itself. The host can hand the room to somebody else, and when the
   // host leaves it passes to the next person. Without it the room runs itself.
-  constructor({ id, map = 'meadow', teams, botLevel = 'hard', hosted = false, now = Date.now, random = Math.random, onResult = null } = {}) {
+  constructor({ id, map = 'meadow', teams, botLevel = 'hard', hosted = false, listed = false, now = Date.now, random = Math.random, onResult = null } = {}) {
     this.id = id;
     this.hosted = !!hosted;
     // A hosted room shows in the public room list (GET /rooms) once its host turns this on.
-    this.listed = false;
+    this.listed = !!hosted && !!listed;
     // The host, as a record owner (ownerOf): it follows the person, not the seat.
     this.host = '';
     this.fill = MIN_PLAYERS;

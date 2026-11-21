@@ -23,7 +23,7 @@ import { identity, shareName, signResult, remember, lastRating, loadRanking } fr
 import { createPredictor } from './predict.js';
 import { winRate } from './rankPage.js';
 import { createRoomList } from './roomList.js';
-import { watchServerRooms, mergeRoomLists } from './hashchatRooms.js';
+import { watchServerRooms, mergeRoomLists, newServerRoomUrl, HASHCHAT_JOIN_URL } from './hashchatRooms.js';
 import { createChat, floatLine, cleanChat, lineLife } from './chatbar.js';
 import { embedMode, connectApp, phaseOf, bringsKeyboard, createChatBubbles } from './embed.js';
 import { isDesktop, linkBase, roundAchievements, steamName } from './desktop.js';
@@ -533,6 +533,17 @@ function renderLobby() {
     $('inviteLink').value = link;
     $('watchLink').value = `${link}&watch`;
     $('watchText').textContent = `${t('watchLink')} · ${t('spectators', net.watchers.length)}`;
+  }
+  // Hosting a server room: the room-list switch, and a link anyone can open
+  // while the room is listed (through HashChat, which hands out the ticket).
+  if (serverHost) {
+    $('invite').hidden = false;
+    $('roomPw').hidden = true;
+    $('inviteText').textContent = t('invite');
+    $('inviteLink').hidden = $('copy').hidden = false;
+    $('watchRow').hidden = true;
+    $('inviteLink').value = `${HASHCHAT_JOIN_URL}${encodeURIComponent(joinId || '')}`;
+    $('listed').checked = !!net.listed;
   }
   // Chat exists only inside a room.
   syncChat();
@@ -1296,7 +1307,7 @@ function hostData(msg) {
     // players. The host's controls then send to the server.
     net.serverHost = !!msg.hosted && msg.me === true;
     // The room-list switch shows the server room's state while this page hosts it.
-    if (net.serverHost && typeof msg.listed === 'boolean') $('listed').checked = msg.listed;
+    net.listed = msg.listed === true;
     net.fill = Number.isInteger(msg.fill) ? msg.fill : 0;
     // Hosting, the round's buttons end the round for everybody instead of leaving.
     for (const id of ['quit', 'back']) $(id).textContent = t(net.serverHost ? 'endRound' : 'leaveRoom');
@@ -2761,8 +2772,8 @@ document.body.insertAdjacentHTML(
   'beforeend',
   '<div id="joinFail" hidden><div><p id="joinFailText"></p><button id="retryJoin" class="primary" data-i18n="retry"></button><button id="newRoom" data-i18n="newRoom"></button></div></div>',
 );
-// Out of a dead link and into a lobby of one's own, as its host.
-$('newRoom').addEventListener('click', () => (location.href = location.pathname));
+// Out of a dead link and into a new room on the game server, as its host.
+$('newRoom').addEventListener('click', () => (location.href = newServerRoomUrl(lang)));
 
 // An invite to a HashChat room's game that has ended (?ended=1): the page opens
 // as a lobby of one's own, and says so, with the way to a new room (this one)
@@ -2781,7 +2792,8 @@ if (query.get('ended') === '1') {
     // Drop ?ended=1, so a reload is just this lobby.
     history.replaceState(null, '', location.pathname);
   };
-  $('roomEndedNew').addEventListener('click', closeEnded);
+  // A new room on the game server, which HashChat app players can join too.
+  $('roomEndedNew').addEventListener('click', () => (location.href = newServerRoomUrl(lang)));
   $('roomEndedList').addEventListener('click', () => {
     closeEnded();
     if ($('rooms').hidden) toggleRoomList();

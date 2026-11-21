@@ -6,6 +6,16 @@
 const query = new URLSearchParams(location.search);
 export const HASHCHAT_ROOMS_URL = query.get('hcRooms') || 'https://hashrush-win.minglelabs.app/rooms';
 export const HASHCHAT_JOIN_URL = query.get('hcJoin') || 'https://mingle-2-0-0-production.up.railway.app/api/hash-rush/public/';
+// Making a room: a new room on the game server, through HashChat (which hands
+// out the ticket), so HashChat app players can find and join it as well.
+export const HASHCHAT_NEW_URL = query.get('hcNew') || 'https://mingle-2-0-0-production.up.railway.app/api/hash-rush/new';
+
+// Where "make a room" goes, in the page's language; the test overrides ride along.
+export function newServerRoomUrl(lang) {
+  const url = new URL(HASHCHAT_NEW_URL);
+  if (lang) url.searchParams.set('lang', lang);
+  return url.toString();
+}
 const EVERY_MS = 5000;
 
 // A listed room as the room list draws a row (see roomList.js).
