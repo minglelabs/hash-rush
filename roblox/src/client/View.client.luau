@@ -317,7 +317,7 @@ local function showPeople(msg)
 		line(20, Lang.t("lobbyBots", msg.bots, Lang.t("levels")[msg.level] or msg.level), GOLD)
 	end
 end
-text({ Position = UDim2.fromOffset(30, 18), Size = UDim2.new(1, -60, 0, 56), Text = "🐹 Hash Rush", TextColor3 = GOLD }, helpPanel, 4)
+text({ Position = UDim2.fromOffset(30, 18), Size = UDim2.new(1, -60, 0, 56), Text = "🐹 Hush Rush", TextColor3 = GOLD }, helpPanel, 4)
 do
 	local lines = Lang.t(if touchOnly then "helpTouch" else "help")
 	for i, line in lines do

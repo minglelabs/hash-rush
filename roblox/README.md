@@ -1,4 +1,6 @@
-# Hash Rush 로블록스판
+# Hash Rush 로블록스판 (Hush Rush)
+
+로블록스에서는 이름이 **Hush Rush**입니다. "Hash"가 로블록스 이름 검열에 걸려서(마약 은어로 보는 듯) 발음이 비슷한 이름으로 바꿨고, 게임 안 제목과 스토어 그림도 이 이름입니다. 코드와 파일 이름은 그대로 HashRush입니다.
 
 웹판 규칙을 로블록스에 탑뷰로 옮긴 버전입니다. 초원 맵 1개, 개인전·팀전, 최대 8명(빈자리는 봇). 한국어·영어.
 
@@ -80,7 +82,7 @@ Workspace의 `StreamingEnabled`와 Players의 `CharacterAutoLoads`는 꺼져 있
 
 1. **게시**: Studio에서 `HashRush.rbxlx`를 열고 File → Publish to Roblox. 소유자는 소리 4개를 올린 계정(Asset Manager의 HashChat)과 **같게** 합니다. 다르면 소리가 나지 않습니다(다른 소유자면 오디오 권한을 따로 줘야 함). 새 경험은 비공개로 만들어집니다.
 2. **크리에이터 대시보드 → 경험 설정**
-   - 이름 `Hash Rush`, 설명은 아래 글, 장르 Party & Casual.
+   - 이름 `Hush Rush`(`Hash Rush`는 검열에 걸림), 설명은 아래 글, 장르 Party & Casual.
    - 아이콘 `roblox/store/icon.png`, 썸네일 `thumb-en.png`. 현지화 설정에서 한국어 썸네일로 `thumb-ko.png`, 한국어 이름·설명도 넣을 수 있습니다.
    - 기기: 컴퓨터·휴대폰·태블릿. 콘솔은 끕니다(대기실 버튼을 패드로 고를 수 없음).
    - 장소 → 서버 크기 **8**(자리가 8개, 넘치는 사람은 관전).
