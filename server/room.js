@@ -17,6 +17,7 @@ import { createGame, step } from '../src/sim/game.js';
 import { DT } from '../src/sim/constants.js';
 import { MAPS, MAP_IDS } from '../src/sim/map.js';
 import { createBot } from '../src/ai/bot.js';
+import { createRLBot } from '../src/ai/rl-bot.js';
 import { createLaneHelp } from '../src/client/assist.js';
 
 // Sides a team game can have (red, blue, green, purple).
@@ -47,7 +48,8 @@ const CHAT_GAP_MS = 400;
 // English default names; each browser shows them in its own language.
 const NAMES = ['Me', 'Cloud', 'Choco', 'Dusty', 'Bean', 'Barley', 'Chestnut', 'Walnut'];
 const IDLE = { mx: 0, my: 0, ax: 0, ay: 0, seq: 0, th: false, sk: false, n: 0 };
-export const BOT_LEVELS = ['easy', 'normal', 'hard', 'ace'];
+// 'rl': the learned computer (src/ai/rl-bot.js, weights rl-solo.bin / rl-team.bin).
+export const BOT_LEVELS = ['easy', 'normal', 'hard', 'ace', 'rl'];
 // A hosted room's host picks how many hamsters a round has at least (computers
 // fill the rest): at least two, so there is somebody to play against.
 export const FILL_MIN = 2;
@@ -631,7 +633,11 @@ export class Room {
           return help(g, g.players[id], { mx: i.mx, my: i.my, ax: i.ax, ay: i.ay, bonk, throw: i.th, stick: i.sk });
         };
       }
-      const bot = createBot({ difficulty: this.botLevel, seed: seed + id * 7919 });
+      // Each computer plays at its own level (bot:<level>), set per seat by the host.
+      const level = slot.kind.startsWith('bot:') ? slot.kind.slice(4) : this.botLevel;
+      const bot = level === 'rl'
+        ? createRLBot({ seed: seed + id * 7919 })
+        : createBot({ difficulty: BOT_LEVELS.includes(level) ? level : this.botLevel, seed: seed + id * 7919 });
       return (g) => bot.think(g, id);
     });
     this.game.players.forEach((p, id) => {

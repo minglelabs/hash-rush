@@ -11,6 +11,7 @@ import http from 'node:http';
 import { WebSocketServer } from 'ws';
 import { Room, roomOptionsFromQuery, TICK_MS } from './room.js';
 import { verifyTicket } from './ticket.js';
+import { loadRLPolicy } from '../src/ai/rl-bot.js';
 
 const PORT = Number(process.env.PORT) || 8080;
 // Railway needs every interface; set HOST=127.0.0.1 when running locally behind a tunnel.
@@ -170,4 +171,6 @@ function shutdown() {
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
 
+// The learned computers' weights, read once at start so the first RL round does not stand still.
+loadRLPolicy().then(() => console.log('[hash-rush] RL weights loaded'));
 server.listen(PORT, HOST, () => console.log(`[hash-rush] game server on ${HOST}:${PORT}`));
