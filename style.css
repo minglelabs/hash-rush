@@ -3227,3 +3227,42 @@ html.desktop #installGameBtn,
 html.desktop #installHelp {
   display: none !important;
 }
+
+/* An invite to a HashChat game that has ended (?ended=1): said over the page,
+   with a new room or the room list. */
+.endedCover {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(20, 40, 20, 0.6);
+}
+
+.endedCover > div {
+  width: min(100%, 340px);
+  padding: 20px 16px 16px;
+  border-radius: 20px;
+  background: var(--cream, #fff8e7);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
+  text-align: center;
+}
+
+.endedCover h2 {
+  margin: 0 0 6px;
+  font-size: 20px;
+}
+
+.endedCover p {
+  margin: 0 0 14px;
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.endedCover button {
+  display: block;
+  width: 100%;
+  min-height: 48px;
+  margin-top: 8px;
+}
