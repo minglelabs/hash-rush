@@ -1,0 +1,129 @@
+<!doctype html><meta charset="utf-8"><title>Hash Rush sounds</title>
+<!-- Renders the web game's sound effects and tunes from its own synthesiser
+     (src/client/audio.js, music.js) into audio files for the Roblox version.
+     Served by server.mjs, which saves what it renders into out/. -->
+<body><pre id="log"></pre><button onclick="run()">effects</button> <button onclick="runMusic()">music</button>
+<script type="module">
+import { createAudio } from '/src/client/audio.js';
+import { createMusic, TRACKS, PLAYLISTS, trackSeconds } from '/src/client/music.js';
+const RATE = 44100;
+const log = (s) => (document.getElementById('log').textContent += s + '\n');
+Object.defineProperty(document, 'hidden', { get: () => false });
+
+// A fake clock: timers fire as the fake time passes, and the context reports it.
+let now = 0;
+let timers = [];
+window.setTimeout = (fn, ms = 0) => (timers.push({ at: now + ms / 1000, fn }), timers.length);
+window.setInterval = (fn, ms) => { const t = { at: now + ms / 1000, fn, every: ms / 1000 }; timers.push(t); return timers.length; };
+window.clearInterval = window.clearTimeout = () => {};
+function advance(to) {
+  for (;;) {
+    timers.sort((a, b) => a.at - b.at);
+    const t = timers[0];
+    if (!t || t.at > to) break;
+    now = t.at;
+    if (t.every) t.at += t.every; else timers.shift();
+    t.fn();
+  }
+  now = to;
+}
+function wrap(ctx) {
+  return new Proxy(ctx, {
+    get(target, key) {
+      if (key === 'currentTime') return now;
+      if (key === 'state') return 'running';
+      if (key === 'resume') return () => Promise.resolve();
+      const v = target[key];
+      return typeof v === 'function' ? v.bind(target) : v;
+    },
+  });
+}
+
+function wav(samples) {
+  const buf = new ArrayBuffer(44 + samples.length * 2);
+  const v = new DataView(buf);
+  const s = (o, str) => [...str].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  s(0, 'RIFF'); v.setUint32(4, 36 + samples.length * 2, true); s(8, 'WAVE'); s(12, 'fmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, RATE, true);
+  v.setUint32(28, RATE * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); s(36, 'data');
+  v.setUint32(40, samples.length * 2, true);
+  for (let i = 0; i < samples.length; i++) v.setInt16(44 + i * 2, Math.max(-1, Math.min(1, samples[i])) * 32767, true);
+  return buf;
+}
+const save = (name, body) => fetch('/save/' + name, { method: 'POST', body });
+
+// One sound effect, as the web game plays it.
+async function effect(name, seconds, arg) {
+  now = 0; timers = [];
+  const real = new OfflineAudioContext(1, Math.ceil(seconds * RATE), RATE);
+  const ctx = wrap(real);
+  window.AudioContext = function () { return ctx; };
+  const audio = createAudio();
+  audio.unlock();
+  audio.play[name](arg);
+  advance(seconds);
+  const out = (await real.startRendering()).getChannelData(0);
+  // Trim the silence at the end.
+  let end = out.length;
+  while (end > 0 && Math.abs(out[end - 1]) < 1e-4) end--;
+  return out.slice(0, Math.min(out.length, end + Math.ceil(0.02 * RATE)));
+}
+
+// A tune played twice through; the second time round is the loop, tails and all.
+// As in the game, notes are scheduled only a little ahead of where the rendering
+// is: the render stops every half second for the next ones to be put in.
+async function tune(names) {
+  const once = names.reduce((t, n) => t + trackSeconds(TRACKS[n]), 0);
+  now = 0; timers = [];
+  const total = once * 2 + 2;
+  const real = new OfflineAudioContext(1, Math.ceil(total * RATE), RATE);
+  const ctx = wrap(real);
+  PLAYLISTS.render = names;
+  const music = createMusic(() => ctx, () => false);
+  music.set('render');
+  for (let t = 0.5; t < total - 0.5; t += 0.5) {
+    const at = t;
+    real.suspend(at).then(() => { advance(at); real.resume(); });
+  }
+  const out = (await real.startRendering()).getChannelData(0);
+  const start = Math.round((0.15 + once) * RATE);
+  return out.slice(start, start + Math.round(once * RATE));
+}
+
+const EFFECTS = [
+  ['swing', 0.3], ['bonk', 0.4], ['toss', 0.4], ['double', 0.6], ['triple', 1.2], ['superplay', 1.2],
+  ['spawn', 0.3], ['seed', 0.9], ['siren', 1.3], ['tick', 0.2, 0], ['tock', 0.2, 1], ['count', 0.4],
+  ['go', 1.3], ['overtime', 1.8], ['fanfare', 3.2], ['cheer', 5.2], ['win', 0.7], ['lose', 0.9], ['chat', 0.3],
+];
+window.run = async () => {
+  const GAP = 0.3;
+  const parts = [];
+  const sprite = {};
+  let at = 0;
+  for (const [name, seconds, arg] of EFFECTS) {
+    const s = await effect(name === 'tock' ? 'tick' : name, seconds, arg);
+    sprite[name] = [+(at).toFixed(4), +(s.length / RATE).toFixed(4)];
+    parts.push(s, new Float32Array(Math.round(GAP * RATE)));
+    at += s.length / RATE + GAP;
+    log(`${name} ${(s.length / RATE).toFixed(2)} s`);
+  }
+  const all = new Float32Array(parts.reduce((t, p) => t + p.length, 0));
+  let o = 0;
+  for (const p of parts) { all.set(p, o); o += p.length; }
+  await save('effects.wav', wav(all));
+  await save('effects.json', JSON.stringify(sprite));
+  log('effects saved');
+  return 'done';
+};
+// Each tune on its own, so its loop is exactly that tune, and they go in a fixed order.
+window.runMusic = async () => {
+  const names = [...PLAYLISTS.game, 'lobby'];
+  for (const n of names) {
+    const loop = await tune([n]);
+    await save('music-' + n + '.wav', wav(loop));
+    log(n + ' ' + (loop.length / RATE).toFixed(1) + ' s');
+  }
+  log('music done');
+};
+log('ready');
+</script>

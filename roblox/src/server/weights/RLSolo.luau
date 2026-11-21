@@ -2,8 +2,8 @@
 -- What rl-solo.bin holds; the numbers are in the modules beside this one.
 return {
 	meta = {
-		iter = 1960,
-		decisions = 120422400,
+		iter = 2246,
+		decisions = 137994240,
 		obs = 230,
 		width = 256,
 		blocks = 3,

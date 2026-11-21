@@ -81,6 +81,45 @@ end
 
 shim.Random = Random
 
+-- Time that passes only when a test says so: task.delay waits on it.
+local clock = 0
+local waiting = {}
+shim.env = {
+	task = {
+		delay = function(seconds, fn)
+			table.insert(waiting, { at = clock + seconds, fn = fn })
+		end,
+	},
+	-- Just the numbers: enough for code that builds them and reads X, Y and Z.
+	Vector2 = {
+		new = function(x, y)
+			return { X = x or 0, Y = y or 0 }
+		end,
+	},
+	Vector3 = {
+		new = function(x, y, z)
+			return { X = x or 0, Y = y or 0, Z = z or 0 }
+		end,
+	},
+	-- Colours are only passed around, never looked into: the hex stands in.
+	Color3 = {
+		fromHex = function(hex)
+			return hex
+		end,
+	},
+}
+
+-- Moves the clock on, running whatever task.delay was waiting for by then.
+function shim.advance(seconds)
+	clock += seconds
+	table.sort(waiting, function(a, b)
+		return a.at < b.at
+	end)
+	while waiting[1] and waiting[1].at <= clock do
+		table.remove(waiting, 1).fn()
+	end
+end
+
 local loaded = {}
 
 -- What a ModuleScript returns, run once, as Roblox's require does.
@@ -88,7 +127,7 @@ function shim.require(module)
 	local result = loaded[module]
 	if result == nil then
 		assert(module.ClassName == "ModuleScript", `{module.Name} is not a ModuleScript`)
-		result = require(module.file)(module, shim.game, shim.require, Random)
+		result = require(module.file)(module, shim.game, shim.require, Random, shim.env)
 		loaded[module] = result
 	end
 	return result

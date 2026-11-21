@@ -15,8 +15,12 @@ local WHITE = Color3.new(1, 1, 1)
 local GOLD = Color3.fromRGB(255, 214, 70)
 local RED = Color3.fromRGB(255, 86, 74)
 local INK = Color3.fromRGB(58, 40, 30)
-local CREAM = Color3.fromRGB(255, 240, 214)
-local PINK = Color3.fromRGB(255, 150, 170)
+local EAR_PINK = Color3.fromHex("#f7b6b6")
+local CHEEK = Color3.fromRGB(255, 130, 150)
+local EYE = Color3.fromHex("#2a1c14")
+local NOSE = Color3.fromHex("#e58a8a")
+local SEED = Color3.fromHex("#3a3330")
+local SEED_STRIPE = Color3.fromHex("#f4efe6")
 local UPRIGHT = CFrame.Angles(0, 0, math.rad(90)) -- stands a cylinder on its end
 
 local Hamster = {}
@@ -37,23 +41,25 @@ local function basePart(parent, color)
 	return p
 end
 
--- A team round paints a ring under everyone in its side's colour.
-Hamster.TEAM_COLORS = { [0] = Color3.fromRGB(255, 96, 96), [1] = Color3.fromRGB(90, 160, 255) }
-
--- info: { id, name, team }. `me` marks the local player's own hamster.
+-- info: { id, name, team, bot }. `me` marks the local player's own hamster.
+-- It wears its seat's look from the web game, outlined in its colour.
 function Hamster.new(parent, info, me)
-	local rgb = Config.COLORS[info.id]
-	local fur = Color3.fromRGB(rgb[1], rgb[2], rgb[3])
-	local dark = fur:Lerp(INK, 0.32)
+	local look = Config.LOOKS[info.id]
+	local color = Config.colorOf(info.id, info.team)
 	local model = Instance.new("Model")
 	model.Name = "Hamster" .. info.id
 	model.Parent = parent
+	-- What gets the outline: the hamster itself, not its ring, aim or tag.
+	local body = Instance.new("Model")
+	body.Name = "Body"
+	body.Parent = model
 
 	local self = setmetatable({
 		id = info.id,
 		name = info.name,
 		me = me,
-		fur = fur,
+		color = color,
+		look = look,
 		model = model,
 		pieces = {}, -- { part, offset, size }
 		x = nil,
@@ -70,8 +76,8 @@ function Hamster.new(parent, info, me)
 		daze = 0,
 	}, Hamster)
 
-	local function blob(key, offset, size, color, shadow)
-		local p = basePart(model, color)
+	local function blob(key, offset, size, tint, shadow, parent_)
+		local p = basePart(parent_ or body, tint)
 		p.Size = size
 		local mesh = Instance.new("SpecialMesh")
 		mesh.MeshType = Enum.MeshType.Sphere
@@ -82,35 +88,44 @@ function Hamster.new(parent, info, me)
 		return piece
 	end
 
-	blob("body", Vector3.new(0, 1.3, 0), Vector3.new(3.3, 2.5, 3.05), fur, true)
-	blob("stripe", Vector3.new(-0.35, 2.36, 0), Vector3.new(2.1, 0.5, 1.0), dark)
-	blob("muzzle", Vector3.new(1.0, 1.05, 0), Vector3.new(1.6, 1.45, 1.9), CREAM)
-	blob("tail", Vector3.new(-1.65, 1.0, 0), Vector3.new(0.6, 0.6, 0.6), CREAM)
+	blob("body", Vector3.new(0, 1.3, 0), Vector3.new(3.3, 2.5, 3.1), look.fur, true)
+	blob("belly", Vector3.new(0.95, 0.95, 0), Vector3.new(1.55, 1.6, 2.25), look.belly)
+	blob("tail", Vector3.new(-1.65, 1.0, 0), Vector3.new(0.55, 0.55, 0.55), look.belly)
 	for _, s in { -1, 1 } do
 		local k = if s < 0 then "L" else "R"
-		blob("ear" .. k, Vector3.new(0.5, 2.5, s * 1.05), Vector3.new(0.5, 1.0, 1.0), dark, true)
-		blob("earIn" .. k, Vector3.new(0.62, 2.56, s * 1.05), Vector3.new(0.42, 0.62, 0.62), PINK)
-		blob("eye" .. k, Vector3.new(1.18, 2.05, s * 0.62), Vector3.new(0.46, 0.5, 0.46), INK)
-		blob("glint" .. k, Vector3.new(1.3, 2.24, s * 0.56), Vector3.new(0.18, 0.18, 0.18), WHITE)
-		blob("cheek" .. k, Vector3.new(1.15, 1.25, s * 1.08), Vector3.new(0.75, 0.6, 0.75), PINK)
-		blob("pawF" .. k, Vector3.new(0.95, 0.3, s * 1.05), Vector3.new(0.8, 0.55, 0.65), CREAM)
-		blob("pawB" .. k, Vector3.new(-0.95, 0.3, s * 1.05), Vector3.new(0.85, 0.55, 0.7), CREAM)
+		blob("ear" .. k, Vector3.new(0.35, 2.45, s * 1.1), Vector3.new(0.55, 1.15, 1.15), look.ear, true)
+		blob("earIn" .. k, Vector3.new(0.5, 2.5, s * 1.1), Vector3.new(0.45, 0.68, 0.68), EAR_PINK)
+		blob("eye" .. k, Vector3.new(1.2, 1.95, s * 0.62), Vector3.new(0.46, 0.52, 0.46), EYE)
+		blob("glint" .. k, Vector3.new(1.33, 2.13, s * 0.52), Vector3.new(0.17, 0.17, 0.17), WHITE)
+		blob("cheek" .. k, Vector3.new(1.15, 1.35, s * 1.05), Vector3.new(0.7, 0.55, 0.7), CHEEK)
+		blob("pawF" .. k, Vector3.new(0.95, 0.3, s * 1.0), Vector3.new(0.8, 0.5, 0.62), look.paw)
+		blob("pawB" .. k, Vector3.new(-0.95, 0.3, s * 1.0), Vector3.new(0.85, 0.5, 0.68), look.paw)
 	end
-	blob("nose", Vector3.new(1.76, 1.42, 0), Vector3.new(0.34, 0.28, 0.42), PINK)
+	blob("nose", Vector3.new(1.74, 1.5, 0), Vector3.new(0.3, 0.26, 0.4), NOSE)
 	-- The paw that does the bonking.
-	blob("fist", Vector3.new(0.4, 3.3, 0), Vector3.new(1.25, 1.25, 1.25), CREAM).part.Transparency = 1
-	-- The seed, held in the mouth.
-	blob("seed", Vector3.new(1.95, 1.2, 0), Vector3.new(1.3, 0.6, 0.8), Color3.fromRGB(52, 42, 38)).part.Transparency = 1
-	blob("seedStripe", Vector3.new(1.97, 1.36, 0), Vector3.new(1.0, 0.32, 0.26), CREAM).part.Transparency = 1
+	blob("fist", Vector3.new(0.4, 3.3, 0), Vector3.new(1.25, 1.25, 1.25), look.paw).part.Transparency = 1
+	-- The seed, held in the mouth: dark with two pale stripes, as the web game draws it.
+	blob("seed", Vector3.new(1.95, 1.2, 0), Vector3.new(1.3, 0.6, 0.8), SEED).part.Transparency = 1
+	blob("seedStripe", Vector3.new(1.97, 1.36, 0), Vector3.new(1.0, 0.32, 0.26), SEED_STRIPE).part.Transparency = 1
 	-- Stars that circle a dazed head.
 	for i = 1, 3 do
-		blob("star" .. i, Vector3.zero, Vector3.new(0.6, 0.6, 0.6), GOLD).part.Transparency = 1
+		blob("star" .. i, Vector3.zero, Vector3.new(0.6, 0.6, 0.6), GOLD, false, model).part.Transparency = 1
 		self.pieces["star" .. i].part.Material = Enum.Material.Neon
 	end
 
-	local side = info.team and Hamster.TEAM_COLORS[info.team]
-	if me or side then
-		local ring = basePart(model, side or WHITE)
+	-- The web game's outline round the body, in the hamster's colour.
+	local outline = Instance.new("Highlight")
+	outline.Adornee = body
+	outline.FillTransparency = 1
+	outline.OutlineColor = color
+	outline.OutlineTransparency = 0
+	outline.DepthMode = Enum.HighlightDepthMode.Occluded
+	outline.Parent = model
+	self.outline = outline
+
+	-- A ring underfoot: mine in white, and everyone's in its team's colour.
+	if me or info.team then
+		local ring = basePart(model, if me then WHITE else color)
 		ring.Shape = Enum.PartType.Cylinder
 		ring.Material = Enum.Material.Neon
 		ring.Transparency = if me then 0.1 else 0.35
@@ -129,33 +144,33 @@ function Hamster.new(parent, info, me)
 	tag.Transparency = 1
 	self.tag = tag
 	local gui = Instance.new("BillboardGui")
-	gui.Size = UDim2.fromScale(16, 4.6)
-	gui.StudsOffset = Vector3.new(0, 3.9, 0)
+	gui.Size = UDim2.fromScale(16, 5.6)
+	gui.StudsOffset = Vector3.new(0, 4.2, 0)
 	gui.AlwaysOnTop = true
 	gui.LightInfluence = 0
 	gui.Parent = tag
 
-	local function label(position, size, color)
+	local function label(position, size, tint, rim)
 		local l = Instance.new("TextLabel")
 		l.BackgroundTransparency = 1
 		l.Position = position
 		l.Size = size
 		l.Font = FONT
 		l.TextScaled = true
-		l.TextColor3 = color
+		l.TextColor3 = tint
 		l.Text = ""
 		l.Parent = gui
 		local stroke = Instance.new("UIStroke")
 		stroke.Thickness = 2.5
-		stroke.Color = INK
+		stroke.Color = rim or INK
 		stroke.Parent = l
 		return l
 	end
-	self.status = label(UDim2.fromScale(0, 0), UDim2.fromScale(1, 0.34), GOLD)
+	self.status = label(UDim2.fromScale(0, 0), UDim2.fromScale(1, 0.27), GOLD)
 	local barBack = Instance.new("Frame")
 	barBack.AnchorPoint = Vector2.new(0.5, 0)
-	barBack.Position = UDim2.fromScale(0.5, 0.39)
-	barBack.Size = UDim2.fromScale(0.42, 0.14)
+	barBack.Position = UDim2.fromScale(0.5, 0.31)
+	barBack.Size = UDim2.fromScale(0.42, 0.11)
 	barBack.BackgroundColor3 = INK
 	barBack.BorderSizePixel = 0
 	barBack.Visible = false
@@ -175,8 +190,14 @@ function Hamster.new(parent, info, me)
 	corner:Clone().Parent = bar
 	self.barBack = barBack
 	self.bar = bar
-	self.label = label(UDim2.fromScale(0, 0.58), UDim2.fromScale(1, 0.4), if me then GOLD else WHITE)
+	-- The name in the hamster's colour on white, as on the web; mine says so.
+	self.label = label(UDim2.fromScale(0, 0.46), UDim2.fromScale(1, 0.32), color, WHITE)
 	self.label.Text = info.name
+	local level = info.bot and Config.BOT_LEVELS[info.bot]
+	local under = if me then { name = "나", color = color } else level
+	if under then
+		label(UDim2.fromScale(0, 0.78), UDim2.fromScale(1, 0.22), under.color, WHITE).Text = under.name
+	end
 	return self
 end
 
@@ -305,8 +326,8 @@ function Hamster:draw(dt, x, y, p, view)
 		elseif string.sub(key, 1, 5) == "cheek" then
 			-- A mouthful of seed puffs the cheeks out.
 			size *= 1 + self.puff * 0.9
-			part.Color = PINK:Lerp(CREAM, self.puff * 0.7)
-			part.Transparency = alpha
+			part.Color = CHEEK:Lerp(self.look.belly, self.puff * 0.8)
+			part.Transparency = math.max(alpha, 0.3 * (1 - self.puff))
 		elseif string.sub(key, 1, 3) == "eye" then
 			-- It blinks now and then, and squeezes its eyes shut when dazed.
 			local shut = dazed or (self.clock % 3.4) < 0.11
@@ -349,7 +370,7 @@ function Hamster:draw(dt, x, y, p, view)
 
 	-- A carrier close to home sets the alarm off.
 	setText(self.label, (if p.alarm then "🚨 " elseif p.carrying then "🌻 " else "") .. self.name)
-	self.label.TextColor3 = if p.alarm then RED elseif self.me then GOLD else WHITE
+	self.label.TextColor3 = if p.alarm then RED else self.color
 	setText(self.status, view.status)
 	self.barBack.Visible = view.bar ~= nil
 	if view.bar then

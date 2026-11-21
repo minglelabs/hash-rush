@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const src = join(here, '..', 'src');
 const out = join(here, '..', 'test', 'out');
-const PLACES = { shared: 'ReplicatedStorage', server: 'ServerScriptService' };
+const PLACES = { shared: 'ReplicatedStorage', server: 'ServerScriptService', client: 'StarterPlayerScripts' };
 
 function modules(dir, at) {
   const found = [];
@@ -30,7 +30,8 @@ for (const [folder, service] of Object.entries(PLACES)) {
     const to = join(out, 'tree', `${path}.luau`);
     mkdirSync(dirname(to), { recursive: true });
     // On one line, so an error's line number is the module's own plus one.
-    writeFileSync(to, `return function(script, game, require, Random)\n${readFileSync(file, 'utf8')}\nend\n`);
+    // The few Roblox globals beyond these come from the shim's `env`.
+    writeFileSync(to, `return function(script, game, require, Random, env) local task, Vector2, Vector3, Color3 = env.task, env.Vector2, env.Vector3, env.Color3\n${readFileSync(file, 'utf8')}\nend\n`);
     paths.push(path);
   }
 }

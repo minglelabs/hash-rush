@@ -45,7 +45,7 @@ place = "".join([
     '<roblox version="4">',
     service("Workspace", '<bool name="StreamingEnabled">false</bool>'),
     service("Players", '<bool name="CharacterAutoLoads">false</bool>'),
-    service("Lighting", '<bool name="GlobalShadows">false</bool><float name="Brightness">2</float>'
+    service("Lighting", '<token name="Technology">3</token><bool name="GlobalShadows">true</bool><float name="Brightness">2</float>'
             '<string name="TimeOfDay">15:00:00</string><float name="EnvironmentSpecularScale">0</float>' + colour("Ambient", 0.75) + colour("OutdoorAmbient", 0.75)),
     service("ReplicatedStorage", children=tree(ROOT / "src/shared")),
     service("ServerScriptService", children=tree(ROOT / "src/server")),

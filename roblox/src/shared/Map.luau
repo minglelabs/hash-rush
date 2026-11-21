@@ -225,9 +225,14 @@ function Map.render()
 	box("Home", HOME.x1, HOME.y1, HOME.x2, HOME.y2, 0.2, 0.08, rgb(255, 226, 170), Enum.Material.Sand)
 	local edge = box("HomeEdge", HOME.x2 - 0.25, HOME.y1, HOME.x2 + 0.25, HOME.y2, 0.28, 0.5, rgb(255, 150, 60), Enum.Material.Neon)
 	edge.Transparency = 0.15
+	-- Nests: a dark hole with a rim, as on the web. The client paints each rim in
+	-- the colour of whoever starts there.
+	local nests = Instance.new("Folder")
+	nests.Name = "Nests"
+	nests.Parent = folder
 	local function nest(n)
-		disc("Nest", n.x, n.y, 2.2, 0.28, 0.12, rgb(196, 150, 86))
-		disc("Nest", n.x, n.y, 1.6, 0.4, 0.06, rgb(232, 196, 130))
+		disc("NestRim", n.x, n.y, 2.15, 0.26, 0.1, rgb(150, 118, 84), nil, nests)
+		disc("NestHole", n.x, n.y, 1.75, 0.3, 0.1, rgb(74, 56, 44), nil, nests)
 	end
 	for _, n in Map.bigNests do
 		nest(n)
@@ -307,6 +312,118 @@ function Map.render()
 		end
 	end
 
+	-- Leaf clumps on top, a lighter green on the darker hedge, so it reads as a
+	-- bush and not a box, as the web game's hedges do.
+	local leaves = { rgb(86, 170, 84), rgb(108, 190, 98), rgb(74, 156, 76) }
+	local tops = {}
+	for r = 0, ROWS - 1 do
+		for col = 0, COLS - 1 do
+			if wall[r][col] then
+				local x1 = HEDGE_X1 + col * CELL
+				local y1 = BOUNDS.y1 + r * CELL
+				table.insert(tops, { x1 + CELL / 2, y1 + CELL / 2 })
+				for _ = 1, 3 do
+					local size = rng:NextNumber(1.7, 2.5)
+					local lo = INSET + size / 2 - 0.4
+					local bx = x1 + rng:NextNumber(lo, CELL - lo)
+					local by = y1 + rng:NextNumber(lo, CELL - lo)
+					local clump = blob("Leaves", CFrame.new(bx, 0.1 + HEDGE_H + 0.18, by), Vector3.new(size, 0.75, size), leaves[rng:NextInteger(1, 3)])
+					clump.Material = Enum.Material.Grass
+				end
+			end
+		end
+	end
+
+	-- Red toadstools, tree stumps and grey stones on some of the hedges.
+	local TOP = 0.1 + HEDGE_H + 0.25
+	local function toadstool(x, y)
+		local stalk = part("Toadstool", rgb(250, 244, 230))
+		stalk.Shape = Enum.PartType.Cylinder
+		stalk.Size = Vector3.new(0.7, 0.45, 0.45)
+		stalk.CFrame = CFrame.new(x, TOP + 0.35, y) * CFrame.Angles(0, 0, math.rad(90))
+		blob("Toadstool", CFrame.new(x, TOP + 0.75, y), Vector3.new(1.3, 0.7, 1.3), rgb(226, 58, 52)).CastShadow = true
+		for k = 0, 2 do
+			local a = k * 2.1 + rng:NextNumber(0, 1)
+			blob("Toadstool", CFrame.new(x + math.cos(a) * 0.32, TOP + 1.04, y + math.sin(a) * 0.32), Vector3.new(0.26, 0.12, 0.26), rgb(255, 255, 255))
+		end
+	end
+	local function stump(x, y)
+		disc("Stump", x, y, 0.85, TOP, 0.6, rgb(150, 100, 60)).CastShadow = true
+		disc("Stump", x, y, 0.62, TOP + 0.6, 0.04, rgb(214, 170, 110))
+		disc("Stump", x, y, 0.3, TOP + 0.62, 0.04, rgb(180, 132, 84))
+	end
+	local function stone(x, y, base, size)
+		blob("Stone", CFrame.new(x, base + size * 0.15, y) * CFrame.Angles(0, rng:NextNumber(0, 6), 0), Vector3.new(size * 1.3, size * 0.55, size), rgb(150, 152, 158)).CastShadow = true
+	end
+	for k = #tops, 2, -1 do
+		local j = rng:NextInteger(1, k)
+		tops[k], tops[j] = tops[j], tops[k]
+	end
+	for k, at in tops do
+		local x = at[1] + rng:NextNumber(-0.8, 0.8)
+		local y = at[2] + rng:NextNumber(-0.8, 0.8)
+		if k <= 7 then
+			toadstool(x, y)
+		elseif k <= 10 then
+			stump(x, y)
+		elseif k <= 15 then
+			stone(x, y, TOP, rng:NextNumber(0.9, 1.3))
+		end
+	end
+
+	-- Clover and little flowers in the open grass by home and by the flower.
+	local laneX2 = HEDGE_X1 + COLS * CELL
+	local function openGrass()
+		while true do
+			local x = if rng:NextNumber() < 0.4 then rng:NextNumber(HOME.x2 + 0.8, HEDGE_X1 - 0.8) else rng:NextNumber(laneX2 + 0.8, BOUNDS.x2 - 0.8)
+			local y = rng:NextNumber(BOUNDS.y1 + 0.8, BOUNDS.y2 - 0.8)
+			local clear = math.sqrt((x - FLOWER.x) ^ 2 + (y - FLOWER.y) ^ 2) > FLOWER.gatherR + 1
+			for _, warp in Map.warps do
+				clear = clear and math.sqrt((x - warp.x) ^ 2 + (y - warp.y) ^ 2) > warp.r + 1.5
+			end
+			if clear then
+				return x, y
+			end
+		end
+	end
+	for _ = 1, 22 do
+		local x, y = openGrass()
+		for k = 0, 2 do
+			local a = k * 2.094 + 0.5
+			disc("Clover", x + math.cos(a) * 0.32, y + math.sin(a) * 0.32, 0.3, 0.1, 0.06, rgb(96, 168, 82))
+		end
+	end
+	for _ = 1, 14 do
+		local x, y = openGrass()
+		blob("Daisy", CFrame.new(x, 0.15, y), Vector3.new(0.7, 0.16, 0.7), rgb(255, 255, 255))
+		blob("Daisy", CFrame.new(x, 0.2, y), Vector3.new(0.28, 0.14, 0.28), rgb(255, 206, 70))
+	end
+
+	-- Home says what it is for, on the sand, as the web game's does.
+	local homeSign = part("HomeSign", rgb(255, 255, 255))
+	homeSign.Transparency = 1
+	-- Turned so the writing runs left to right as the camera sees it.
+	homeSign.Size = Vector3.new(7, 0.05, HOME.x2 - HOME.x1 - 1)
+	homeSign.CFrame = CFrame.new((HOME.x1 + HOME.x2) / 2, 0.3, HOME.y2 - 5) * CFrame.Angles(0, -math.pi / 2, 0)
+	local surface = Instance.new("SurfaceGui")
+	surface.Face = Enum.NormalId.Top
+	surface.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	surface.PixelsPerStud = 40
+	surface.LightInfluence = 0
+	surface.Parent = homeSign
+	for _, line in { { "🏠 집", 0, 0.62 }, { "씨를 물고 여기로!", 0.62, 0.38 } } do
+		local label = Instance.new("TextLabel")
+		label.BackgroundTransparency = 1
+		label.Position = UDim2.fromScale(0, line[2])
+		label.Size = UDim2.fromScale(1, line[3])
+		label.Text = line[1]
+		label.TextScaled = true
+		label.Font = Enum.Font.FredokaOne
+		label.TextColor3 = rgb(201, 160, 104)
+		label.TextTransparency = 0.15
+		label.Parent = surface
+	end
+
 	-- The sunflower. The client sways the head.
 	disc("GatherRing", FLOWER.x, FLOWER.y, FLOWER.gatherR, 0.12, 0.05, rgb(255, 246, 170)).Transparency = 0.55
 	for i = 0, 23 do
@@ -337,12 +454,42 @@ function Map.render()
 	end
 	sign(heart, "🌻", 5)
 
-	-- Burrows: a mound with a dark hole.
-	for _, warp in Map.warps do
-		disc("WarpMound", warp.x, warp.y, warp.r + 0.7, 0.1, 0.3, rgb(170, 122, 78))
-		disc("WarpRim", warp.x, warp.y, warp.r, 0.4, 0.1, rgb(120, 82, 52))
-		local hole = disc("Warp", warp.x, warp.y, warp.r - 0.8, 0.5, 0.05, rgb(46, 30, 22))
-		sign(hole, "🏠 굴", 5)
+	-- Portals back to the nest: a purple swirl, plainly not a home of its own, as
+	-- on the web. The client spins each one.
+	for i, warp in Map.warps do
+		disc("WarpRing", warp.x, warp.y, warp.r + 0.35, 0.12, 0.12, rgb(196, 160, 255)).Material = Enum.Material.Neon
+		local base = disc("Warp", warp.x, warp.y, warp.r, 0.16, 0.12, rgb(84, 40, 150))
+		local swirl = Instance.new("Model")
+		swirl.Name = "Swirl"
+		for arm = 0, 2 do
+			for t = 0, 6 do
+				local a = arm * 2.094 + t * 0.55
+				local d = 0.35 + t * (warp.r - 0.6) / 6
+				local dot = disc("SwirlDot", warp.x + math.cos(a) * d, warp.y + math.sin(a) * d, 0.42 - t * 0.03, 0.29, 0.04, rgb(214, 186, 255), nil, swirl)
+				dot.Material = Enum.Material.Neon
+			end
+		end
+		swirl.WorldPivot = CFrame.new(warp.x, 0.3, warp.y)
+		swirl:SetAttribute("Index", i)
+		swirl.Parent = folder
+		local gui = Instance.new("BillboardGui")
+		gui.Size = UDim2.fromScale(12, 1.6)
+		gui.StudsOffset = Vector3.new(0, -(warp.r + 1.3), 0)
+		gui.AlwaysOnTop = true
+		gui.LightInfluence = 0
+		gui.Parent = base
+		local label = Instance.new("TextLabel")
+		label.Size = UDim2.fromScale(1, 1)
+		label.BackgroundTransparency = 1
+		label.Text = "🌀 집으로 순간이동"
+		label.TextScaled = true
+		label.Font = Enum.Font.FredokaOne
+		label.TextColor3 = rgb(120, 70, 200)
+		label.Parent = gui
+		local stroke = Instance.new("UIStroke")
+		stroke.Thickness = 2.5
+		stroke.Color = rgb(255, 255, 255)
+		stroke.Parent = label
 	end
 
 	-- A picket fence around the field.

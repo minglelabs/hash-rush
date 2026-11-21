@@ -16,6 +16,7 @@ local Sim = require(ReplicatedStorage:WaitForChild("Sim"))
 local Snapshot = require(ReplicatedStorage:WaitForChild("Snapshot"))
 local Fx = require(script.Parent:WaitForChild("Fx"))
 local Hamster = require(script.Parent:WaitForChild("Hamster"))
+local Tutorial = require(script.Parent:WaitForChild("Tutorial"))
 
 local player = Players.LocalPlayer
 local remotes = ReplicatedStorage:WaitForChild("HashRushRemotes")
@@ -54,23 +55,73 @@ task.spawn(function()
 end)
 
 -- Camera ------------------------------------------------------------------
+-- Waiting, watching or out of the round, it shows the whole meadow. Playing, it
+-- comes in close over my hamster and keeps it in the middle, gliding after it;
+-- a portal or a knock-out home cuts straight to where it went.
 
 local FOV = 20 -- narrow, so the picture stays close to flat
-local TILT = math.rad(16) -- off straight down, enough to see the sides of things
+local TILT_WIDE = math.rad(16) -- off straight down, enough to see the sides of things
+local TILT_NEAR = math.rad(30) -- closer in, a little more from the side
+local NEAR_H = 30 -- studs of meadow from the top of the screen to the bottom, close in
+local NEAR_W = 36 -- and at least this many across, on a narrow screen
+local FOLLOW = 3.2 -- how quickly it catches up, per second
 local punch = 0 -- a hit pushes the camera in for a moment
+local focus = nil -- the spot it looks at while close in
+local lead = Vector3.zero -- where my hamster is heading, smoothed
+local lastTarget = nil
+local near = 0 -- 0 the whole meadow, 1 close in; eased between
+local snapCamera = true
 
-local function placeCamera(dt)
+local function placeCamera(dt, target)
 	local camera = workspace.CurrentCamera
 	camera.CameraType = Enum.CameraType.Scriptable
 	punch = math.max(0, punch - dt * 5)
 	camera.FieldOfView = FOV - punch * 0.7
 	local view = camera.ViewportSize
+	local aspect = view.X / math.max(1, view.Y)
 	local half = math.tan(math.rad(FOV / 2))
-	-- Far enough for the whole field, with room for the top bar.
-	local distance = math.max(WORLD_H * 1.2 * math.cos(TILT) / (2 * half), WORLD_W * 1.05 / (2 * half * view.X / view.Y))
-	local centre = Vector3.new(WORLD_W / 2, 0, WORLD_H * 0.45) + Fx.cameraOffset(dt)
+	local shake = Fx.cameraOffset(dt)
+
+	-- The whole meadow, with room for the top bar.
+	local wideDistance = math.max(WORLD_H * 1.2 * math.cos(TILT_WIDE) / (2 * half), WORLD_W * 1.05 / (2 * half * aspect))
+	local wideCentre = Vector3.new(WORLD_W / 2, 0, WORLD_H * 0.45)
+
+	near += ((if target then 1 else 0) - near) * (1 - math.exp(-dt * (if target then 4 else 2.5)))
+	if target then
+		local at = Vector3.new(target.X, 0, target.Y)
+		if snapCamera or not focus or not lastTarget or (at - lastTarget).Magnitude > 12 then
+			-- A portal, a knock-out or a new round: straight there.
+			focus = at
+			lead = Vector3.zero
+			snapCamera = false
+		elseif dt > 0 then
+			-- Looking a little ahead of where it runs, so gliding after it does not
+			-- leave it trailing behind the middle.
+			local velocity = (at - lastTarget) / dt
+			lead += (velocity / FOLLOW - lead) * (1 - math.exp(-dt * 6))
+			focus = focus:Lerp(at + lead, 1 - math.exp(-dt * FOLLOW))
+		end
+		lastTarget = at
+	else
+		lastTarget = nil
+	end
+
+	local tilt = TILT_WIDE + (TILT_NEAR - TILT_WIDE) * near
+	local nearDistance = math.max(NEAR_H * math.cos(TILT_NEAR) / (2 * half), NEAR_W / (2 * half * aspect))
+	local nearCentre = wideCentre
+	if focus then
+		-- Not much past the fence: the view stops at the edge of the meadow.
+		local halfW = nearDistance * half * aspect
+		local halfH = NEAR_H / 2
+		local function hold(v, lo, hi)
+			return if lo > hi then (lo + hi) / 2 else math.clamp(v, lo, hi)
+		end
+		nearCentre = Vector3.new(hold(focus.X, halfW - 3, WORLD_W - halfW + 3), 0, hold(focus.Z, halfH - 4, WORLD_H - halfH + 3))
+	end
+	local distance = wideDistance + (nearDistance - wideDistance) * near
+	local centre = wideCentre:Lerp(nearCentre, near) + shake
 	-- Screen right is +X and screen down is +Z, the same way round as the sim.
-	camera.CFrame = CFrame.lookAt(centre + Vector3.new(0, math.cos(TILT), math.sin(TILT)) * distance, centre)
+	camera.CFrame = CFrame.lookAt(centre + Vector3.new(0, math.cos(tilt), math.sin(tilt)) * distance, centre)
 end
 
 -- Screen ------------------------------------------------------------------
@@ -198,7 +249,6 @@ local function setReady(want)
 	myReady = want
 	showReady()
 	pop(readyScale, 0.8)
-	Fx.sound("click")
 	readyRemote:FireServer(want)
 end
 readyButton.Activated:Connect(function()
@@ -220,8 +270,7 @@ local function barButton(label, x, width, action)
 	make("UICorner", { CornerRadius = UDim.new(0.5, 0) }, button)
 	make("UIStroke", { ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Thickness = 2, Color = INK }, button)
 	button.Activated:Connect(function()
-		Fx.sound("click")
-		action()
+			action()
 	end)
 	return button
 end
@@ -239,8 +288,8 @@ local modeButton = barButton("", 424, 108, function()
 end)
 
 -- How to play and who is here, shown while waiting in the lobby.
-local helpPanel = panel({ AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.43), Size = UDim2.fromOffset(800, 330), Visible = false }, hud, 28)
-local peopleList = make("Frame", { Position = UDim2.fromOffset(520, 90), Size = UDim2.fromOffset(252, 226), BackgroundColor3 = Color3.fromRGB(48, 32, 24), BorderSizePixel = 0 }, helpPanel)
+local helpPanel = panel({ AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.42), Size = UDim2.fromOffset(820, 372), Visible = false }, hud, 28)
+local peopleList = make("Frame", { Position = UDim2.fromOffset(540, 150), Size = UDim2.fromOffset(252, 200), BackgroundColor3 = Color3.fromRGB(48, 32, 24), BorderSizePixel = 0 }, helpPanel)
 make("UICorner", { CornerRadius = UDim.new(0, 14) }, peopleList)
 make("UIListLayout", { Padding = UDim.new(0, 2), SortOrder = Enum.SortOrder.LayoutOrder }, peopleList)
 make("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10), PaddingTop = UDim.new(0, 6) }, peopleList)
@@ -265,13 +314,14 @@ end
 text({ Position = UDim2.fromOffset(30, 18), Size = UDim2.new(1, -60, 0, 56), Text = "🐹 Hash Rush", TextColor3 = GOLD }, helpPanel, 4)
 do
 	local lines = {
-		{ "🌻", "해바라기 옆에서 가만히 있으면 해씨를 캐요" },
-		{ "🏠", "해씨를 물고 집으로 돌아오면 승리!" },
-		{ "👊", "꿀밤으로 상대를 둥지로 돌려보내요" },
-		{ "💨", "해씨를 던져서 줄지어 선 상대를 쓰러뜨려요" },
+		{ "🌻", "해바라기 옆에서 2초 가만히! 해씨는 한 번에 한 마리씩" },
+		{ "🏠", "해씨를 물고 왼쪽 모래밭 집에 들어가면 승리" },
+		{ "👊", "Space 꿀밤: 바로 옆에서만 맞아요. 맞으면 둥지로" },
+		{ "🌀", "보라색 소용돌이: 빈손일 때 둥지로 순간이동" },
+		{ "💨", "해씨를 든 채 F를 꾹: 줄 선 상대를 한꺼번에" },
 	}
 	for i, line in lines do
-		local row = make("Frame", { BackgroundColor3 = Color3.fromRGB(88, 62, 46), BorderSizePixel = 0, Position = UDim2.fromOffset(28, 34 + i * 56), Size = UDim2.fromOffset(476, 46) }, helpPanel)
+		local row = make("Frame", { BackgroundColor3 = Color3.fromRGB(88, 62, 46), BorderSizePixel = 0, Position = UDim2.fromOffset(28, 30 + i * 54), Size = UDim2.fromOffset(496, 46) }, helpPanel)
 		make("UICorner", { CornerRadius = UDim.new(0, 14) }, row)
 		text({ Position = UDim2.fromOffset(8, 5), Size = UDim2.fromOffset(40, 36), Text = line[1] }, row, false)
 		text({ Position = UDim2.fromOffset(56, 9), Size = UDim2.new(1, -68, 0, 28), Text = line[2], TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = CREAM }, row, false)
@@ -310,10 +360,48 @@ local hamsters = {} -- [seat] = Hamster
 local mySeat = nil
 local latest = nil -- the newest snapshot of this round
 local flowerKick = 0 -- the sunflower shakes when a seed comes loose
+local nestsPainted = false -- each nest's rim takes the colour of whoever starts there
+local alarmFor = "" -- the carrier the siren last went off for
 
+-- A seat's colour: its team's in a team round, its own otherwise.
 local function seatColor(seat)
-	local rgb = Config.COLORS[seat]
-	return Color3.fromRGB(rgb[1], rgb[2], rgb[3])
+	local info = roster[seat]
+	return Config.colorOf(seat, info and info.team)
+end
+
+-- The portals spin, and each nest's rim takes the colour of whoever starts in it.
+local swirls = {}
+for _, child in mapFolder:GetChildren() do
+	if child.Name == "Swirl" then
+		table.insert(swirls, { model = child, at = child:GetPivot() })
+	end
+end
+local nestRims = {}
+for _, child in mapFolder:WaitForChild("Nests"):GetChildren() do
+	if child.Name == "NestRim" then
+		table.insert(nestRims, { part = child, color = child.Color })
+	end
+end
+
+local function paintNests()
+	for _, rim in nestRims do
+		rim.part.Color = rim.color
+	end
+	if not latest then
+		return
+	end
+	for _, p in latest.players do
+		local best, bestD = nil, math.huge
+		for _, rim in nestRims do
+			local d = (Vector2.new(rim.part.Position.X, rim.part.Position.Z) - Vector2.new(p.x, p.y)).Magnitude
+			if d < bestD then
+				best, bestD = rim, d
+			end
+		end
+		if best and bestD < 1.5 then
+			best.part.Color = seatColor(p.id)
+		end
+	end
 end
 
 local function clearHamsters()
@@ -334,8 +422,7 @@ local function drawScores()
 		if info then
 			local chip = make("Frame", { LayoutOrder = seat, AutomaticSize = Enum.AutomaticSize.X, Size = UDim2.fromOffset(0, 30), BackgroundColor3 = PANEL, BorderSizePixel = 0 }, scoreRow)
 			make("UICorner", { CornerRadius = UDim.new(0.5, 0) }, chip)
-			local side = info.team and Hamster.TEAM_COLORS[info.team]
-			make("UIStroke", { Thickness = if seat == mySeat or side then 3 else 2, Color = side or (if seat == mySeat then GOLD else INK) }, chip)
+			make("UIStroke", { Thickness = if seat == mySeat then 3 else 2, Color = if seat == mySeat then GOLD else seatColor(seat) }, chip)
 			make("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, VerticalAlignment = Enum.VerticalAlignment.Center, Padding = UDim.new(0, 6) }, chip)
 			make("UIPadding", { PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 12) }, chip)
 			local dot = make("Frame", { Size = UDim2.fromOffset(20, 20), BackgroundColor3 = seatColor(seat), BorderSizePixel = 0 }, chip)
@@ -382,8 +469,33 @@ local function addFeed(message)
 	end)
 end
 
-local MULTI = { [2] = "더블킬!", [3] = "트리플킬! 슈퍼플레이!", [4] = "쿼드라킬! 슈퍼플레이!" }
+local MULTI = { "더블킬!", "트리플킬!", "쿼드라킬!", "펜타킬!", "헥사킬!", "헵타킬!" }
 local predictedSwing = 0 -- os.clock() of the last swing drawn before the server said so
+
+-- "구름이" or "초코가", as the web game writes a name before a verb.
+local function subject(name)
+	local last = utf8.codepoint(name, utf8.offset(name, -1))
+	local hangul = last >= 0xAC00 and last <= 0xD7A3
+	return name .. (if hangul and (last - 0xAC00) % 28 ~= 0 then "이" else "가")
+end
+
+-- On my side: the same team in a team round.
+local function mate(seat)
+	local a = roster[mySeat]
+	local b = roster[seat]
+	return a ~= nil and b ~= nil and a.team ~= nil and a.team == b.team
+end
+
+-- Somebody has a seed now: what the web game says about it.
+local function gotSeed(seat)
+	if seat == mySeat then
+		banner("🌻 해씨 획득! 노랗게 빛나는 🏠 집으로 달려요!")
+	elseif mate(seat) then
+		banner("🌻 " .. subject(nameOf(seat)) .. " 씨를 물었어요! 지켜줘요!")
+	else
+		banner("🌻 " .. subject(nameOf(seat)) .. " 씨를 물었어요! 막아요!", RED)
+	end
+end
 
 local function showEvent(e)
 	local h = e.id and hamsters[e.id]
@@ -391,14 +503,13 @@ local function showEvent(e)
 		if h then
 			h:swing()
 		end
-		-- My own swing already sounded when the key went down.
-		if e.id ~= mySeat or os.clock() - predictedSwing > 0.4 then
+		-- My own swing is heard as the key goes down; the others' are not, as on the web.
+		if e.id == mySeat and os.clock() - predictedSwing > 0.4 then
 			Fx.sound("swing")
 		end
 	elseif e.type == "impact" then
 		if not e.hit then
 			Fx.dust(e.x + e.dx * 2.8, e.y + e.dy * 2.8, 6, 9)
-			Fx.sound("whiff")
 		end
 	elseif e.type == "bonk" then
 		local mine = e.by == mySeat or e.id == mySeat
@@ -416,34 +527,35 @@ local function showEvent(e)
 		Fx.ring(e.x, e.y, 7, WHITE, 0.3)
 		Fx.words(e.x, e.y, "뿅!", RED, 9)
 		Fx.tumble(e.x, e.y, dx, dy, seatColor(e.id))
-		Fx.sound("hit")
-		Fx.sound("boing")
-		Fx.sound("thump")
-		if e.id == mySeat then
-			Fx.sound("ouch")
-		end
+		Fx.sound("bonk")
 		Fx.shake(if mine then 0.75 else 0.4)
 		Fx.hitStop(if mine then 0.1 else 0.05)
 		punch = if mine then 1 else 0.5
 		if e.id == mySeat then
 			flash(RED, 0.4)
+			if e.seed then
+				banner("씨를 놓쳤어요! 다시 해바라기로!", RED)
+			end
 		elseif e.by == mySeat then
 			flash(WHITE, 0.22)
 		end
-		addFeed(("%s 👊 %s%s"):format(nameOf(e.by), nameOf(e.id), if e.seed then " 🌻" else ""))
+		addFeed(("%s %s뿅! %s"):format(nameOf(e.by), if e.seed then "🌻" else "", nameOf(e.id)))
 		if e.close then
 			banner(nameOf(e.by) .. " 슈퍼플레이!")
+			Fx.sound("superplay")
 		end
 	elseif e.type == "throw" then
 		Fx.words(e.x, e.y, "던지기!", GOLD, 8)
 		Fx.seedShot(e.x, e.y, e.dx, e.dy, Config.THROW.range)
-		Fx.sound("throw")
+		Fx.sound("toss")
 		Fx.shake(0.2)
 		if h then
 			h:squash(4)
 		end
 	elseif e.type == "multi" then
-		banner(nameOf(e.by) .. " " .. (MULTI[e.n] or "펜타킬! 슈퍼플레이!"))
+		local name = MULTI[math.min(e.n, #MULTI + 1) - 1]
+		banner(nameOf(e.by) .. " " .. name .. (if e.n >= 3 then " 슈퍼플레이!" else ""))
+		Fx.sound(if e.n >= 3 then "triple" else "double")
 	elseif e.type == "seed" then
 		if h and h.x then
 			Fx.stars(h.x, h.y, GOLD, 12)
@@ -452,36 +564,50 @@ local function showEvent(e)
 		end
 		Fx.sound("seed")
 		flowerKick = 1
+		gotSeed(e.id)
 	elseif e.type == "steal" then
 		local by = hamsters[e.by]
 		Fx.stars(e.x, e.y, CREAM, 10)
-		Fx.words(e.x, e.y, "슬쩍!", CREAM, 8)
-		Fx.sound("steal")
+		Fx.words(e.x, e.y, "소매치기!", CREAM, 8)
+		Fx.sound("seed")
 		if by then
 			by:squash(-4)
 		end
-		addFeed(("%s 🤏 %s 🌻"):format(nameOf(e.by), nameOf(e.id)))
+		addFeed(("%s 🌻소매치기! %s"):format(nameOf(e.by), nameOf(e.id)))
+		if e.id == mySeat then
+			banner("해씨를 소매치기 당했어요!", RED)
+		else
+			gotSeed(e.by)
+		end
 		if e.close then
 			banner(nameOf(e.by) .. " 슈퍼플레이!")
+			Fx.sound("superplay")
 		end
 	elseif e.type == "spawn" then
 		Fx.dust(e.x, e.y, 6, 8)
+		if e.id == mySeat then
+			snapCamera = true
+			Fx.sound("spawn")
+		end
 	elseif e.type == "warp" then
 		Fx.dust(e.fromX, e.fromY, 7, 9)
-		Fx.ring(e.fromX, e.fromY, 5, Color3.fromRGB(200, 160, 110), 0.3)
+		Fx.ring(e.fromX, e.fromY, 5, Color3.fromRGB(190, 150, 255), 0.3)
 		Fx.dust(e.x, e.y, 6, 8)
 		Fx.words(e.fromX, e.fromY, "쏙!", CREAM, 7)
-		Fx.sound("warp")
+		if e.id == mySeat then
+			snapCamera = true
+			Fx.sound("spawn")
+		end
+	elseif e.type == "count" then
+		Fx.sound("count")
 	elseif e.type == "go" then
 		Fx.sound("go")
 	elseif e.type == "overtime" then
-		banner("연장전! 집이 넓어져요", RED)
-		Fx.sound("alarm", 0.7)
-		Fx.music("round", 1.08)
+		banner("⏰ 연장전! 씨가 빨리 나오고, 쓰러지면 기절!", RED)
+		Fx.sound("overtime")
 	elseif e.type == "rush" then
-		banner("집이 빠르게 밀려와요!", RED)
-		Fx.sound("alarm", 0.7)
-		Fx.music("round", 1.18)
+		banner("🚨 막판! 집이 해바라기까지 밀려옵니다", RED)
+		Fx.sound("overtime")
 	end
 end
 
@@ -501,8 +627,8 @@ local function showResult(msg)
 		wholeTeam = wholeTeam and roster[seat] and roster[seat].team == winner.team
 	end
 	if wholeTeam then
-		resultTitle.Text = (if winner.team == 0 then "🏆 빨강 팀" else "🏆 파랑 팀") .. " 승리!"
-		resultTitle.TextColor3 = Hamster.TEAM_COLORS[winner.team]
+		resultTitle.Text = "🏆 " .. Config.TEAMS[winner.team].name .. " 팀 승리!"
+		resultTitle.TextColor3 = Config.TEAMS[winner.team].color
 	else
 		resultTitle.Text = if #names > 0 then "🏆 " .. table.concat(names, " · ") .. " 승리!" else "판이 끝났어요"
 		resultTitle.TextColor3 = GOLD
@@ -541,11 +667,14 @@ local function showResult(msg)
 	bigLabel.Visible = false
 	alarmRim.Visible = false
 	Fx.music(nil)
-	if iWon then
+	-- As on the web: the winner's tune for whoever won, and for whoever only watched.
+	if iWon or not mySeat then
 		Fx.sound("win")
-		Fx.confetti(screen)
 	else
-		Fx.sound("over")
+		Fx.sound("lose")
+	end
+	if iWon then
+		Fx.confetti(screen)
 	end
 	-- The lobby tune comes back once the sting has had its say.
 	task.delay(4, function()
@@ -555,7 +684,133 @@ local function showResult(msg)
 	end)
 end
 
+-- A new round to draw: the server's, or the tutorial's own.
+local function beginRound(list, number)
+	round = number
+	latest = nil
+	clearHamsters()
+	setRoster(list)
+	for _, info in list do
+		hamsters[info.id] = Hamster.new(viewFolder, info, info.id == mySeat)
+	end
+	resultPanel.Visible = false
+	helpPanel.Visible = false
+	readyButton.Visible = false
+	botBar.Visible = false
+	snapCamera = true
+	nestsPainted = false
+	alarmFor = ""
+end
+
+-- Tutorial ------------------------------------------------------------------
+-- While it runs, the server's round is not drawn: the tutorial's own is.
+
+local tutorPanel = panel({ AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 108), Size = UDim2.fromOffset(700, 132), Visible = false }, hud, 22)
+local tutorScale = make("UIScale", {}, tutorPanel)
+local tutorTitle = text({ Position = UDim2.fromOffset(22, 12), Size = UDim2.new(1, -200, 0, 36), TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = GOLD }, tutorPanel, 3)
+local tutorText = text({ Position = UDim2.fromOffset(22, 54), Size = UDim2.new(1, -44, 0, 66), TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, TextColor3 = CREAM, TextScaled = true }, tutorPanel, false)
+local tutorButton = make("TextButton", { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -14, 0, 12), Size = UDim2.fromOffset(164, 38), BackgroundColor3 = Color3.fromRGB(110, 78, 48), BorderSizePixel = 0, AutoButtonColor = false, Font = FONT, TextSize = 20, TextColor3 = CREAM, Text = "" }, tutorPanel)
+make("UICorner", { CornerRadius = UDim.new(0.5, 0) }, tutorButton)
+make("UIStroke", { ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Thickness = 2, Color = INK }, tutorButton)
+
+-- A bouncing arrow over where to go next.
+local marker = make("Part", { Name = "TutorialMarker", Anchored = true, CanCollide = false, CanQuery = false, CanTouch = false, Transparency = 1, Size = Vector3.one }, viewFolder)
+local markerGui = make("BillboardGui", { Size = UDim2.fromScale(7, 7), AlwaysOnTop = true, LightInfluence = 0, Enabled = false }, marker)
+text({ Size = UDim2.fromScale(1, 0.62), Text = "⬇", TextColor3 = GOLD }, markerGui, 4)
+local markerLabel = text({ Position = UDim2.fromScale(-0.5, 0.6), Size = UDim2.fromScale(2, 0.3), TextColor3 = GOLD }, markerGui, 3)
+
+local tutorial = nil -- the one running, if any
+local tutorTarget = nil -- { at, icon, label }
+local onLastStep = false
+
+local function endTutorial()
+	if tutorial then
+		tutorial.stop()
+	end
+	tutorial = nil
+	tutorTarget = nil
+	tutorPanel.Visible = false
+	markerGui.Enabled = false
+	round = -1
+	latest = nil
+	clearHamsters()
+	setRoster({})
+	paintNests()
+	-- The lobby, or the round going on, as the server has it now.
+	readyButton.Visible = false
+	roundRemote:FireServer()
+end
+
+local function startTutorial()
+	if tutorial then
+		return
+	end
+	if myReady then
+		setReady(false)
+	end
+	helpPanel.Visible = false
+	readyButton.Visible = false
+	botBar.Visible = false
+	resultPanel.Visible = false
+	notice("")
+	Fx.music("game")
+	tutorial = Tutorial.run({
+		begin = function(list)
+			beginRound(list, -2)
+		end,
+		snapshot = function(snap)
+			latest = snap
+		end,
+		event = showEvent,
+		say = function(index, step, again)
+			onLastStep = step.last == true
+			tutorPanel.Visible = true
+			tutorTitle.Text = ("🎓 %d/%d · %s"):format(index, Tutorial.STEPS, step.title)
+			tutorText.Text = again or step.text
+			tutorButton.Text = if onLastStep then "▶ 시작하기!" else "건너뛰기 ✕"
+			tutorButton.BackgroundColor3 = if onLastStep then Color3.fromRGB(96, 196, 96) else Color3.fromRGB(110, 78, 48)
+			pop(tutorScale, 0.85)
+			if onLastStep then
+				tutorTarget = nil
+			end
+		end,
+		target = function(at, icon, label)
+			tutorTarget = if at then { at = at, icon = icon, label = label } else nil
+		end,
+		cheer = function()
+			banner("👍 잘했어요!")
+			Fx.sound("double")
+			tutorTarget = nil
+		end,
+		finish = endTutorial,
+	})
+end
+
+tutorButton.Activated:Connect(function()
+	endTutorial()
+end)
+
+-- Whoever has never played a round is taken through it once, on arrival.
+local offered = false
+local function offerTutorial()
+	if offered or tutorial or player:GetAttribute("HRGames") ~= 0 or round ~= -1 or resultPanel.Visible then
+		return
+	end
+	offered = true
+	startTutorial()
+end
+player:GetAttributeChangedSignal("HRGames"):Connect(offerTutorial)
+
+local tutorialButton = make("TextButton", { Position = UDim2.fromOffset(540, 88), Size = UDim2.fromOffset(252, 50), BackgroundColor3 = Color3.fromRGB(240, 176, 44), BorderSizePixel = 0, AutoButtonColor = false, Font = FONT, TextSize = 24, TextColor3 = WHITE, Text = "🎓 튜토리얼" }, helpPanel)
+make("UICorner", { CornerRadius = UDim.new(0, 16) }, tutorialButton)
+make("UIStroke", { ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Thickness = 3, Color = INK }, tutorialButton)
+make("UIStroke", { Thickness = 2.5, Color = INK }, tutorialButton)
+tutorialButton.Activated:Connect(startTutorial)
+
 roundRemote.OnClientEvent:Connect(function(msg)
+	if tutorial then
+		return
+	end
 	if msg.kind == "lobby" then
 		-- After a round the result stays up, with the hamsters where they stood.
 		if not resultPanel.Visible then
@@ -563,6 +818,7 @@ roundRemote.OnClientEvent:Connect(function(msg)
 			latest = nil
 			clearHamsters()
 			setRoster({})
+			paintNests()
 			helpPanel.Visible = true
 			Fx.music("lobby")
 		end
@@ -581,6 +837,7 @@ roundRemote.OnClientEvent:Connect(function(msg)
 		levelButton.Text = "난이도 " .. msg.level
 		modeButton.Text = if msg.teams then "⚔ 팀전" else "👤 개인전"
 		showPeople(msg)
+		offerTutorial()
 		if msg.left then
 			notice(("%d초 뒤 시작해요 · 준비 %d/%d명"):format(msg.left, msg.ready, msg.count))
 		elseif msg.short > 0 then
@@ -589,18 +846,9 @@ roundRemote.OnClientEvent:Connect(function(msg)
 			notice(("모두 준비하면 시작해요 · 준비 %d/%d명"):format(msg.ready, msg.count))
 		end
 	elseif msg.kind == "start" then
-		round = msg.round
-		latest = nil
-		clearHamsters()
-		setRoster(msg.roster)
-		for _, info in msg.roster do
-			hamsters[info.id] = Hamster.new(viewFolder, info, info.id == mySeat)
-		end
-		resultPanel.Visible = false
-		helpPanel.Visible = false
-		readyButton.Visible = false
-		botBar.Visible = false
-		Fx.music("round")
+		beginRound(msg.roster, msg.round)
+		Fx.music("game")
+		Fx.sound("count")
 		notice(if mySeat then "" else "관전 중 · 판이 끝나면 준비를 눌러 참가해요")
 	elseif msg.kind == "events" then
 		if msg.round == round then
@@ -614,6 +862,9 @@ roundRemote.OnClientEvent:Connect(function(msg)
 end)
 
 snapRemote.OnClientEvent:Connect(function(packed)
+	if tutorial then
+		return
+	end
 	local snap = Snapshot.decode(packed)
 	if snap.round ~= round % 256 then
 		return
@@ -684,13 +935,121 @@ end
 
 local time = 0
 local shownCount = nil
-local alarmBeep = 0
+local tickBeat = -1
 local stepDust = {}
+
+-- Pointers at the edge of the screen for what matters but is out of sight: a
+-- rival or a team-mate running with a seed, and where to go next.
+local pointerLayer = make("Frame", { Name = "Pointers", BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), ZIndex = 5 }, screen)
+local pointers = {} -- [key] = its frames, and whether it is wanted this frame
+
+local function pointer(key)
+	local ptr = pointers[key]
+	if not ptr then
+		local frame = make("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), BackgroundColor3 = PANEL, BorderSizePixel = 0, ZIndex = 5 }, pointerLayer)
+		make("UICorner", { CornerRadius = UDim.new(0.5, 0) }, frame)
+		local rim = make("UIStroke", { ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Thickness = 4, Color = INK }, frame)
+		local icon = text({ AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromScale(0.66, 0.66), ZIndex = 6 }, frame, false)
+		local caption = text({ AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 1, 3), Size = UDim2.fromScale(2.4, 0.42), ZIndex = 6 }, frame, 2)
+		local arrow = text({ AnchorPoint = Vector2.new(0.5, 0.5), Text = "▲", ZIndex = 6 }, pointerLayer, 2)
+		ptr = { frame = frame, rim = rim, icon = icon, caption = caption, arrow = arrow }
+		pointers[key] = ptr
+	end
+	ptr.wanted = true
+	return ptr
+end
+
+-- Shows a pointer for `world` only while it is off the screen.
+local function pointTo(key, world, icon, caption, color, urgent)
+	local camera = workspace.CurrentCamera
+	local view = camera.ViewportSize
+	local scale = hudScale.Scale
+	local margin = 62 * scale
+	local at, onScreen = camera:WorldToViewportPoint(world)
+	if onScreen and at.X > margin * 0.6 and at.X < view.X - margin * 0.6 and at.Y > margin * 0.6 and at.Y < view.Y - margin * 0.6 then
+		return
+	end
+	local middle = view / 2
+	local away = Vector2.new(at.X, at.Y) - middle
+	if at.Z < 0 then
+		away = -away
+	end
+	if away.Magnitude < 1 then
+		return
+	end
+	-- Where the line from the middle of the screen to it leaves the screen.
+	local reach = math.min((view.X / 2 - margin) / math.max(1e-3, math.abs(away.X)), (view.Y / 2 - margin) / math.max(1e-3, math.abs(away.Y)))
+	local spot = middle + away * reach
+	local unit = away.Unit
+	local ptr = pointer(key)
+	ptr.frame.Size = UDim2.fromOffset(54 * scale, 54 * scale)
+	ptr.frame.Position = UDim2.fromOffset(spot.X, spot.Y)
+	ptr.frame.Visible = true
+	ptr.frame.BackgroundColor3 = if urgent and math.sin(time * 12) > 0 then RED else PANEL
+	ptr.rim.Color = color
+	ptr.icon.Text = icon
+	ptr.caption.Text = caption
+	ptr.caption.TextColor3 = color
+	ptr.arrow.Visible = true
+	ptr.arrow.Size = UDim2.fromOffset(26 * scale, 26 * scale)
+	ptr.arrow.Position = UDim2.fromOffset(spot.X + unit.X * 42 * scale, spot.Y + unit.Y * 42 * scale)
+	ptr.arrow.Rotation = math.deg(math.atan2(unit.Y, unit.X)) + 90
+	ptr.arrow.TextColor3 = color
+end
+
+local function showPointers()
+	for _, ptr in pointers do
+		ptr.wanted = false
+	end
+	if latest and not resultPanel.Visible and latest.phase ~= "over" then
+		local mine = nil
+		for _, p in latest.players do
+			local h = hamsters[p.id]
+			if p.id == mySeat then
+				mine = p
+			elseif p.carrying and h and h.x then
+				local side = if mate(p.id) then "지켜요!" else "막아요!"
+				pointTo("carrier" .. p.id, Vector3.new(h.x, 1, h.y), if p.alarm then "🚨" else "🌻", nameOf(p.id) .. " · " .. side, seatColor(p.id), p.alarm)
+			end
+		end
+		-- Where to go: the tutorial says; otherwise the flower for a seed, then home with it.
+		local h = mySeat and hamsters[mySeat]
+		if tutorial then
+			if tutorTarget then
+				pointTo("tutorial", tutorTarget.at, tutorTarget.icon, tutorTarget.label, GOLD, false)
+			end
+		elseif mine and h and h.x and not mine.dazed then
+			if mine.carrying then
+				pointTo("home", Vector3.new(latest.homeX - 2, 0, math.clamp(h.y, Map.bounds.y1 + 4, Map.bounds.y2 - 4)), "🏠", "집으로!", GOLD, false)
+			else
+				pointTo("flower", Vector3.new(FLOWER.x, 1, FLOWER.y), "🌻", "해바라기", GOLD, false)
+			end
+		end
+	end
+	for _, ptr in pointers do
+		if not ptr.wanted then
+			ptr.frame.Visible = false
+			ptr.arrow.Visible = false
+		end
+	end
+end
 
 RunService:BindToRenderStep("HashRushView", Enum.RenderPriority.Camera.Value + 1, function(dt)
 	time += dt
 	fitHud()
-	placeCamera(dt)
+	-- Close in over my own hamster while I am in a round; the whole meadow otherwise.
+	local mine = mySeat and hamsters[mySeat]
+	local target = if mine and mine.x and latest and latest.phase ~= "over" and not resultPanel.Visible then Vector2.new(mine.x, mine.y) else nil
+	placeCamera(dt, target)
+	showPointers()
+	markerGui.Enabled = tutorTarget ~= nil
+	if tutorTarget then
+		marker.Position = tutorTarget.at + Vector3.new(0, 5 + math.abs(math.sin(time * 4)) * 1.5, 0)
+		markerLabel.Text = tutorTarget.label
+	end
+	for k, swirl in swirls do
+		swirl.model:PivotTo(swirl.at * CFrame.Angles(0, -time * 2.4 * (if k % 2 == 0 then -1 else 1), 0))
+	end
 	-- The sunflower nods in the breeze, and shakes when it is being nibbled.
 	flowerKick = math.max(0, flowerKick - dt * 2.5)
 	local busy = if latest and latest.nibbler ~= 0 then 1 else 0
@@ -705,6 +1064,11 @@ RunService:BindToRenderStep("HashRushView", Enum.RenderPriority.Camera.Value + 1
 	if Fx.frozen() then
 		return
 	end
+	-- The nests are coloured from where everyone starts, once a round.
+	if not nestsPainted and latest.phase == "countdown" then
+		nestsPainted = true
+		paintNests()
+	end
 
 	local seen = {}
 	local carrying = false
@@ -714,7 +1078,8 @@ RunService:BindToRenderStep("HashRushView", Enum.RenderPriority.Camera.Value + 1
 		if h then
 			seen[p.id] = true
 			local x, y = p.x, p.y
-			if h.me then
+			-- The tutorial's round is played here already: nothing to get ahead of.
+			if h.me and not tutorial then
 				x, y = ahead(p, dt)
 				carrying = p.carrying
 			end
@@ -739,6 +1104,13 @@ RunService:BindToRenderStep("HashRushView", Enum.RenderPriority.Camera.Value + 1
 				bar = p.pick
 			end
 			-- Hints only its own player sees.
+			if h.me and p.carrying and latest.phase == "playing" then
+				for _, warp in Map.warps do
+					if (Vector2.new(p.x, p.y) - Vector2.new(warp.x, warp.y)).Magnitude <= warp.r + 0.5 then
+						status = "씨를 물고는 순간이동 못 해요! 걸어서 집으로!"
+					end
+				end
+			end
 			if h.me and not p.carrying and not p.dazed then
 				local inRing = (Vector2.new(p.x, p.y) - Vector2.new(FLOWER.x, FLOWER.y)).Magnitude <= FLOWER.gatherR
 				if inRing and (nibbling or latest.nibbler == 0) and player:GetAttribute("HRMoving") then
@@ -782,33 +1154,65 @@ RunService:BindToRenderStep("HashRushView", Enum.RenderPriority.Camera.Value + 1
 	local overtime = latest.time > Config.OVERTIME.start
 	homeEdge.Transparency = if overtime then 0.1 + (math.sin(time * 10) + 1) * 0.25 else 0.15
 
-	-- A seed is nearly home: everyone gets the red rim and the beeps.
+	-- A seed is nearly home: everyone gets the red rim, and once per seed the
+	-- siren and a word on who it is, as on the web.
 	alarm = alarm and latest.phase == "playing"
 	alarmRim.Visible = alarm
 	if alarm then
 		alarmStroke.Transparency = 0.35 + (math.sin(time * 12) + 1) * 0.3
-		if time - alarmBeep > 0.4 then
-			alarmBeep = time
-			Fx.sound("alarm")
+	end
+	local carrier = nil
+	for _, p in latest.players do
+		if p.alarm and latest.phase == "playing" then
+			carrier = p
+		end
+	end
+	local key = if carrier then tostring(carrier.id) else ""
+	if key ~= "" and key ~= alarmFor then
+		if carrier.id == mySeat then
+			banner("🚨 집이 코앞! 끝까지 달려요!", RED)
+		elseif mate(carrier.id) then
+			banner("🚨 " .. subject(nameOf(carrier.id)) .. " 해씨를 물고 집에 다 왔어요! 지켜줘요!", RED)
+		else
+			banner("🚨 " .. subject(nameOf(carrier.id)) .. " 해씨를 물고 집에 다 왔어요! 막아요!", RED)
+		end
+		Fx.sound("siren")
+	end
+	-- Stepping back out and in again does not repeat it; a new seed does.
+	local anyCarrier = false
+	for _, p in latest.players do
+		anyCarrier = anyCarrier or p.carrying
+	end
+	if key ~= "" or not anyCarrier then
+		alarmFor = key
+	end
+
+	-- The clock is heard ticking all through overtime, twice a second.
+	local beat = if overtime and latest.phase == "playing" then math.floor(latest.time * 2) else -1
+	if beat ~= tickBeat then
+		tickBeat = beat
+		if beat >= 0 then
+			Fx.sound(if beat % 2 == 1 then "tock" else "tick")
 		end
 	end
 
 	-- The count before the start, then "go" for a moment.
 	local counting = latest.phase == "countdown"
 	local big = if counting then tostring(math.max(1, math.ceil(latest.countdown))) elseif latest.phase == "playing" and latest.time < 0.8 then "출발!" else nil
-	bigLabel.Visible = big ~= nil and not resultPanel.Visible
+	bigLabel.Visible = big ~= nil and not resultPanel.Visible and not tutorial
 	if big ~= shownCount then
 		shownCount = big
 		if big then
 			bigLabel.Text = big
 			bigLabel.TextColor3 = if counting then WHITE else GOLD
 			pop(bigScale, 0.2)
-			if counting then
-				Fx.sound("tick")
-			end
 		end
 	end
-	if counting then
+	if tutorial then
+		timerLabel.Text = "🎓 연습"
+		timerLabel.TextColor3 = WHITE
+		timerScale.Scale = 1
+	elseif counting then
 		timerLabel.Text = "준비…"
 		timerLabel.TextColor3 = WHITE
 		timerScale.Scale = 1

@@ -17,95 +17,119 @@ folder.Name = "HashRushFx"
 folder.Parent = workspace
 
 -- Sounds --------------------------------------------------------------------
--- Everything here is published by Roblox itself or by APM Music, Roblox's
--- licensed library, both free for any experience: nothing to upload, nothing
--- that can be taken down under us. A few come with the client (rbxasset).
+-- The web game's own sound effects and music (src/client/audio.js, music.js),
+-- rendered from its synthesiser into audio files and uploaded to Roblox; see
+-- Sounds. Until they are uploaded, Roblox's own sounds stand in.
+
+local Sounds = require(script.Parent:WaitForChild("Sounds"))
 
 local function asset(id)
 	return "rbxassetid://" .. id
 end
 
--- { sound, playback speed, volume }
-local SOUNDS = {
-	swing = { asset(15675012262), 1.15, 0.5 }, -- Roblox_UI_Whoosh_04
-	hit = { asset(12222054), 1, 0.9 }, -- Kerplunk
-	boing = { asset(12222124), 1.25, 0.55 }, -- Short spring sound
-	thump = { "rbxasset://sounds/impact_explosion_03.mp3", 2.4, 0.22 },
-	ouch = { asset(15675081158), 1, 0.8 }, -- Roblox_UI_Cute_Goodbye: I was the one bonked
-	whiff = { asset(15675024286), 1.5, 0.25 }, -- Roblox_UI_Whoosh_01
-	seed = { asset(17208319162), 1, 0.7 }, -- Roblox GUI - Pickup
-	steal = { asset(15675037413), 1.1, 0.7 }, -- Roblox_UI_Paper_Swipe
-	throw = { asset(15675028888), 1.1, 0.6 }, -- Roblox_UI_Whoosh_02
-	warp = { asset(15675046931), 1, 0.5 }, -- Roblox_UI_Sweep
-	tick = { asset(15675059323), 0.9, 0.7 }, -- Roblox_UI_Bright_Click
-	go = { asset(15675043410), 1, 0.7 }, -- Roblox_UI_Tonal_Stinger
-	click = { asset(15675032796), 1, 0.6 }, -- Roblox_UI_Small_Click
-	pop = { asset(15675055424), 1.1, 0.5 }, -- Roblox_UI_Cute_Pop
-	alarm = { "rbxasset://sounds/volume_slider.ogg", 2.2, 0.3 },
-	win = { asset(1844584698), 1, 0.6 }, -- APM "Winner"
-	over = { asset(1842335078), 1, 0.5 }, -- APM "Cartoon Fanfare (c)"
+-- Stand-ins, as { sound, playback speed, volume }: published by Roblox itself or
+-- by APM Music, Roblox's licensed library, so they play in any experience.
+local STAND_IN = {
+	swing = { asset(15675012262), 1.15, 0.5 },
+	bonk = { asset(12222054), 1, 0.9 },
+	toss = { asset(15675028888), 1.1, 0.6 },
+	double = { asset(15675043410), 1.2, 0.6 },
+	triple = { asset(15675043410), 1.4, 0.7 },
+	superplay = { asset(15675043410), 1, 0.7 },
+	spawn = { asset(15675055424), 1.1, 0.5 },
+	seed = { asset(17208319162), 1, 0.7 },
+	siren = { "rbxasset://sounds/volume_slider.ogg", 2.2, 0.3 },
+	tick = { asset(15675059323), 1.2, 0.4 },
+	tock = { asset(15675059323), 0.9, 0.4 },
+	count = { asset(15675059323), 0.9, 0.7 },
+	go = { asset(15675043410), 1, 0.7 },
+	overtime = { "rbxasset://sounds/volume_slider.ogg", 1.5, 0.5 },
+	win = { asset(1844584698), 1, 0.6 },
+	lose = { asset(1842335078), 0.8, 0.5 },
+}
+local STAND_IN_MUSIC = {
+	lobby = { asset(1839580471), 0.32 },
+	game = { asset(1841647421), 0.26 },
 }
 
-local MUSIC = {
-	lobby = { asset(1839580471), 0.32 }, -- APM "Happy Forever Ukulele"
-	round = { asset(1841647421), 0.26 }, -- APM "Cartoon Capers"
-}
+-- All the web game's effects are in one file, each in its own stretch of it.
+local effects = nil
+if Sounds.effects then
+	effects = Instance.new("Sound")
+	effects.Name = "Effects"
+	effects.SoundId = asset(Sounds.effects)
+	effects.Volume = Sounds.volume
+	effects.PlaybackRegionsEnabled = true
+	effects.Parent = SoundService
+end
 
-local sounds = {}
-for name, spec in SOUNDS do
+local standIns = {}
+for name, spec in STAND_IN do
 	local sound = Instance.new("Sound")
 	sound.Name = name
 	sound.SoundId = spec[1]
 	sound.PlaybackSpeed = spec[2]
 	sound.Volume = spec[3]
 	sound.Parent = SoundService
-	sounds[name] = sound
+	standIns[name] = sound
 end
 
 local muted = false
 
--- `pitch` multiplies the sound's usual speed; a little spread keeps repeats alive.
-function Fx.sound(name, pitch)
-	local sound = sounds[name]
-	if not sound or muted then
+function Fx.sound(name)
+	if muted then
 		return
 	end
-	local copy = sound:Clone()
-	copy.PlaybackSpeed = sound.PlaybackSpeed * (pitch or 1) * (0.96 + math.random() * 0.08)
-	copy.Parent = SoundService
-	copy:Play()
-	Debris:AddItem(copy, 6)
+	local region = Sounds.sprite[name]
+	if effects and region then
+		local copy = effects:Clone()
+		copy.PlaybackRegion = NumberRange.new(region[1], region[1] + region[2])
+		copy.Parent = SoundService
+		copy:Play()
+		Debris:AddItem(copy, region[2] + 1)
+		return
+	end
+	local sound = standIns[name]
+	if sound then
+		local copy = sound:Clone()
+		copy.Parent = SoundService
+		copy:Play()
+		Debris:AddItem(copy, 6)
+	end
 end
 
+-- The tunes: one file for the round, with all the web game's round tunes in it
+-- back to back, and one for the lobby.
 local tracks = {}
-for name, spec in MUSIC do
+for name, stand in STAND_IN_MUSIC do
+	local music = Sounds.music[name]
 	local track = Instance.new("Sound")
 	track.Name = "Music_" .. name
-	track.SoundId = spec[1]
+	track.SoundId = if music.id then asset(music.id) else stand[1]
 	track.Looped = true
 	track.Volume = 0
 	track.Parent = SoundService
-	tracks[name] = track
+	tracks[name] = { sound = track, volume = if music.id then Sounds.volume else stand[2], starts = if music.id then music.starts else nil }
 end
 local playing = nil
 
--- Fades over to the named tune; nil fades to silence. `speed` hurries it along.
-function Fx.music(name, speed)
+-- Fades over to the named tune; nil fades to silence. A round tune starts at the
+-- top of one of the web game's tunes, picked at random, as the web shuffles them.
+function Fx.music(name)
 	for key, track in tracks do
+		local sound = track.sound
 		local on = key == name and not muted
-		if on and not track.IsPlaying then
-			track.TimePosition = 0
-			track:Play()
+		if on and not sound.IsPlaying then
+			local starts = track.starts
+			sound.TimePosition = if starts then starts[math.random(#starts)] else 0
+			sound:Play()
 		end
-		if key == name then
-			track.PlaybackSpeed = speed or 1
-		end
-		local tween = TweenService:Create(track, TweenInfo.new(0.8), { Volume = if on then MUSIC[key][2] else 0 })
+		local tween = TweenService:Create(sound, TweenInfo.new(0.8), { Volume = if on then track.volume else 0 })
 		tween:Play()
 		if not on then
 			tween.Completed:Once(function()
-				if track.Volume == 0 then
-					track:Stop()
+				if sound.Volume == 0 then
+					sound:Stop()
 				end
 			end)
 		end
@@ -115,7 +139,7 @@ end
 
 function Fx.setMuted(want)
 	muted = want
-	Fx.music(playing, playing and tracks[playing].PlaybackSpeed)
+	Fx.music(playing)
 end
 
 function Fx.muted()
