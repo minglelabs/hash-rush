@@ -102,6 +102,7 @@ local Map = {
 -- light. The folder's attributes tell the client where things are.
 function Map.render()
 	local Lighting = game:GetService("Lighting")
+	local Lang = require(game:GetService("ReplicatedStorage"):WaitForChild("Lang"))
 	local folder = Instance.new("Folder")
 	folder.Name = "HashRushMap"
 	local rng = Random.new(11)
@@ -411,12 +412,13 @@ function Map.render()
 	surface.PixelsPerStud = 40
 	surface.LightInfluence = 0
 	surface.Parent = homeSign
-	for _, line in { { "🏠 집", 0, 0.62 }, { "씨를 물고 여기로!", 0.62, 0.38 } } do
+	for _, line in { { "homeSign", 0, 0.62 }, { "homeHint", 0.62, 0.38 } } do
 		local label = Instance.new("TextLabel")
+		label.Name = line[1]
 		label.BackgroundTransparency = 1
 		label.Position = UDim2.fromScale(0, line[2])
 		label.Size = UDim2.fromScale(1, line[3])
-		label.Text = line[1]
+		label.Text = Lang.t(line[1])
 		label.TextScaled = true
 		label.Font = Enum.Font.FredokaOne
 		label.TextColor3 = rgb(201, 160, 104)
@@ -481,7 +483,8 @@ function Map.render()
 		local label = Instance.new("TextLabel")
 		label.Size = UDim2.fromScale(1, 1)
 		label.BackgroundTransparency = 1
-		label.Text = "🌀 집으로 순간이동"
+		label.Name = "swirlSign"
+		label.Text = Lang.t("swirlSign")
 		label.TextScaled = true
 		label.Font = Enum.Font.FredokaOne
 		label.TextColor3 = rgb(120, 70, 200)
@@ -569,6 +572,17 @@ function Map.render()
 	folder:SetAttribute("GatherR", FLOWER.gatherR)
 	folder.Parent = workspace
 	return folder
+end
+
+-- The signs on the meadow were written by the server; the client writes them
+-- again in its player's language.
+function Map.label(folder: Instance)
+	local Lang = require(game:GetService("ReplicatedStorage"):WaitForChild("Lang"))
+	for _, item in folder:GetDescendants() do
+		if item:IsA("TextLabel") and (item.Name == "homeSign" or item.Name == "homeHint" or item.Name == "swirlSign") then
+			item.Text = Lang.t(item.Name)
+		end
+	end
 end
 
 return Map

@@ -6,6 +6,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage:WaitForChild("Config"))
+local Lang = require(ReplicatedStorage:WaitForChild("Lang"))
 
 local R = Config.HAMSTER_R
 -- Drawn a little bigger than it collides, so it reads well from far above.
@@ -194,7 +195,7 @@ function Hamster.new(parent, info, me)
 	self.label = label(UDim2.fromScale(0, 0.46), UDim2.fromScale(1, 0.32), color, WHITE)
 	self.label.Text = info.name
 	local level = info.bot and Config.BOT_LEVELS[info.bot]
-	local under = if me then { name = "나", color = color } else level
+	local under = if me then { name = Lang.t("me"), color = color } elseif level then { name = Lang.t("levels")[info.bot], color = level.color } else nil
 	if under then
 		label(UDim2.fromScale(0, 0.78), UDim2.fromScale(1, 0.22), under.color, WHITE).Text = under.name
 	end

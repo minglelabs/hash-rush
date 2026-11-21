@@ -11,6 +11,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Config"))
+local Lang = require(ReplicatedStorage:WaitForChild("Lang"))
 local Snapshot = require(ReplicatedStorage:WaitForChild("Snapshot"))
 local Map = require(ReplicatedStorage:WaitForChild("Map"))
 local Sim = require(ReplicatedStorage:WaitForChild("Sim"))
@@ -183,7 +184,7 @@ local function sendLobby()
 		left = left,
 		people = people,
 		bots = botsFor(math.max(1, readied)),
-		level = Config.BOT_LEVELS[botLevel].name,
+		level = botLevel,
 		teams = teams,
 	}
 	roundRemote:FireAllClients(lastLobby)
@@ -208,8 +209,9 @@ local function startRound()
 		local i = #slots + 1
 		local seed = rng:NextInteger(1, 2 ^ 30)
 		local brain = if botLevel == "rl" then RLBot.new({ seed = seed, offset = k }) else Bot.new({ difficulty = botLevel, seed = seed })
-		-- A bot is named after its seat's hamster in the web game.
-		bots[i] = { brain = brain, name = Config.NAMES[i], level = botLevel }
+		-- A bot is named after its seat's hamster in the web game. Each client
+		-- writes the name in its own language; this one keeps the score.
+		bots[i] = { brain = brain, name = Lang.WORDS.ko.names[i], level = botLevel }
 		simInputs[i] = { mx = 0, my = 0, bonk = false, throw = false }
 		slots[i] = { id = i, name = bots[i].name }
 	end

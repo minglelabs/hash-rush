@@ -14,17 +14,23 @@ local Config = require(ReplicatedStorage:WaitForChild("Config"))
 local Map = require(ReplicatedStorage:WaitForChild("Map"))
 local Sim = require(ReplicatedStorage:WaitForChild("Sim"))
 local Snapshot = require(ReplicatedStorage:WaitForChild("Snapshot"))
+local Lang = require(ReplicatedStorage:WaitForChild("Lang"))
 local Fx = require(script.Parent:WaitForChild("Fx"))
 local Hamster = require(script.Parent:WaitForChild("Hamster"))
 local Tutorial = require(script.Parent:WaitForChild("Tutorial"))
 
 local player = Players.LocalPlayer
+Lang.pick(player)
+local UserInputService = game:GetService("UserInputService")
+-- A phone or tablet with no keyboard: the words name its buttons, not keys.
+local touchOnly = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 local remotes = ReplicatedStorage:WaitForChild("HashRushRemotes")
 local roundRemote = remotes:WaitForChild("Round")
 local readyRemote = remotes:WaitForChild("Ready")
 local lobbyRemote = remotes:WaitForChild("Lobby")
 local snapRemote = remotes:WaitForChild("Snap")
 local mapFolder = workspace:WaitForChild("HashRushMap")
+Map.label(mapFolder)
 
 local WORLD_W = Map.world.w
 local WORLD_H = Map.world.h
@@ -242,7 +248,7 @@ make("UIStroke", { Thickness = 3, Color = INK }, readyButton)
 local readyScale = make("UIScale", {}, readyButton)
 local myReady = false
 local function showReady()
-	readyButton.Text = if myReady then "✅ 준비 완료!" else "▶ 준비! (Enter)"
+	readyButton.Text = if myReady then Lang.t("ready") else Lang.t("readyPrompt") .. (if touchOnly then "" else Lang.t("readyKey"))
 	readyButton.BackgroundColor3 = if myReady then Color3.fromRGB(120, 130, 140) else Color3.fromRGB(96, 196, 96)
 end
 local function setReady(want)
@@ -308,18 +314,12 @@ local function showPeople(msg)
 		end
 	end
 	if msg.bots > 0 and #msg.people < 8 then
-		line(20, ("🤖 봇 %d마리 · %s"):format(msg.bots, msg.level), GOLD)
+		line(20, Lang.t("lobbyBots", msg.bots, Lang.t("levels")[msg.level] or msg.level), GOLD)
 	end
 end
 text({ Position = UDim2.fromOffset(30, 18), Size = UDim2.new(1, -60, 0, 56), Text = "🐹 Hash Rush", TextColor3 = GOLD }, helpPanel, 4)
 do
-	local lines = {
-		{ "🌻", "해바라기 옆에서 2초 가만히! 해씨는 한 번에 한 마리씩" },
-		{ "🏠", "해씨를 물고 왼쪽 모래밭 집에 들어가면 승리" },
-		{ "👊", "Space 꿀밤: 바로 옆에서만 맞아요. 맞으면 둥지로" },
-		{ "🌀", "보라색 소용돌이: 빈손일 때 둥지로 순간이동" },
-		{ "💨", "해씨를 든 채 F를 꾹: 줄 선 상대를 한꺼번에" },
-	}
+	local lines = Lang.t(if touchOnly then "helpTouch" else "help")
 	for i, line in lines do
 		local row = make("Frame", { BackgroundColor3 = Color3.fromRGB(88, 62, 46), BorderSizePixel = 0, Position = UDim2.fromOffset(28, 30 + i * 54), Size = UDim2.fromOffset(496, 46) }, helpPanel)
 		make("UICorner", { CornerRadius = UDim.new(0, 14) }, row)
@@ -441,10 +441,16 @@ local function drawScores()
 	end
 end
 
+-- A bot's name in this player's language; a person's as Roblox has it.
+local function localName(info)
+	return if info.bot then Lang.t("names")[info.id] or info.name else info.name
+end
+
 local function setRoster(list)
 	table.clear(roster)
 	mySeat = nil
 	for _, info in list do
+		info.name = localName(info)
 		roster[info.id] = info
 		if info.userId == player.UserId then
 			mySeat = info.id
@@ -469,15 +475,8 @@ local function addFeed(message)
 	end)
 end
 
-local MULTI = { "더블킬!", "트리플킬!", "쿼드라킬!", "펜타킬!", "헥사킬!", "헵타킬!" }
+local MULTI = Lang.t("multi")
 local predictedSwing = 0 -- os.clock() of the last swing drawn before the server said so
-
--- "구름이" or "초코가", as the web game writes a name before a verb.
-local function subject(name)
-	local last = utf8.codepoint(name, utf8.offset(name, -1))
-	local hangul = last >= 0xAC00 and last <= 0xD7A3
-	return name .. (if hangul and (last - 0xAC00) % 28 ~= 0 then "이" else "가")
-end
 
 -- On my side: the same team in a team round.
 local function mate(seat)
@@ -489,11 +488,11 @@ end
 -- Somebody has a seed now: what the web game says about it.
 local function gotSeed(seat)
 	if seat == mySeat then
-		banner("🌻 해씨 획득! 노랗게 빛나는 🏠 집으로 달려요!")
+		banner(Lang.t("gotSeedMe"))
 	elseif mate(seat) then
-		banner("🌻 " .. subject(nameOf(seat)) .. " 씨를 물었어요! 지켜줘요!")
+		banner(Lang.t("gotSeedMate", nameOf(seat)))
 	else
-		banner("🌻 " .. subject(nameOf(seat)) .. " 씨를 물었어요! 막아요!", RED)
+		banner(Lang.t("gotSeedFoe", nameOf(seat)), RED)
 	end
 end
 
@@ -525,7 +524,7 @@ local function showEvent(e)
 		Fx.stars(e.x, e.y, GOLD, 20)
 		Fx.dust(e.x, e.y, 8, 12)
 		Fx.ring(e.x, e.y, 7, WHITE, 0.3)
-		Fx.words(e.x, e.y, "뿅!", RED, 9)
+		Fx.words(e.x, e.y, Lang.t("bonkWord"), RED, 9)
 		Fx.tumble(e.x, e.y, dx, dy, seatColor(e.id))
 		Fx.sound("bonk")
 		Fx.shake(if mine then 0.75 else 0.4)
@@ -534,18 +533,18 @@ local function showEvent(e)
 		if e.id == mySeat then
 			flash(RED, 0.4)
 			if e.seed then
-				banner("씨를 놓쳤어요! 다시 해바라기로!", RED)
+				banner(Lang.t("lostSeed"), RED)
 			end
 		elseif e.by == mySeat then
 			flash(WHITE, 0.22)
 		end
-		addFeed(("%s %s뿅! %s"):format(nameOf(e.by), if e.seed then "🌻" else "", nameOf(e.id)))
+		addFeed(Lang.t("feedBonk", nameOf(e.by), e.seed == true, nameOf(e.id)))
 		if e.close then
-			banner(nameOf(e.by) .. " 슈퍼플레이!")
+			banner(Lang.t("superplay", nameOf(e.by)))
 			Fx.sound("superplay")
 		end
 	elseif e.type == "throw" then
-		Fx.words(e.x, e.y, "던지기!", GOLD, 8)
+		Fx.words(e.x, e.y, Lang.t("throwWord"), GOLD, 8)
 		Fx.seedShot(e.x, e.y, e.dx, e.dy, Config.THROW.range)
 		Fx.sound("toss")
 		Fx.shake(0.2)
@@ -554,12 +553,12 @@ local function showEvent(e)
 		end
 	elseif e.type == "multi" then
 		local name = MULTI[math.min(e.n, #MULTI + 1) - 1]
-		banner(nameOf(e.by) .. " " .. name .. (if e.n >= 3 then " 슈퍼플레이!" else ""))
+		banner(Lang.t("multiBanner", nameOf(e.by), name, e.n >= 3))
 		Fx.sound(if e.n >= 3 then "triple" else "double")
 	elseif e.type == "seed" then
 		if h and h.x then
 			Fx.stars(h.x, h.y, GOLD, 12)
-			Fx.words(h.x, h.y, "🌻 해씨 획득!", GOLD, 9)
+			Fx.words(h.x, h.y, Lang.t("seedWord"), GOLD, 9)
 			h:squash(-5)
 		end
 		Fx.sound("seed")
@@ -568,19 +567,19 @@ local function showEvent(e)
 	elseif e.type == "steal" then
 		local by = hamsters[e.by]
 		Fx.stars(e.x, e.y, CREAM, 10)
-		Fx.words(e.x, e.y, "소매치기!", CREAM, 8)
+		Fx.words(e.x, e.y, Lang.t("stealWord"), CREAM, 8)
 		Fx.sound("seed")
 		if by then
 			by:squash(-4)
 		end
-		addFeed(("%s 🌻소매치기! %s"):format(nameOf(e.by), nameOf(e.id)))
+		addFeed(Lang.t("feedSteal", nameOf(e.by), nameOf(e.id)))
 		if e.id == mySeat then
-			banner("해씨를 소매치기 당했어요!", RED)
+			banner(Lang.t("gotStolen"), RED)
 		else
 			gotSeed(e.by)
 		end
 		if e.close then
-			banner(nameOf(e.by) .. " 슈퍼플레이!")
+			banner(Lang.t("superplay", nameOf(e.by)))
 			Fx.sound("superplay")
 		end
 	elseif e.type == "spawn" then
@@ -593,7 +592,7 @@ local function showEvent(e)
 		Fx.dust(e.fromX, e.fromY, 7, 9)
 		Fx.ring(e.fromX, e.fromY, 5, Color3.fromRGB(190, 150, 255), 0.3)
 		Fx.dust(e.x, e.y, 6, 8)
-		Fx.words(e.fromX, e.fromY, "쏙!", CREAM, 7)
+		Fx.words(e.fromX, e.fromY, Lang.t("warpWord"), CREAM, 7)
 		if e.id == mySeat then
 			snapCamera = true
 			Fx.sound("spawn")
@@ -603,10 +602,10 @@ local function showEvent(e)
 	elseif e.type == "go" then
 		Fx.sound("go")
 	elseif e.type == "overtime" then
-		banner("⏰ 연장전! 씨가 빨리 나오고, 쓰러지면 기절!", RED)
+		banner(Lang.t("overtime"), RED)
 		Fx.sound("overtime")
 	elseif e.type == "rush" then
-		banner("🚨 막판! 집이 해바라기까지 밀려옵니다", RED)
+		banner(Lang.t("rush"), RED)
 		Fx.sound("overtime")
 	end
 end
@@ -627,13 +626,13 @@ local function showResult(msg)
 		wholeTeam = wholeTeam and roster[seat] and roster[seat].team == winner.team
 	end
 	if wholeTeam then
-		resultTitle.Text = "🏆 " .. Config.TEAMS[winner.team].name .. " 팀 승리!"
+		resultTitle.Text = Lang.t("teamWin", Lang.t("teams")[winner.team])
 		resultTitle.TextColor3 = Config.TEAMS[winner.team].color
 	else
-		resultTitle.Text = if #names > 0 then "🏆 " .. table.concat(names, " · ") .. " 승리!" else "판이 끝났어요"
+		resultTitle.Text = if #names > 0 then Lang.t("win", table.concat(names, " · "), #names) else Lang.t("noWinner")
 		resultTitle.TextColor3 = GOLD
 	end
-	resultWhy.Text = if msg.left then "상대가 나가서 판이 끝났어요" elseif msg.timeout then "시간 종료 · 꿀밤 횟수로 정했어요" else "해씨를 물고 집에 돌아왔어요"
+	resultWhy.Text = Lang.t(if msg.left then "whyLeft" elseif msg.timeout then "whyTimeout" else "whyHome")
 	local sorted = table.clone(msg.roster)
 	table.sort(sorted, function(a, b)
 		if a.wins ~= b.wins then
@@ -659,7 +658,7 @@ local function showResult(msg)
 		make("UICorner", { CornerRadius = UDim.new(0.5, 0) }, dot)
 		make("UIStroke", { Thickness = 2, Color = INK }, dot)
 		text({ Position = UDim2.fromOffset(84, 6), Size = UDim2.new(1, -280, 1, -12), Text = info.name, TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = CREAM }, row, false)
-		text({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -100, 0, 6), Size = UDim2.new(0, 84, 1, -12), Text = ("⭐ %d승"):format(info.wins), TextColor3 = GOLD }, row, false)
+		text({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -100, 0, 6), Size = UDim2.new(0, 84, 1, -12), Text = Lang.t("wins", info.wins), TextColor3 = GOLD }, row, false)
 		text({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -10, 0, 6), Size = UDim2.new(0, 80, 1, -12), Text = ("👊 %d"):format(info.kills), TextColor3 = CREAM }, row, false)
 	end
 	resultPanel.Visible = true
@@ -767,7 +766,7 @@ local function startTutorial()
 			tutorPanel.Visible = true
 			tutorTitle.Text = ("🎓 %d/%d · %s"):format(index, Tutorial.STEPS, step.title)
 			tutorText.Text = again or step.text
-			tutorButton.Text = if onLastStep then "▶ 시작하기!" else "건너뛰기 ✕"
+			tutorButton.Text = Lang.t(if onLastStep then "tutorStart" else "tutorSkip")
 			tutorButton.BackgroundColor3 = if onLastStep then Color3.fromRGB(96, 196, 96) else Color3.fromRGB(110, 78, 48)
 			pop(tutorScale, 0.85)
 			if onLastStep then
@@ -778,7 +777,7 @@ local function startTutorial()
 			tutorTarget = if at then { at = at, icon = icon, label = label } else nil
 		end,
 		cheer = function()
-			banner("👍 잘했어요!")
+			banner(Lang.t("cheer"))
 			Fx.sound("double")
 			tutorTarget = nil
 		end,
@@ -801,7 +800,7 @@ local function offerTutorial()
 end
 player:GetAttributeChangedSignal("HRGames"):Connect(offerTutorial)
 
-local tutorialButton = make("TextButton", { Position = UDim2.fromOffset(540, 88), Size = UDim2.fromOffset(252, 50), BackgroundColor3 = Color3.fromRGB(240, 176, 44), BorderSizePixel = 0, AutoButtonColor = false, Font = FONT, TextSize = 24, TextColor3 = WHITE, Text = "🎓 튜토리얼" }, helpPanel)
+local tutorialButton = make("TextButton", { Position = UDim2.fromOffset(540, 88), Size = UDim2.fromOffset(252, 50), BackgroundColor3 = Color3.fromRGB(240, 176, 44), BorderSizePixel = 0, AutoButtonColor = false, Font = FONT, TextSize = 24, TextColor3 = WHITE, Text = Lang.t("tutorial") }, helpPanel)
 make("UICorner", { CornerRadius = UDim.new(0, 16) }, tutorialButton)
 make("UIStroke", { ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Thickness = 3, Color = INK }, tutorialButton)
 make("UIStroke", { Thickness = 2.5, Color = INK }, tutorialButton)
@@ -824,7 +823,7 @@ roundRemote.OnClientEvent:Connect(function(msg)
 		end
 		bigLabel.Visible = false
 		alarmRim.Visible = false
-		timerLabel.Text = "🌻 대기 중"
+		timerLabel.Text = Lang.t("waiting")
 		timerLabel.TextColor3 = WHITE
 		timerScale.Scale = 1
 		if not readyButton.Visible then
@@ -833,23 +832,23 @@ roundRemote.OnClientEvent:Connect(function(msg)
 			readyButton.Visible = true
 		end
 		botBar.Visible = true
-		botLabel.Text = ("🤖 봇 %d"):format(msg.bots)
-		levelButton.Text = "난이도 " .. msg.level
-		modeButton.Text = if msg.teams then "⚔ 팀전" else "👤 개인전"
+		botLabel.Text = Lang.t("botCount", msg.bots)
+		levelButton.Text = Lang.t("level", Lang.t("levels")[msg.level] or msg.level)
+		modeButton.Text = Lang.t(if msg.teams then "teamMode" else "solo")
 		showPeople(msg)
 		offerTutorial()
 		if msg.left then
-			notice(("%d초 뒤 시작해요 · 준비 %d/%d명"):format(msg.left, msg.ready, msg.count))
+			notice(Lang.t("startsIn", msg.left, msg.ready, msg.count))
 		elseif msg.short > 0 then
-			notice(("상대가 필요해요 · 햄스터 %d마리를 더 기다리거나 봇을 넣어요"):format(msg.short))
+			notice(Lang.t("needRival", msg.short))
 		else
-			notice(("모두 준비하면 시작해요 · 준비 %d/%d명"):format(msg.ready, msg.count))
+			notice(Lang.t("allReady", msg.ready, msg.count))
 		end
 	elseif msg.kind == "start" then
 		beginRound(msg.roster, msg.round)
 		Fx.music("game")
 		Fx.sound("count")
-		notice(if mySeat then "" else "관전 중 · 판이 끝나면 준비를 눌러 참가해요")
+		notice(if mySeat then "" else Lang.t("watching"))
 	elseif msg.kind == "events" then
 		if msg.round == round then
 			for _, e in msg.list do
@@ -1008,7 +1007,7 @@ local function showPointers()
 			if p.id == mySeat then
 				mine = p
 			elseif p.carrying and h and h.x then
-				local side = if mate(p.id) then "지켜요!" else "막아요!"
+				local side = Lang.t(if mate(p.id) then "cover" else "block")
 				pointTo("carrier" .. p.id, Vector3.new(h.x, 1, h.y), if p.alarm then "🚨" else "🌻", nameOf(p.id) .. " · " .. side, seatColor(p.id), p.alarm)
 			end
 		end
@@ -1020,9 +1019,9 @@ local function showPointers()
 			end
 		elseif mine and h and h.x and not mine.dazed then
 			if mine.carrying then
-				pointTo("home", Vector3.new(latest.homeX - 2, 0, math.clamp(h.y, Map.bounds.y1 + 4, Map.bounds.y2 - 4)), "🏠", "집으로!", GOLD, false)
+				pointTo("home", Vector3.new(latest.homeX - 2, 0, math.clamp(h.y, Map.bounds.y1 + 4, Map.bounds.y2 - 4)), "🏠", Lang.t("toHome"), GOLD, false)
 			else
-				pointTo("flower", Vector3.new(FLOWER.x, 1, FLOWER.y), "🌻", "해바라기", GOLD, false)
+				pointTo("flower", Vector3.new(FLOWER.x, 1, FLOWER.y), "🌻", Lang.t("flower"), GOLD, false)
 			end
 		end
 	end
@@ -1095,28 +1094,28 @@ RunService:BindToRenderStep("HashRushView", Enum.RenderPriority.Camera.Value + 1
 			local nibbling = latest.nibbler == p.id
 			local bar = if nibbling then latest.gather else nil
 			if p.dazed then
-				status = "💫 기절"
+				status = Lang.t("dazed")
 			elseif nibbling then
-				status = "해씨 캐는 중"
+				status = Lang.t("digging")
 			elseif p.pick > 0 then
 				-- Rubbing up against a carrier to take its seed.
-				status = "슬쩍하는 중"
+				status = Lang.t("snatching")
 				bar = p.pick
 			end
 			-- Hints only its own player sees.
 			if h.me and p.carrying and latest.phase == "playing" then
 				for _, warp in Map.warps do
 					if (Vector2.new(p.x, p.y) - Vector2.new(warp.x, warp.y)).Magnitude <= warp.r + 0.5 then
-						status = "씨를 물고는 순간이동 못 해요! 걸어서 집으로!"
+						status = Lang.t("noWarpCarrying")
 					end
 				end
 			end
 			if h.me and not p.carrying and not p.dazed then
 				local inRing = (Vector2.new(p.x, p.y) - Vector2.new(FLOWER.x, FLOWER.y)).Magnitude <= FLOWER.gatherR
 				if inRing and (nibbling or latest.nibbler == 0) and player:GetAttribute("HRMoving") then
-					status = "가만히 있어야 캐져요!"
+					status = Lang.t("holdStill")
 				elseif inRing and not nibbling and latest.nibbler ~= 0 then
-					status = "앞 햄스터가 캐는 중… 대기"
+					status = Lang.t("queue")
 				end
 			end
 			h:draw(dt, x, y, p, { bar = bar, status = status })
@@ -1170,11 +1169,11 @@ RunService:BindToRenderStep("HashRushView", Enum.RenderPriority.Camera.Value + 1
 	local key = if carrier then tostring(carrier.id) else ""
 	if key ~= "" and key ~= alarmFor then
 		if carrier.id == mySeat then
-			banner("🚨 집이 코앞! 끝까지 달려요!", RED)
+			banner(Lang.t("alarmMe"), RED)
 		elseif mate(carrier.id) then
-			banner("🚨 " .. subject(nameOf(carrier.id)) .. " 해씨를 물고 집에 다 왔어요! 지켜줘요!", RED)
+			banner(Lang.t("alarmMate", nameOf(carrier.id)), RED)
 		else
-			banner("🚨 " .. subject(nameOf(carrier.id)) .. " 해씨를 물고 집에 다 왔어요! 막아요!", RED)
+			banner(Lang.t("alarmFoe", nameOf(carrier.id)), RED)
 		end
 		Fx.sound("siren")
 	end
@@ -1198,7 +1197,7 @@ RunService:BindToRenderStep("HashRushView", Enum.RenderPriority.Camera.Value + 1
 
 	-- The count before the start, then "go" for a moment.
 	local counting = latest.phase == "countdown"
-	local big = if counting then tostring(math.max(1, math.ceil(latest.countdown))) elseif latest.phase == "playing" and latest.time < 0.8 then "출발!" else nil
+	local big = if counting then tostring(math.max(1, math.ceil(latest.countdown))) elseif latest.phase == "playing" and latest.time < 0.8 then Lang.t("go") else nil
 	bigLabel.Visible = big ~= nil and not resultPanel.Visible and not tutorial
 	if big ~= shownCount then
 		shownCount = big
@@ -1209,11 +1208,11 @@ RunService:BindToRenderStep("HashRushView", Enum.RenderPriority.Camera.Value + 1
 		end
 	end
 	if tutorial then
-		timerLabel.Text = "🎓 연습"
+		timerLabel.Text = Lang.t("practice")
 		timerLabel.TextColor3 = WHITE
 		timerScale.Scale = 1
 	elseif counting then
-		timerLabel.Text = "준비…"
+		timerLabel.Text = Lang.t("getReady")
 		timerLabel.TextColor3 = WHITE
 		timerScale.Scale = 1
 	else

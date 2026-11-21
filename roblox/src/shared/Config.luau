@@ -79,18 +79,16 @@ Config.LOOKS = {
 }
 -- In a team round the outline, the name and the nest take the team's colour.
 Config.TEAMS = {
-	[0] = { color = hex("#e5484d"), name = "🔴 레드" },
-	[1] = { color = hex("#2f6fed"), name = "🔵 블루" },
+	[0] = { color = hex("#e5484d") },
+	[1] = { color = hex("#2f6fed") },
 }
--- The web game's names for the seats' hamsters; a bot takes its seat's.
-Config.NAMES = { "나", "구름", "초코", "먼지", "콩이", "보리", "밤톨", "호두" }
--- How a bot's level is written under it, each in its own colour.
+-- The colour a bot's level is written in under it. The words are in Lang.
 Config.BOT_LEVELS = {
-	easy = { name = "초보", color = hex("#1f9d55") },
-	normal = { name = "중수", color = hex("#e08a00") },
-	hard = { name = "고수", color = hex("#d63031") },
-	ace = { name = "초고수", color = hex("#8e44ad") },
-	rl = { name = "RL", color = hex("#0984e3") },
+	easy = { color = hex("#1f9d55") },
+	normal = { color = hex("#e08a00") },
+	hard = { color = hex("#d63031") },
+	ace = { color = hex("#8e44ad") },
+	rl = { color = hex("#0984e3") },
 }
 
 -- A hamster's colour: its team's in a team round, its seat's otherwise.

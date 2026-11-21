@@ -10,7 +10,10 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 
+local Lang = require(ReplicatedStorage:WaitForChild("Lang"))
+
 local player = Players.LocalPlayer
+Lang.pick(player)
 local remote = ReplicatedStorage:WaitForChild("HashRushRemotes"):WaitForChild("Input")
 
 -- Roblox's own movement and jump controls are not used.
@@ -195,9 +198,9 @@ local function button(name, text, size, offsetY, color)
 	return b
 end
 
-local bonkButton = button("Bonk", "👊\n꿀밤", 124, -28, Color3.fromRGB(240, 96, 76))
+local bonkButton = button("Bonk", Lang.t("bonkButton"), 124, -28, Color3.fromRGB(240, 96, 76))
 -- Only there while there is a seed to throw. View keeps the attribute up to date.
-local throwButton = button("Throw", "🌻\n던지기", 100, -172, Color3.fromRGB(240, 176, 44))
+local throwButton = button("Throw", Lang.t("throwButton"), 100, -172, Color3.fromRGB(240, 176, 44))
 throwButton.Visible = false
 player:GetAttributeChangedSignal("HRCarrying"):Connect(function()
 	throwButton.Visible = player:GetAttribute("HRCarrying") == true
