@@ -1,9 +1,11 @@
--- Lobby and round flow. Empty seats can be filled with bots: the lobby says how
--- many and how good, and anyone in it may change that. The server owns the game: clients only send what they
--- are pressing, and get back a snapshot every tick plus the events of that tick.
+-- Lobby and round flow. The first to arrive hosts the lobby, as in the web game's
+-- rooms: the host decides who plays the next round and who watches, and how many
+-- bots fill the empty seats and how good they are (Lobby.luau). The server owns
+-- the game: clients only send what they are pressing, and get back a snapshot
+-- every tick plus the events of that tick.
 --   lobby (everyone presses ready) -> round (3 s countdown, play) -> lobby, showing the result ...
--- Nothing starts by itself: a round begins once everyone in the server is ready,
--- or ten seconds after enough of them are. Whoever is not ready sits it out.
+-- Nothing starts by itself: a round begins once everyone playing is ready, or ten
+-- seconds after enough of them are. Whoever is not ready sits it out.
 
 local DataStoreService = game:GetService("DataStoreService")
 local Players = game:GetService("Players")
@@ -17,6 +19,7 @@ local Map = require(ReplicatedStorage:WaitForChild("Map"))
 local Sim = require(ReplicatedStorage:WaitForChild("Sim"))
 local Bot = require(script.Parent:WaitForChild("Bot"))
 local RLBot = require(script.Parent:WaitForChild("RLBot"))
+local Lobby = require(script.Parent:WaitForChild("Lobby"))
 
 Players.CharacterAutoLoads = false
 
@@ -88,10 +91,11 @@ local function record(userId, won)
 	end)
 end
 
-local joined = {} -- players, in the order they came in
+local lobby = Lobby.new(Config.MAX_PLAYERS)
+local joined = lobby.joined -- players, in the order they came in
 local raw = {} -- [player] = what that player is pressing
 local wins = {} -- [userId] = rounds won on this server
-local ready = {} -- [player] = true once it has asked for the next round
+local ready = {} -- [player] = true once it has asked for the next round (only those playing)
 
 local state = "lobby" -- "lobby" | "round"
 local timer = Config.LOBBY_COUNTDOWN
@@ -160,15 +164,17 @@ local function enough(readied)
 end
 
 local function sendLobby()
-	local count = #joined
+	local count = lobby:count()
 	local readied = readyCount()
 	-- The count runs only while some, but not all, are ready.
 	local left = if enough(readied) and readied < count then math.ceil(timer) else nil
 	local people = {}
-	local mark = { count, readied, left or -1, botCount, botLevel, if teams then 1 else 0 }
+	local hostId = if lobby.host then lobby.host.UserId else 0
+	local mark = { count, readied, left or -1, botCount, botLevel, if teams then 1 else 0, hostId }
 	for _, player in joined do
-		table.insert(people, { name = player.DisplayName, ready = ready[player] == true })
-		table.insert(mark, if ready[player] then 1 else 0)
+		local playing = lobby:isPlaying(player)
+		table.insert(people, { name = player.DisplayName, userId = player.UserId, ready = ready[player] == true, playing = playing })
+		table.insert(mark, player.UserId .. (if ready[player] then "r" elseif playing then "p" else "w"))
 	end
 	local signature = table.concat(mark, ",")
 	if lastLobby and lastLobby.signature == signature then
@@ -186,6 +192,8 @@ local function sendLobby()
 		bots = botsFor(math.max(1, readied)),
 		level = botLevel,
 		teams = teams,
+		host = hostId,
+		max = Config.MAX_PLAYERS,
 	}
 	roundRemote:FireAllClients(lastLobby)
 end
@@ -196,7 +204,7 @@ local function startRound()
 	simInputs = {}
 	local slots = {}
 	for _, player in joined do
-		if ready[player] and #slots < Config.MAX_PLAYERS then
+		if ready[player] and lobby:isPlaying(player) and #slots < Config.MAX_PLAYERS then
 			local i = #slots + 1
 			seats[i] = player
 			simInputs[i] = { mx = 0, my = 0, bonk = false, throw = false }
@@ -295,7 +303,7 @@ end
 local function tick()
 	if state == "lobby" then
 		local readied = readyCount()
-		if enough(readied) and readied == #joined then
+		if enough(readied) and readied == lobby:count() then
 			startRound()
 			return
 		elseif enough(readied) then
@@ -330,21 +338,19 @@ local function lookUp(player)
 end
 
 Players.PlayerAdded:Connect(function(player)
-	table.insert(joined, player)
+	lobby:join(player)
 	raw[player] = { mx = 0, my = 0, bonk = false, throw = false, tapped = false }
 	lookUp(player)
 end)
 for _, player in Players:GetPlayers() do
-	table.insert(joined, player)
+	lobby:join(player)
 	raw[player] = { mx = 0, my = 0, bonk = false, throw = false, tapped = false }
 	lookUp(player)
 end
 
 Players.PlayerRemoving:Connect(function(player)
-	local at = table.find(joined, player)
-	if at then
-		table.remove(joined, at)
-	end
+	-- The host's lobby passes on, and a seat that frees up goes to whoever waited longest.
+	lobby:leave(player)
 	raw[player] = nil
 	ready[player] = nil
 	-- Not table.find: seats has gaps once somebody has left.
@@ -385,12 +391,39 @@ readyRemote.OnServerEvent:Connect(function(player, want)
 	if state ~= "lobby" or not raw[player] then
 		return
 	end
-	ready[player] = if want == true then true else nil
+	-- Only those playing the next round can be ready for it.
+	ready[player] = if want == true and lobby:isPlaying(player) then true else nil
 end)
 
--- Anyone in the lobby may ask for more or fewer bots, or a different level.
-lobbyRemote.OnServerEvent:Connect(function(player, what, value)
+-- The host sets the lobby up: bots, their level, the mode, who plays and who
+-- watches, and may hand the lobby on. Anyone may move themselves in or out.
+local function byUserId(userId)
+	for _, player in joined do
+		if player.UserId == userId then
+			return player
+		end
+	end
+	return nil
+end
+
+lobbyRemote.OnServerEvent:Connect(function(player, what, value, want)
 	if state ~= "lobby" or not raw[player] then
+		return
+	end
+	if what == "seat" and type(value) == "number" then
+		local who = byUserId(value)
+		if who and lobby:seat(player, who, want == true) and not lobby:isPlaying(who) then
+			ready[who] = nil
+		end
+		return
+	elseif what == "host" and type(value) == "number" then
+		local who = byUserId(value)
+		if who then
+			lobby:handOver(player, who)
+		end
+		return
+	end
+	if player ~= lobby.host then
 		return
 	end
 	if what == "bots" and type(value) == "number" then

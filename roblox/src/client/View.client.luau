@@ -228,6 +228,9 @@ local function notice(message)
 	noticePanel.Visible = message ~= ""
 end
 
+-- A word across the middle of the screen for a moment (defined further down).
+local banner
+
 -- Nothing starts until the players say so: this is the button that says so.
 local readyButton = make("TextButton", {
 	AnchorPoint = Vector2.new(0.5, 1),
@@ -247,7 +250,16 @@ make("UIStroke", { ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Thickness = 4,
 make("UIStroke", { Thickness = 3, Color = INK }, readyButton)
 local readyScale = make("UIScale", {}, readyButton)
 local myReady = false
+-- The lobby as the server last told it: am I playing the next round, do I host it.
+local myPlaying = true
+local amHost = false
+local lobbyFull = false
 local function showReady()
+	if not myPlaying then
+		readyButton.Text = Lang.t("joinPrompt")
+		readyButton.BackgroundColor3 = Color3.fromRGB(70, 120, 190)
+		return
+	end
 	readyButton.Text = if myReady then Lang.t("ready") else Lang.t("readyPrompt") .. (if touchOnly then "" else Lang.t("readyKey"))
 	readyButton.BackgroundColor3 = if myReady then Color3.fromRGB(120, 130, 140) else Color3.fromRGB(96, 196, 96)
 end
@@ -257,18 +269,27 @@ local function setReady(want)
 	pop(readyScale, 0.8)
 	readyRemote:FireServer(want)
 end
-readyButton.Activated:Connect(function()
-	setReady(not myReady)
-end)
+-- Watching, the button asks for a seat instead.
+local function pressReady()
+	if myPlaying then
+		setReady(not myReady)
+	elseif lobbyFull then
+		banner(Lang.t("full", Config.MAX_PLAYERS), RED)
+	else
+		pop(readyScale, 0.8)
+		lobbyRemote:FireServer("seat", player.UserId, true)
+	end
+end
+readyButton.Activated:Connect(pressReady)
 ContextActionService:BindAction("HashRushReady", function(_, inputState)
 	if inputState ~= Enum.UserInputState.Begin or not readyButton.Visible then
 		return Enum.ContextActionResult.Pass
 	end
-	setReady(not myReady)
+	pressReady()
 	return Enum.ContextActionResult.Sink
 end, false, Enum.KeyCode.Return, Enum.KeyCode.KeypadEnter, Enum.KeyCode.ButtonStart)
 
--- The lobby's bots: how many, and how good. Anyone may change them.
+-- The lobby's bots: how many, and how good. Only the host may change them.
 local botBar = panel({ AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -134), Size = UDim2.fromOffset(546, 46), Visible = false }, hud, 23)
 local botLabel = text({ Position = UDim2.fromOffset(16, 9), Size = UDim2.fromOffset(120, 28), TextXAlignment = Enum.TextXAlignment.Left }, botBar, false)
 local function barButton(label, x, width, action)
@@ -276,14 +297,18 @@ local function barButton(label, x, width, action)
 	make("UICorner", { CornerRadius = UDim.new(0.5, 0) }, button)
 	make("UIStroke", { ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Thickness = 2, Color = INK }, button)
 	button.Activated:Connect(function()
+		if amHost then
 			action()
+		else
+			banner(Lang.t("hostOnly"), RED)
+		end
 	end)
 	return button
 end
-barButton("−", 146, 40, function()
+local minusButton = barButton("−", 146, 40, function()
 	lobbyRemote:FireServer("bots", -1)
 end)
-barButton("+", 192, 40, function()
+local plusButton = barButton("+", 192, 40, function()
 	lobbyRemote:FireServer("bots", 1)
 end)
 local levelButton = barButton("", 246, 170, function()
@@ -292,29 +317,127 @@ end)
 local modeButton = barButton("", 424, 108, function()
 	lobbyRemote:FireServer("teams")
 end)
+-- Dimmed for everyone but the host.
+local function showBotBar()
+	for _, button in { minusButton, plusButton, levelButton, modeButton } do
+		button.TextTransparency = if amHost then 0 else 0.45
+		button.BackgroundTransparency = if amHost then 0 else 0.45
+	end
+end
 
 -- How to play and who is here, shown while waiting in the lobby.
 local helpPanel = panel({ AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.42), Size = UDim2.fromOffset(820, 372), Visible = false }, hud, 28)
-local peopleList = make("Frame", { Position = UDim2.fromOffset(540, 150), Size = UDim2.fromOffset(252, 200), BackgroundColor3 = Color3.fromRGB(48, 32, 24), BorderSizePixel = 0 }, helpPanel)
+local peopleList = make("ScrollingFrame", {
+	Position = UDim2.fromOffset(540, 150),
+	Size = UDim2.fromOffset(252, 200),
+	BackgroundColor3 = Color3.fromRGB(48, 32, 24),
+	BorderSizePixel = 0,
+	ScrollBarThickness = 6,
+	ScrollBarImageColor3 = CREAM,
+	ScrollingDirection = Enum.ScrollingDirection.Y,
+	CanvasSize = UDim2.new(),
+	AutomaticCanvasSize = Enum.AutomaticSize.Y,
+}, helpPanel)
 make("UICorner", { CornerRadius = UDim.new(0, 14) }, peopleList)
 make("UIListLayout", { Padding = UDim.new(0, 2), SortOrder = Enum.SortOrder.LayoutOrder }, peopleList)
-make("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10), PaddingTop = UDim.new(0, 6) }, peopleList)
+make("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 12), PaddingTop = UDim.new(0, 6), PaddingBottom = UDim.new(0, 6) }, peopleList)
+local pendingHost = nil -- whom the host tapped 👑 for once; a second tap hands the lobby over
+local lastLobby = nil -- the lobby message the list was drawn from
+
+-- Who is here: those playing first, then those watching. The host gets buttons to
+-- put each one in or take them out and to hand the lobby on; everyone else gets a
+-- button to move themselves.
 local function showPeople(msg)
+	lastLobby = msg
 	for _, child in peopleList:GetChildren() do
-		if child:IsA("TextLabel") then
+		if child:IsA("GuiObject") then
 			child:Destroy()
 		end
 	end
-	local function line(order, message, color)
+	local order = 0
+	local function line(message, color)
+		order += 1
 		make("TextLabel", { LayoutOrder = order, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 24), Font = FONT, TextSize = 18, TextColor3 = color, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Text = message }, peopleList)
 	end
-	for i, person in msg.people do
-		if i <= 8 then
-			line(i, (if person.ready then "✅ " else "⏳ ") .. person.name, if person.ready then CREAM else Color3.fromRGB(190, 170, 150))
+	local function row(person)
+		order += 1
+		local me = person.userId == player.UserId
+		local frame = make("Frame", { LayoutOrder = order, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 26) }, peopleList)
+		local buttons = {}
+		local function small(label, width, color, action)
+			local b = make("TextButton", { AnchorPoint = Vector2.new(1, 0.5), Size = UDim2.fromOffset(width, 22), BackgroundColor3 = color, BorderSizePixel = 0, AutoButtonColor = false, Font = FONT, TextSize = 14, TextColor3 = WHITE, Text = label }, frame)
+			make("UICorner", { CornerRadius = UDim.new(0.5, 0) }, b)
+			b.Activated:Connect(action)
+			table.insert(buttons, b)
+		end
+		-- In or out: the host for anyone, everyone else for themselves.
+		if amHost or me then
+			local mine = me and not amHost
+			local key = if person.playing then (if mine then "watchSelf" else "seatOut") else (if mine then "joinSelf" else "seatIn")
+			local full = not person.playing and msg.count >= msg.max
+			local color = if person.playing then Color3.fromRGB(150, 90, 70) elseif full then Color3.fromRGB(90, 80, 70) else Color3.fromRGB(70, 140, 80)
+			small(Lang.t(key), 44, color, function()
+				if full then
+					banner(Lang.t("full", msg.max), RED)
+				else
+					lobbyRemote:FireServer("seat", person.userId, not person.playing)
+				end
+			end)
+		end
+		-- Handing the lobby on takes two taps.
+		if amHost and not me then
+			local asking = pendingHost == person.userId
+			local color = if asking then Color3.fromRGB(220, 150, 30) else Color3.fromRGB(110, 78, 48)
+			small(if asking then Lang.t("confirm") else "👑", if asking then 52 else 30, color, function()
+				if pendingHost == person.userId then
+					pendingHost = nil
+					lobbyRemote:FireServer("host", person.userId)
+					return
+				end
+				pendingHost = person.userId
+				showPeople(lastLobby)
+				task.delay(3, function()
+					if pendingHost == person.userId and lastLobby then
+						pendingHost = nil
+						showPeople(lastLobby)
+					end
+				end)
+			end)
+		end
+		local right = 0
+		for i = #buttons, 1, -1 do
+			buttons[i].Position = UDim2.new(1, -right, 0.5, 0)
+			right += buttons[i].Size.X.Offset + 4
+		end
+		local icon = if not person.playing then "👀 " elseif person.ready then "✅ " else "⏳ "
+		local crown = if person.userId == msg.host then " 👑" else ""
+		make("TextLabel", {
+			BackgroundTransparency = 1,
+			Size = UDim2.new(1, -right, 1, 0),
+			Font = FONT,
+			TextSize = 18,
+			TextColor3 = if me then GOLD elseif person.playing and person.ready then CREAM else Color3.fromRGB(190, 170, 150),
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			Text = icon .. person.name .. crown,
+		}, frame)
+	end
+	local watching = {}
+	for _, person in msg.people do
+		if person.playing then
+			row(person)
+		else
+			table.insert(watching, person)
 		end
 	end
-	if msg.bots > 0 and #msg.people < 8 then
-		line(20, Lang.t("lobbyBots", msg.bots, Lang.t("levels")[msg.level] or msg.level), GOLD)
+	if msg.bots > 0 then
+		line(Lang.t("lobbyBots", msg.bots, Lang.t("levels")[msg.level] or msg.level), GOLD)
+	end
+	if #watching > 0 then
+		line(Lang.t("watchersLine", #watching), Color3.fromRGB(150, 190, 240))
+		for _, person in watching do
+			row(person)
+		end
 	end
 end
 text({ Position = UDim2.fromOffset(30, 18), Size = UDim2.new(1, -60, 0, 56), Text = "🐹 Hush Rush", TextColor3 = GOLD }, helpPanel, 4)
@@ -336,7 +459,7 @@ local resultRows = make("Frame", { Position = UDim2.fromOffset(28, 126), Size = 
 make("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, resultRows)
 
 local bannerShown = 0
-local function banner(message, color)
+function banner(message, color)
 	bannerShown += 1
 	local mine = bannerShown
 	bannerLabel.Text = message
@@ -832,12 +955,32 @@ roundRemote.OnClientEvent:Connect(function(msg)
 			readyButton.Visible = true
 		end
 		botBar.Visible = true
+		-- Where I stand in it: playing or watching, host or not.
+		local wasHost = amHost
+		local seenBefore = lastLobby ~= nil
+		amHost = msg.host == player.UserId
+		lobbyFull = msg.count >= msg.max
+		for _, person in msg.people do
+			if person.userId == player.UserId then
+				myPlaying = person.playing
+			end
+		end
+		if not myPlaying then
+			myReady = false
+		end
+		showReady()
+		showBotBar()
+		if amHost and not wasHost and seenBefore then
+			banner(Lang.t("becameHost"))
+		end
 		botLabel.Text = Lang.t("botCount", msg.bots)
 		levelButton.Text = Lang.t("level", Lang.t("levels")[msg.level] or msg.level)
 		modeButton.Text = Lang.t(if msg.teams then "teamMode" else "solo")
 		showPeople(msg)
 		offerTutorial()
-		if msg.left then
+		if not myPlaying then
+			notice(Lang.t("watchingLobby"))
+		elseif msg.left then
 			notice(Lang.t("startsIn", msg.left, msg.ready, msg.count))
 		elseif msg.short > 0 then
 			notice(Lang.t("needRival", msg.short))
