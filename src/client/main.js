@@ -323,13 +323,15 @@ const isPlaying = (slot) => slot.kind !== 'closed' && slot.kind !== 'open';
 function renderLobby() {
   renderSeasons();
   const guest = net.role === 'guest';
+  // The host of a hosted server room sets it up from here, through the server.
+  const serverHost = guest && !!net.serverHost;
   const rows = guest ? net.lobby || [] : slots;
   const teams = guest ? net.teams : teamMode;
   $('modeSolo').classList.toggle('on', !teams);
   $('modeTeam').classList.toggle('on', teams);
   // A guest cannot choose, so it gets a plain label instead of two dead buttons.
-  $('modeSolo').hidden = $('modeTeam').hidden = guest;
-  $('modeNow').hidden = !guest;
+  $('modeSolo').hidden = $('modeTeam').hidden = guest && !serverHost;
+  $('modeNow').hidden = !guest || serverHost;
   $('modeNow').textContent = t('modeNow', t(teams ? 'modeTeam' : 'modeSolo'));
   $('modeNow').classList.toggle('team', teams);
   // The host chooses the map; a guest sees which one it is.
@@ -349,7 +351,7 @@ function renderLobby() {
   }
   for (const tile of sel.children) {
     tile.classList.toggle('on', tile.dataset.map === (guest ? net.map : mapId));
-    tile.disabled = guest;
+    tile.disabled = guest && !serverHost;
   }
   // The line-up at a glance, e.g. "Red 3 : Blue 2".
   const sizes = TEAMS.map((_, k) => rows.filter((s) => s.kind !== 'closed' && s.kind !== 'open' && s.team === k).length);
@@ -368,7 +370,7 @@ function renderLobby() {
   // composition) or a menu standing open while a friend types their name. While
   // the rows are otherwise the same, only the names are refreshed.
   const typing = document.activeElement;
-  const shape = (slot, i) => `${slot.kind}:${guest ? i === net.you : ''}:${teams ? slot.team : ''}`;
+  const shape = (slot, i) => `${slot.kind}:${guest ? i === net.you : ''}:${teams ? slot.team : ''}:${serverHost}`;
   const keep =
     list.children.length === rows.length &&
     rows.every((slot, i) => list.children[i].dataset.shape === shape(slot, i));
@@ -448,8 +450,12 @@ function renderLobby() {
     const person = guest ? (i === net.you ? 'human' : 'remote') : slot.kind;
     const shown = slot.kind === 'human' || slot.kind === 'remote' ? person : slot.kind;
     // The host plays in the first seat or leaves it empty and watches.
-    const options =
-      !guest && i === 0
+    // The server room's host chooses each computer's level, puts one in an
+    // empty seat or takes one out.
+    const serverSeat = serverHost && (slot.kind === 'open' || String(slot.kind).startsWith('bot:'));
+    const options = serverSeat
+      ? KINDS.filter((k) => k === 'open' || k.startsWith('bot:'))
+      : !guest && i === 0
         ? ['human', 'closed']
         : guest || slot.kind === 'remote'
           ? [shown, ...(slot.kind === 'remote' && !guest ? ['kick', 'closed'] : [])]
@@ -460,10 +466,10 @@ function renderLobby() {
       opt.textContent = !guest && i === 0 && value === 'closed' ? t('hostWatch') : t('kinds')[value];
       kind.append(opt);
     }
-    kind.value = shown;
-    kind.disabled = guest;
+    kind.value = serverSeat ? slot.kind : shown;
+    kind.disabled = guest && !serverSeat;
     // Kicking a friend leaves the seat empty for somebody else.
-    kind.addEventListener('change', () => setKind(slot, kind.value === 'kick' ? 'open' : kind.value));
+    kind.addEventListener('change', () => (serverSeat ? serverSetKind(i, slot.kind, kind.value) : setKind(slot, kind.value === 'kick' ? 'open' : kind.value)));
     // A tap on an empty seat closes it, and a tap on a closed one opens it again.
     if (!guest && (slot.kind === 'open' || slot.kind === 'closed')) {
       li.classList.add('seat');
@@ -581,6 +587,19 @@ function kick(slot) {
   setTimeout(() => conn.close(), 300);
 }
 
+// The server room's host changing a seat: one computer more or fewer (the
+// round's hamster count), or that computer's own level.
+function serverSetKind(seat, was, kind) {
+  if (!net.host) return;
+  if (kind === 'open') {
+    if (String(was).startsWith('bot:')) net.host.send({ t: 'setup', fill: Math.max(2, net.fill - 1) });
+    return;
+  }
+  if (!kind.startsWith('bot:')) return;
+  if (was === 'open') net.host.send({ t: 'setup', fill: Math.min(8, net.fill + 1) });
+  net.host.send({ t: 'setup', seat, bots: kind.slice(4) });
+}
+
 function setKind(slot, kind) {
   kick(slot);
   slot.kind = kind;
@@ -596,6 +615,10 @@ function setKind(slot, kind) {
 const MAP_ICONS = { meadow: '🌻', desert: '🌵', factory: '🏭', ice: '🧊', beach: '🏖️', graveyard: '👻', sky: '☁️' };
 
 function pickMap(id) {
+  if (net.serverHost) {
+    if (MAP_IDS.includes(id) && id !== net.map) net.host?.send({ t: 'setup', map: id });
+    return;
+  }
   if (net.role === 'guest' || !MAP_IDS.includes(id) || id === mapId) return;
   mapId = id;
   try {
@@ -608,6 +631,10 @@ function pickMap(id) {
 }
 
 function setTeamMode(on) {
+  if (net.serverHost) {
+    if (on !== net.teams) net.host?.send({ t: 'setup', teams: on });
+    return;
+  }
   if (net.role === 'guest' || teamMode === on) return;
   teamMode = on;
   try {
@@ -635,6 +662,13 @@ function updateStart() {
     return;
   }
   $('start').hidden = false;
+  if (net.role === 'guest' && net.serverHost) {
+    // Hosting a server room: the server says when a start is turned down.
+    $('start').disabled = false;
+    $('start').hidden = false;
+    $('start').textContent = t('start');
+    return;
+  }
   if (net.role === 'guest') {
     // Until the host is actually reached the button says so. After a failure the
     // buttons at the top take over.
@@ -1242,6 +1276,13 @@ function hostData(msg) {
     if (net.needPw) net.status = '';
     net.needPw = false;
     net.you = msg.you;
+    // A hosted server room (the HashChat app's) whose host this page is: the
+    // chat room's players have all left and the game goes on with the web
+    // players. The host's controls then send to the server.
+    net.serverHost = !!msg.hosted && msg.me === true;
+    net.fill = Number.isInteger(msg.fill) ? msg.fill : 0;
+    // Hosting, the round's buttons end the round for everybody instead of leaving.
+    for (const id of ['quit', 'back']) $(id).textContent = t(net.serverHost ? 'endRound' : 'leaveRoom');
     msg.wins.forEach((n, i) => (wins[i] = n));
     (msg.tot || []).forEach((v, i) => (career[i] = v));
     if (msg.rd >= 0) rounds = msg.rd;
@@ -1731,7 +1772,7 @@ function enterStage() {
   $('callout').textContent = '';
   // Only the host starts the next round. A guest's button asks for it instead, out
   // loud in the chat, which also makes plain who it is up to.
-  const guest = net.role === 'guest';
+  const guest = net.role === 'guest' && !net.serverHost;
   $('again').classList.toggle('ask', guest);
   $('again').textContent = t(guest ? 'askAgain' : 'again');
   $('againBtn').hidden = true;
@@ -2325,7 +2366,7 @@ function showResult() {
   $('result').hidden = false;
   syncChat();
   // The card can be put away to look around, so the rematch button is also outside it.
-  $('againBtn').hidden = net.role === 'guest';
+  $('againBtn').hidden = net.role === 'guest' && !net.serverHost;
   againAt = performance.now();
   // In a room Enter is for the chat, so the rematch button must not catch it.
   if (!net.role) $('again').focus();
@@ -2705,14 +2746,44 @@ document.body.insertAdjacentHTML(
 );
 // Out of a dead link and into a lobby of one's own, as its host.
 $('newRoom').addEventListener('click', () => (location.href = location.pathname));
+
+// An invite to a HashChat room's game that has ended (?ended=1): the page opens
+// as a lobby of one's own, and says so, with the way to a new room (this one)
+// or to the rooms open now.
+if (query.get('ended') === '1') {
+  document.body.insertAdjacentHTML(
+    'beforeend',
+    '<div id="roomEnded" class="endedCover"><div role="dialog" aria-modal="true" aria-labelledby="roomEndedTitle"><h2 id="roomEndedTitle"></h2><p id="roomEndedBody"></p><button id="roomEndedNew" class="primary"></button><button id="roomEndedList"></button></div></div>',
+  );
+  $('roomEndedTitle').textContent = t('roomEnded');
+  $('roomEndedBody').textContent = t('roomEndedBody');
+  $('roomEndedNew').textContent = t('roomEndedNew');
+  $('roomEndedList').textContent = t('roomEndedList');
+  const closeEnded = () => {
+    $('roomEnded').remove();
+    // Drop ?ended=1, so a reload is just this lobby.
+    history.replaceState(null, '', location.pathname);
+  };
+  $('roomEndedNew').addEventListener('click', closeEnded);
+  $('roomEndedList').addEventListener('click', () => {
+    closeEnded();
+    if ($('rooms').hidden) toggleRoomList();
+    $('rooms').scrollIntoView({ block: 'start' });
+  });
+}
 $('retryJoin').addEventListener('click', () => location.reload());
 $('start').addEventListener('click', () => {
   audio.unlock();
-  if (net.role === 'guest') enterRoom();
+  if (net.serverHost) net.host?.send({ t: 'go' });
+  else if (net.role === 'guest') enterRoom();
   else startGame();
 });
 let askedAt = 0;
 $('again').addEventListener('click', () => {
+  if (net.serverHost) {
+    net.host?.send({ t: 'again' });
+    return;
+  }
   if (net.role !== 'guest') {
     startGame();
     return;
@@ -2812,6 +2883,12 @@ $('pwForm').addEventListener('submit', (e) => {
 });
 for (const id of ['back', 'quit']) {
   $(id).addEventListener('click', () => {
+    // The host of a server room ends the round for everybody (the server takes
+    // them all to the lobby), staying in the room.
+    if (net.serverHost && game) {
+      net.host?.send({ t: 'end' });
+      return;
+    }
     // A guest leaving goes back to its own offline lobby.
     if (net.role === 'guest') {
       location.href = location.pathname;
@@ -2883,7 +2960,7 @@ $('stage').addEventListener('click', (e) => e.target === $('stage') && ($('resul
 // It comes up under a thumb that may be on its way to another button: a tap that
 // lands in its first moments was not meant for it.
 let againAt = 0;
-$('againBtn').addEventListener('click', () => performance.now() - againAt > 700 && startGame());
+$('againBtn').addEventListener('click', () => performance.now() - againAt > 700 && (net.serverHost ? net.host?.send({ t: 'again' }) : startGame()));
 // On a tall screen the field buttons fold behind "⋯". Choosing one, or touching
 // anywhere else, folds them away again.
 // A gear, as settings are in most games. Set here too, for a page cached with the old dots.

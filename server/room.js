@@ -47,6 +47,9 @@ const SNAPSHOT_EVERY = 2;
 const CHAT_GAP_MS = 400;
 // English default names; each browser shows them in its own language.
 const NAMES = ['Me', 'Cloud', 'Choco', 'Dusty', 'Bean', 'Barley', 'Chestnut', 'Walnut'];
+// A computer's name by seat: the first seat's name is the web host's own "Me", so
+// a computer sitting there takes another.
+const botName = (look) => (look > 0 && NAMES[look]) || (look === 0 ? 'Sunny' : `Bot ${look + 1}`);
 const IDLE = { mx: 0, my: 0, ax: 0, ay: 0, seq: 0, th: false, sk: false, n: 0 };
 // 'rl': the learned computer (src/ai/rl-bot.js, weights rl-solo.bin / rl-team.bin).
 export const BOT_LEVELS = ['easy', 'normal', 'hard', 'ace', 'rl'];
@@ -183,8 +186,15 @@ export class Room {
     if (!this.hosted) return;
     if (this.connections().some((c) => c.owner === this.host)) return;
     // The lobby says who hosts now (no chat line: the web page knows no such line).
-    // Someone with host controls first; the web page has none.
-    const next = this.connections().find((c) => c.canHost !== false) || null;
+    // An app player first. With none left the room is no longer the chat room's
+    // game (the app's card shows it ended and its next game gets a room of its
+    // own), and it goes on with the web players: the first one seated hosts it.
+    const people = this.connections();
+    const seated = new Set(this.slots.filter((s) => s.conn).map((s) => s.conn));
+    const next = people.find((c) => c.canHost !== false)
+      || people.find((c) => seated.has(c))
+      || people[0]
+      || null;
     this.host = next ? next.owner : '';
   }
 
@@ -441,7 +451,11 @@ export class Room {
     conn.owner = who;
     // The first one into a hosted room who can host hosts it (a web page cannot:
     // it waits for an app to come in, which then hosts).
-    if (this.hosted && conn.canHost !== false && !this.connections().some((c) => c !== conn && c.owner === this.host && c.canHost !== false)) this.host = who;
+    // An app player who comes in hosts unless another app player does; a web
+    // page hosts only a room with nobody hosting at all.
+    const hostHere = this.connections().some((c) => c !== conn && c.owner === this.host);
+    const appHostHere = this.connections().some((c) => c !== conn && c.owner === this.host && c.canHost !== false);
+    if (this.hosted && ((conn.canHost !== false && !appHostHere) || !hostHere)) this.host = who;
     const free = msg.watch ? [] : this.slots.filter((s) => s.kind === 'open');
     const slot = free.find((s) => this.owners[this.slots.indexOf(s)] === who) || free.find((s) => !this.owners[this.slots.indexOf(s)]) || free[0];
     if (slot) {
@@ -523,7 +537,7 @@ export class Room {
     // not only the host's app.
     const bots = this.hosted ? new Set(this.computerSeats()) : new Set();
     return this.slots.map((s, look) => bots.has(look)
-      ? { kind: `bot:${this.levelAt(look)}`, name: NAMES[look] || `Bot ${look + 1}`, team: this.teams ? this.computerTeam(look) : -1, pid: '', userId: '', web: false }
+      ? { kind: `bot:${this.levelAt(look)}`, name: botName(look), team: this.teams ? this.computerTeam(look) : -1, pid: '', userId: '', web: false }
       : { kind: s.kind, name: s.name, team: s.team, pid: s.kind === 'remote' ? s.pid : '', userId: s.kind === 'remote' ? s.userId || '' : '', web: s.kind === 'remote' && !!s.conn && s.conn.canHost === false });
   }
 
@@ -607,7 +621,7 @@ export class Room {
     const fill = this.roundFill();
     for (let look = 0; active.length < fill && look < MAX_SLOTS; look++) {
       if (active.some((a) => a.look === look)) continue;
-      active.push({ slot: { kind: `bot:${this.levelAt(look)}`, name: NAMES[look] || `Bot ${look + 1}`, team: this.computerTeam(look), input: IDLE }, look });
+      active.push({ slot: { kind: `bot:${this.levelAt(look)}`, name: botName(look), team: this.computerTeam(look), input: IDLE }, look });
     }
     active.sort((a, b) => a.look - b.look);
     // A computer in a seat plays on its own record; a person's who left is put away for them.
