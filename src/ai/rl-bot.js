@@ -13,11 +13,21 @@ const FILES = { solo: 'rl-solo.bin', team: 'rl-team.bin' };
 const policies = {};
 const loading = {};
 
-// Starts fetching both sets of weights; the bot stands still until one is in.
+// The weights' bytes: fetched in a browser, read from disk on the game server
+// (Node's fetch does not open file: URLs).
+function readWeights(file) {
+  const url = new URL(`./${file}`, import.meta.url);
+  if (url.protocol === 'file:') {
+    return import('node:fs/promises').then((fs) => fs.readFile(url)).then((b) => b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength));
+  }
+  return fetch(url).then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`${file} ${r.status}`))));
+}
+
+// Starts loading both sets of weights; the bot stands still until one is in.
+// Resolves once both have been tried.
 export function loadRLPolicy() {
   for (const [mode, file] of Object.entries(FILES)) {
-    loading[mode] ||= fetch(new URL(`./${file}`, import.meta.url))
-      .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`${file} ${r.status}`))))
+    loading[mode] ||= readWeights(file)
       .then((b) => {
         policies[mode] = loadPolicy(decodePolicy(b));
       })
@@ -26,6 +36,7 @@ export function loadRLPolicy() {
         console.warn(`RL ${mode} weights did not load`, err);
       });
   }
+  return Promise.all(Object.values(loading));
 }
 
 // The hamsters as they were, tick by tick, shared by every learned bot in the

@@ -725,3 +725,23 @@ test('after a round the host starts the next straight away, or goes to the lobby
   room.receive(a, { t: 'end' });
   assert.equal(room.game, null);
 });
+
+test('a hosted room offers the learned computer (rl) per seat, and each computer plays at its own level', async () => {
+  const { loadRLPolicy } = await import('../src/ai/rl-bot.js');
+  await loadRLPolicy();
+  const { room } = setup({ hosted: true });
+  const a = fakeConn('a');
+  room.join(a);
+  room.receive(a, { t: 'hello', name: 'Mia' });
+  const seats = a.last('lobby').slots.map((s, i) => ({ s, i })).filter(({ s }) => s.kind.startsWith('bot:')).map(({ i }) => i);
+  room.receive(a, { t: 'setup', seat: seats[0], bots: 'rl' });
+  room.receive(a, { t: 'setup', seat: seats[1], bots: 'easy' });
+  assert.deepEqual(a.last('lobby').slots.filter((s) => s.kind.startsWith('bot:')).map((s) => s.kind), ['bot:rl', 'bot:easy']);
+  room.receive(a, { t: 'go' });
+  assert.deepEqual(room.game.players.filter((p) => p.kind.startsWith('bot:')).map((p) => p.kind), ['bot:rl', 'bot:easy']);
+  // The learned computer moves once its weights are in.
+  const rl = room.game.players.find((p) => p.kind === 'bot:rl');
+  const start = { x: rl.x, y: rl.y };
+  for (let i = 0; i < 200 && room.game.phase !== 'over'; i++) room.tick();
+  assert.ok(Math.hypot(rl.x - start.x, rl.y - start.y) > 1 || rl.seeds || rl.kills, 'the rl computer never moved');
+});
