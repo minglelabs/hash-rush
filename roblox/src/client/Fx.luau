@@ -98,40 +98,78 @@ function Fx.sound(name)
 	end
 end
 
--- The tunes: one file for the round, with all the web game's round tunes in it
--- back to back, and one for the lobby.
+-- The tunes. The round's are in a few files, each a run of whole tunes, played
+-- one after another round and round; the lobby's is one file that loops.
 local tracks = {}
+local function track(id, looped)
+	local sound = Instance.new("Sound")
+	sound.SoundId = asset(id)
+	sound.Looped = looped
+	sound.Volume = 0
+	sound.Parent = SoundService
+	return sound
+end
 for name, stand in STAND_IN_MUSIC do
 	local music = Sounds.music[name]
-	local track = Instance.new("Sound")
-	track.Name = "Music_" .. name
-	track.SoundId = if music.id then asset(music.id) else stand[1]
-	track.Looped = true
-	track.Volume = 0
-	track.Parent = SoundService
-	tracks[name] = { sound = track, volume = if music.id then Sounds.volume else stand[2], starts = if music.id then music.starts else nil }
+	local parts = {}
+	if name == "game" then
+		for _, part in music do
+			if part.id then
+				table.insert(parts, { sound = track(part.id, false), starts = part.starts })
+			end
+		end
+		-- Only with every file uploaded is the web game's set complete.
+		if #parts < #music then
+			table.clear(parts)
+		end
+	elseif music.id then
+		parts[1] = { sound = track(music.id, true), starts = { 0 } }
+	end
+	local volume = Sounds.volume
+	if #parts == 0 then
+		parts[1] = { sound = track(string.match(stand[1], "%d+"), true), starts = { 0 } }
+		volume = stand[2]
+	end
+	tracks[name] = { parts = parts, volume = volume, at = 1 }
+	for k, part in parts do
+		-- A round file played to its end hands over to the next.
+		part.sound.Ended:Connect(function()
+			local t = tracks[name]
+			if t.on and t.at == k and #parts > 1 then
+				t.at = k % #parts + 1
+				local next = parts[t.at].sound
+				next.TimePosition = 0
+				next.Volume = t.volume
+				next:Play()
+			end
+		end)
+	end
 end
 local playing = nil
 
--- Fades over to the named tune; nil fades to silence. A round tune starts at the
--- top of one of the web game's tunes, picked at random, as the web shuffles them.
+-- Fades over to the named tune; nil fades to silence. A round starts at the top
+-- of one of the web game's tunes, picked at random, as the web shuffles them.
 function Fx.music(name)
-	for key, track in tracks do
-		local sound = track.sound
+	for key, t in tracks do
 		local on = key == name and not muted
-		if on and not sound.IsPlaying then
-			local starts = track.starts
-			sound.TimePosition = if starts then starts[math.random(#starts)] else 0
-			sound:Play()
+		if on and not t.on then
+			t.at = math.random(#t.parts)
+			local part = t.parts[t.at]
+			part.sound.TimePosition = part.starts[math.random(#part.starts)]
+			part.sound:Play()
 		end
-		local tween = TweenService:Create(sound, TweenInfo.new(0.8), { Volume = if on then track.volume else 0 })
-		tween:Play()
-		if not on then
-			tween.Completed:Once(function()
-				if sound.Volume == 0 then
-					sound:Stop()
-				end
-			end)
+		t.on = on
+		for k, part in t.parts do
+			local sound = part.sound
+			local tween = TweenService:Create(sound, TweenInfo.new(0.8), { Volume = if on and k == t.at then t.volume else 0 })
+			tween:Play()
+			if not on then
+				tween.Completed:Once(function()
+					if sound.Volume == 0 then
+						sound:Stop()
+					end
+				end)
+			end
 		end
 	end
 	playing = name

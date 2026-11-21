@@ -50,10 +50,10 @@ Workspace의 `StreamingEnabled`와 Players의 `CharacterAutoLoads`는 꺼져 있
 효과음과 음악은 웹판(`src/client/audio.js`, `music.js`)이 합성하는 소리를 그대로 파일로 뽑아 씁니다. 웹판 소리가 바뀌면 다시 뽑습니다.
 
 1. `node roblox/tools/audio/server.mjs`를 켜고 브라우저로 `http://localhost:5288/roblox/tools/audio/render.html`을 열어 두 버튼(effects, music)을 누릅니다. `roblox/tools/audio/out/`에 WAV가 생깁니다.
-2. `python3 roblox/tools/audio/build.py`가 올릴 파일 세 개(`effects.ogg`, `music-round.ogg`, `music-lobby.ogg`)와 `src/client/Sounds.luau`를 만듭니다.
-3. 세 파일을 Studio의 Asset Manager(또는 크리에이터 대시보드)로 올리고, 받은 아이디로 `python3 roblox/tools/audio/build.py --effects ID --game ID --lobby ID`를 한 번 더 돌린 뒤 `python3 build.py`.
+2. `python3 roblox/tools/audio/build.py`가 올릴 파일(`effects.ogg`, `music-round-1.ogg`, `music-round-2.ogg`, `music-lobby.ogg`)과 `src/client/Sounds.luau`를 만듭니다. 판 음악은 12분을 한 파일로 올리면 로블록스가 "Audio duration too long"으로 거절해서, 곡 단위로 6분 반 안쪽씩 나눕니다.
+3. 파일을 Studio의 Asset Manager(Import)로 올리고, 받은 아이디로 `python3 roblox/tools/audio/build.py --effects ID --game ID ID --lobby ID`를 한 번 더 돌린 뒤 `python3 build.py`. 아이디는 `tools/audio/ids.json`에 남습니다.
 
-아이디가 없는 동안에는 로블록스 공식·APM 음원이 대신 나옵니다.
+아이디가 빠진 소리는 로블록스 공식·APM 음원이 대신 나옵니다.
 
 ## 봇 Elo
 
