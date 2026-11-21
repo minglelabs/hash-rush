@@ -100,7 +100,6 @@ Lang.code = "ko"
 check(Lang.t("gotSeedFoe", "구름") == "🌻 구름이 씨를 물었어요! 막아요!", "Korean seed banner")
 
 if failures > 0 then
-	print(("%d checks failed"):format(failures))
-	os.exit(1)
+	error(failures .. " checks failed", 0)
 end
 print("words: Korean and English agree")
