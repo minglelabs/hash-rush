@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { Room, roomOptionsFromQuery, LOBBY_WAIT_MS, RESULT_WAIT_MS, MIN_PLAYERS, TITLE_WINS, TITLE_LEAD, TITLE_WAIT_MS } from './room.js';
+import { Room, roomOptionsFromQuery, LOBBY_WAIT_MS, RESULT_WAIT_MS, HOSTED_RESULT_WAIT_MS, MIN_PLAYERS, TITLE_WINS, TITLE_LEAD, TITLE_WAIT_MS } from './room.js';
 
 function fakeConn(peer) {
   const got = [];
@@ -526,7 +526,7 @@ test('after a hosted round the room goes back to the lobby and waits for the hos
   for (let k = 0; k < 60 * 400 && room.game.phase !== 'over'; k += 60) room.update(60);
   assert.equal(room.game.phase, 'over');
   assert.equal(a.last('over').nx, -1);
-  advance(TITLE_WAIT_MS);
+  advance(HOSTED_RESULT_WAIT_MS);
   room.update();
   assert.equal(room.game, null);
   advance(LOBBY_WAIT_MS * 3);
@@ -666,4 +666,62 @@ test('the host cannot hand the room to a web page, which has no host controls; t
   room.receive(app, { t: 'host', seat: webSeat });
   assert.equal(app.last('lobby').me, true);
   assert.equal(web.last('lobby').me, false);
+});
+
+test('hosted lobby shows the computers the next round seats, to everybody, each with its own level', () => {
+  const { room } = setup({ hosted: true });
+  const app = fakeConn('app');
+  const web = Object.assign(fakeConn('web'), { canHost: false });
+  room.join(app);
+  room.receive(app, { t: 'hello', name: 'Mia' });
+  room.join(web);
+  room.receive(web, { t: 'hello', name: 'Pc' });
+  const bots = (lobby) => lobby.slots.map((s, i) => ({ ...s, i })).filter((s) => s.kind.startsWith('bot:'));
+  assert.equal(bots(web.last('lobby')).length, 2);
+  assert.deepEqual(bots(web.last('lobby')).map((s) => s.kind), ['bot:hard', 'bot:hard']);
+  const seat = bots(app.last('lobby'))[1].i;
+  room.receive(app, { t: 'setup', seat, bots: 'easy' });
+  assert.deepEqual(bots(web.last('lobby')).map((s) => s.kind), ['bot:hard', 'bot:easy']);
+  room.receive(app, { t: 'go' });
+  assert.ok(room.game);
+  assert.deepEqual(room.game.players.filter((p) => p.kind.startsWith('bot:')).map((p) => p.kind), ['bot:hard', 'bot:easy']);
+});
+
+test('the host can stop a round and take everybody to the lobby; the round is not counted', () => {
+  const { room } = setup({ hosted: true });
+  const a = fakeConn('a');
+  const b = fakeConn('b');
+  for (const [c, name] of [[a, 'Mia'], [b, 'Leo']]) {
+    room.join(c);
+    room.receive(c, { t: 'hello', name });
+  }
+  room.receive(a, { t: 'go' });
+  assert.ok(room.game);
+  room.receive(b, { t: 'end' });
+  assert.ok(room.game, 'only the host ends it');
+  room.receive(a, { t: 'end' });
+  assert.equal(room.game, null);
+  assert.ok(b.last('lobbyscreen'));
+  assert.equal(room.rounds, 0);
+  assert.equal(b.last('lobby').nx, -1);
+});
+
+test('after a round the host starts the next straight away, or goes to the lobby now', () => {
+  const { room } = setup({ hosted: true });
+  const a = fakeConn('a');
+  room.join(a);
+  room.receive(a, { t: 'hello', name: 'Mia' });
+  room.receive(a, { t: 'again' });
+  assert.equal(room.game, null, 'again does nothing before a round');
+  room.receive(a, { t: 'go' });
+  const first = room.round;
+  room.receive(a, { t: 'again' });
+  assert.equal(room.round, first, 'again does nothing mid-round');
+  room.game.phase = 'over';
+  room.receive(a, { t: 'again' });
+  assert.ok(room.game);
+  assert.equal(room.round, first + 1);
+  room.game.phase = 'over';
+  room.receive(a, { t: 'end' });
+  assert.equal(room.game, null);
 });

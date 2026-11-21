@@ -27,6 +27,9 @@ export const MAX_SLOTS = 8;
 export const MIN_PLAYERS = 4;
 export const LOBBY_WAIT_MS = 8000;
 export const RESULT_WAIT_MS = 9000;
+// A hosted room's result stays up for its host to choose: the next round now,
+// or everybody to the lobby. Left alone, it goes to the lobby after this long.
+export const HOSTED_RESULT_WAIT_MS = 30000;
 // The first to this many wins takes the title, by this many clear of every other
 // side (main.js TITLE_WINS, TITLE_LEAD). The title card stays up this long, as
 // the host's page keeps it, and then the room starts over.
@@ -92,6 +95,8 @@ export class Room {
     // the teams or the hamster count themselves.
     this.vsComputers = !!hosted && this.teams;
     this.botLevel = BOT_LEVELS.includes(botLevel) ? botLevel : 'hard';
+    // A hosted room's host can set each computer's level on its own row: seat -> level.
+    this.botLevels = {};
     this.now = now;
     this.random = random;
     this.onResult = onResult;
@@ -194,6 +199,21 @@ export class Room {
       this.sendLobby();
       return;
     }
+    // The host stops the round (or skips the result) and takes everybody back to
+    // the lobby. A round stopped half way is not counted.
+    if (msg.t === 'end') {
+      if (this.game) this.backToLobby();
+      return;
+    }
+    // Once a round is over the host starts the next one straight away.
+    if (msg.t === 'again') {
+      if (!this.game || this.game.phase !== 'over') return;
+      this.backToLobby();
+      const why = this.cannotStart();
+      if (why) conn.send({ t: 'nope', why });
+      else this.startRound();
+      return;
+    }
     // The rest only between rounds, with the lobby up.
     if (this.game) return;
     if (msg.t === 'setup') {
@@ -207,7 +227,14 @@ export class Room {
         }
       }
       if (typeof msg.map === 'string' && MAP_IDS.includes(msg.map)) this.mapId = msg.map;
-      if (typeof msg.bots === 'string' && BOT_LEVELS.includes(msg.bots)) this.botLevel = msg.bots;
+      if (typeof msg.bots === 'string' && BOT_LEVELS.includes(msg.bots)) {
+        // With a seat: that computer's own level. Without: every computer's.
+        if (Number.isInteger(msg.seat) && msg.seat >= 0 && msg.seat < MAX_SLOTS) this.botLevels[msg.seat] = msg.bots;
+        else {
+          this.botLevel = msg.bots;
+          this.botLevels = {};
+        }
+      }
       if (Number.isInteger(msg.fill)) {
         this.fill = Math.max(FILL_MIN, Math.min(MAX_SLOTS, msg.fill));
         this.vsComputers = false;
@@ -309,7 +336,7 @@ export class Room {
       if (text) this.chat({ name: slot ? slot.name : conn.watchName, look: slot ? this.slots.indexOf(slot) : -1, text, who: conn.peer });
       return;
     }
-    if (msg.t === 'host' || msg.t === 'setup' || msg.t === 'go') {
+    if (msg.t === 'host' || msg.t === 'setup' || msg.t === 'go' || msg.t === 'end' || msg.t === 'again') {
       this.hostCommand(conn, msg);
       return;
     }
@@ -489,7 +516,44 @@ export class Room {
   // Each seat says which mingle user sits in it (from the app ticket, '' without
   // one), so the page inside the app knows over whose hamster their chat goes.
   lobbyView() {
-    return this.slots.map((s) => ({ kind: s.kind, name: s.name, team: s.team, pid: s.kind === 'remote' ? s.pid : '', userId: s.kind === 'remote' ? s.userId || '' : '', web: s.kind === 'remote' && !!s.conn && s.conn.canHost === false }));
+    // In a hosted room the lobby shows the computers the next round will seat,
+    // in the seats they will take, so everybody sees them (a web page included),
+    // not only the host's app.
+    const bots = this.hosted ? new Set(this.computerSeats()) : new Set();
+    return this.slots.map((s, look) => bots.has(look)
+      ? { kind: `bot:${this.levelAt(look)}`, name: NAMES[look] || `Bot ${look + 1}`, team: this.teams ? this.computerTeam(look) : -1, pid: '', userId: '', web: false }
+      : { kind: s.kind, name: s.name, team: s.team, pid: s.kind === 'remote' ? s.pid : '', userId: s.kind === 'remote' ? s.userId || '' : '', web: s.kind === 'remote' && !!s.conn && s.conn.canHost === false });
+  }
+
+  // The empty seats the next round fills with computers, in order.
+  computerSeats() {
+    const people = this.slots.filter((s) => s.kind === 'remote' && s.conn).length;
+    const want = Math.max(0, this.roundFill() - people);
+    const seats = [];
+    for (let look = 0; seats.length < want && look < MAX_SLOTS; look++) {
+      const s = this.slots[look];
+      if (!(s && s.kind === 'remote' && s.conn)) seats.push(look);
+    }
+    return seats;
+  }
+
+  levelAt(look) {
+    return this.botLevels[look] || this.botLevel;
+  }
+
+  // Everybody back to the lobby now (the result skipped, or the round dropped).
+  backToLobby() {
+    const at = this.now();
+    if (this.game && this.game.phase === 'over' && this.crowned) {
+      this.hist = [...this.hist, this.crowned].slice(-SEASONS_KEPT);
+      this.crowned = null;
+      this.clearRecords();
+    }
+    this.broadcast(() => ({ t: 'lobbyscreen' }));
+    this.game = null;
+    // A hosted room stays in the lobby until its host starts the next round.
+    this.nextAt = !this.hosted && this.humans.length ? at + LOBBY_WAIT_MS : 0;
+    this.sendLobby();
   }
 
   // Nobody is the host, so the room says what it is about to do by itself: `nx`,
@@ -541,7 +605,7 @@ export class Room {
     const fill = this.roundFill();
     for (let look = 0; active.length < fill && look < MAX_SLOTS; look++) {
       if (active.some((a) => a.look === look)) continue;
-      active.push({ slot: { kind: `bot:${this.botLevel}`, name: NAMES[look] || `Bot ${look + 1}`, team: this.computerTeam(look), input: IDLE }, look });
+      active.push({ slot: { kind: `bot:${this.levelAt(look)}`, name: NAMES[look] || `Bot ${look + 1}`, team: this.computerTeam(look), input: IDLE }, look });
     }
     active.sort((a, b) => a.look - b.look);
     // A computer in a seat plays on its own record; a person's who left is put away for them.
@@ -655,7 +719,7 @@ export class Room {
     const champs = this.champions(g.players);
     this.crowned = champs.length ? this.seasonOf(g.players, champs) : null;
     this.overAt = this.now();
-    this.nextAt = this.overAt + (this.crowned ? TITLE_WAIT_MS : RESULT_WAIT_MS);
+    this.nextAt = this.overAt + (this.crowned ? TITLE_WAIT_MS : this.hosted ? HOSTED_RESULT_WAIT_MS : RESULT_WAIT_MS);
     // Right after the round's last snapshot: the record with the round counted in,
     // whether it decided the title, and how long until the next round starts.
     this.broadcast(() => ({ t: 'over', g: this.round, wins: this.wins, tot: this.career, rd: this.rounds, champ: !!this.crowned, nx: this.untilNextRound(), title: TITLE }));
@@ -695,17 +759,8 @@ export class Room {
     }
     if (!this.nextAt || at < this.nextAt) return;
     if (this.game && this.game.phase === 'over') {
-      // A title decided: it goes into the past titles and the room starts over.
-      if (this.crowned) {
-        this.hist = [...this.hist, this.crowned].slice(-SEASONS_KEPT);
-        this.crowned = null;
-        this.clearRecords();
-      }
-      this.broadcast(() => ({ t: 'lobbyscreen' }));
-      this.game = null;
-      // A hosted room stays in the lobby until its host starts the next round.
-      this.nextAt = !this.hosted && this.humans.length ? at + LOBBY_WAIT_MS : 0;
-      this.sendLobby();
+      // A title decided goes into the past titles and the room starts over (backToLobby).
+      this.backToLobby();
       return;
     }
     this.startRound();
