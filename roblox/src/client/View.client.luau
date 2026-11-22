@@ -430,8 +430,40 @@ local function showPeople(msg)
 			table.insert(watching, person)
 		end
 	end
-	if msg.bots > 0 then
-		line(Lang.t("lobbyBots", msg.bots, Lang.t("levels")[msg.level] or msg.level), GOLD)
+	-- The bots the next round seats, each with its level: the host taps one to
+	-- change that bot's alone, as in the web game's rooms.
+	for k, bot in msg.botList or {} do
+		order += 1
+		local frame = make("Frame", { LayoutOrder = order, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 26) }, peopleList)
+		local look = Config.BOT_LEVELS[bot.level]
+		local chip = make(if amHost then "TextButton" else "TextLabel", {
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, 0, 0.5, 0),
+			Size = UDim2.fromOffset(74, 22),
+			BackgroundColor3 = if look then look.color else PANEL,
+			BorderSizePixel = 0,
+			Font = FONT,
+			TextSize = 14,
+			TextColor3 = WHITE,
+			Text = (Lang.t("levels")[bot.level] or bot.level) .. (if amHost then " ▸" else ""),
+		}, frame)
+		make("UICorner", { CornerRadius = UDim.new(0.5, 0) }, chip)
+		if amHost then
+			chip.AutoButtonColor = false
+			chip.Activated:Connect(function()
+				lobbyRemote:FireServer("botLevel", k)
+			end)
+		end
+		make("TextLabel", {
+			BackgroundTransparency = 1,
+			Size = UDim2.new(1, -80, 1, 0),
+			Font = FONT,
+			TextSize = 18,
+			TextColor3 = GOLD,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			Text = "🤖 " .. (Lang.t("names")[bot.seat] or "Bot"),
+		}, frame)
 	end
 	if #watching > 0 then
 		line(Lang.t("watchersLine", #watching), Color3.fromRGB(150, 190, 240))
@@ -974,7 +1006,7 @@ roundRemote.OnClientEvent:Connect(function(msg)
 			banner(Lang.t("becameHost"))
 		end
 		botLabel.Text = Lang.t("botCount", msg.bots)
-		levelButton.Text = Lang.t("level", Lang.t("levels")[msg.level] or msg.level)
+		levelButton.Text = Lang.t("level", if msg.mixed then Lang.t("mixed") else Lang.t("levels")[msg.level] or msg.level)
 		modeButton.Text = Lang.t(if msg.teams then "teamMode" else "solo")
 		showPeople(msg)
 		offerTutorial()
