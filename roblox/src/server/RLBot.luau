@@ -106,6 +106,44 @@ function RLBot.shadow(g, me, seen, swung)
 	return move
 end
 
+-- Carrying a seed with a rival rubbing up against it in the late view, within
+-- reach: swing, which the game aims at the nearest rival. The networks let the
+-- gauge fill and lose the seed, mostly to 초보 that only run up and rub.
+-- The web game's guard() in src/ai/rl-bot.js.
+RLBot.GUARD = 1
+RLBot.GUARD_R = 0
+-- Returns 1 to swing now, 0 to keep the paws down, nil to leave it to the network.
+RLBot.GUARD_Q = 10
+function RLBot.guard(g, me, seen, swung)
+	local mode = RLBot.GUARD
+	if mode == 0 or not me.carrying then
+		return nil
+	end
+	local near = false
+	for _, q in seen do
+		if q.id ~= me.id and g.byId[q.id] ~= nil and not q.carrying and (me.team < 0 or q.team ~= me.team) then
+			local d = math.sqrt((q.x - me.x) ^ 2 + (q.y - me.y) ^ 2)
+			if d < Config.BONK.reach + RLBot.GUARD_R and (q.pickOn == me.id or mode == 2 or mode == 3) then
+				near = true
+			end
+		end
+	end
+	if near and not me.swing and me.cooldown <= 0 then
+		return 1
+	end
+	if mode == 5 then
+		for _, q in seen do
+			if q.id ~= me.id and g.byId[q.id] ~= nil and swung[q.id] ~= nil and g.time - swung[q.id] < RLBot.GUARD_Q and math.sqrt((q.x - me.x) ^ 2 + (q.y - me.y) ^ 2) < RLBot.SHADOW.near then
+				return nil
+			end
+		end
+	end
+	if mode >= 3 and not near then
+		return 0
+	end
+	return nil
+end
+
 -- The network that plays the hamster `p`: the team one if it is in a team.
 function RLBot.policyFor(p)
 	local all = loadPolicies()
@@ -137,6 +175,11 @@ function RLBot.new(options)
 			local chase = RLBot.shadow(g, g.byId[id], past.players, RLObserve.swung(g))
 			if chase >= 0 then
 				move, bonk = chase, 0
+			else
+				local guard = RLBot.guard(g, g.byId[id], past.players, RLObserve.swung(g))
+				if guard then
+					bonk = guard
+				end
 			end
 		end
 		local dir = DIRS[move + 1]
