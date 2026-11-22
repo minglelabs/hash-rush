@@ -166,3 +166,19 @@ test('the RL bot plays a round with the weights the game ships', async () => {
     globalThis.fetch = real;
   }
 });
+
+test('the RL bot runs after a rival carrier that has not swung, and leaves one that has to the network', async () => {
+  const { shadow, SHADOW } = await import('../src/ai/rl-bot.js');
+  const { DIRS } = await import('../src/ai/observe.js');
+  const g = { homeX: 100, time: 30 };
+  const me = { id: 0, team: -1, carrying: false, x: 500, y: 300 };
+  const rival = { id: 1, team: -1, carrying: true, x: 560, y: 300 };
+  const dir = shadow(g, me, [me, rival], []);
+  assert.ok(dir > 0 && DIRS[dir][0] > 0.9, `runs towards the carrier: ${dir}`);
+  assert.equal(shadow(g, me, [me, rival], [undefined, g.time - SHADOW.quiet + 1]), -1, 'a carrier that swung a moment ago');
+  assert.ok(shadow(g, me, [me, rival], [undefined, g.time - SHADOW.quiet - 1]) > 0, 'a carrier that swung long ago');
+  assert.equal(shadow(g, { ...me, carrying: true }, [me, rival], []), -1, 'with a seed of its own');
+  assert.equal(shadow(g, me, [me, { ...rival, carrying: false }], []), -1, 'a rival without a seed');
+  assert.equal(shadow(g, me, [me, { ...rival, x: me.x + SHADOW.near + 5 }], []), -1, 'a carrier too far off');
+  assert.equal(shadow(g, { ...me, team: 0 }, [me, { ...rival, team: 0 }], []), -1, 'a teammate');
+});
