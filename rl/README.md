@@ -335,3 +335,7 @@ its paws down. rl18, 300 rounds each, without → with the rule:
 
 With 3 s of quiet instead of 10 it wins more against 초보 (80%, 39%) and loses
 to three 초고수 (53% → 42%), bonked by the others while it trails one.
+
+Elo with the rule (`node rl/elo.js 1200 rl18=… rl18+rule=…/policy.json+shadow …`,
+±80): free-for-all rl18 1240, rl18 + rule 1236, rl20 1222, 초고수 1106; teams
+rl18 + rule 1347, 초고수 1319, rl18 1238, rl20 1232.
