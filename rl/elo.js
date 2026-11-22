@@ -4,7 +4,8 @@
 // scale fitted to all results at once (the steady state Elo updates settle to),
 // with the easy bot pinned at 1000. 400 points apart is 10 to 1 odds.
 //   node rl/elo.js [rounds per mode, 600] RL1=rl/runs/long/policy.json RL2=rl/runs/team/policy.json
-// A path may end in @0.7 to play that policy at that temperature (1 = as trained).
+// A path may end in @0.7 to play that policy at that temperature (1 = as trained),
+// and in +shadow to play it with the rule the game puts on top (src/ai/rl-bot.js).
 // Free-for-all: four seats, the winner beats each of the others. Teams: two
 // against two, a team rated as the mean of its members.
 
@@ -14,6 +15,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createEnvs, MAX_P, OBS } from './env.js';
 import { readPolicy, pacing, seatMove, seatViews } from './policy.js';
+import { REACTION_TICKS, snapshot } from '../src/ai/observe.js';
+import { shadow } from '../src/ai/rl-bot.js';
 
 const args = process.argv.slice(2);
 const ROUNDS = Number(args.find((a) => /^\d+$/.test(a)) || 600);
@@ -39,7 +42,17 @@ function job(policies, mode, seed) {
   const ids = [pick(rnd), pick(rnd), pick(rnd), pick(rnd)];
   const lineup = ids.map((id, i) => ({ level: POOL[id][1], team: mode === 'team' ? i % 2 : -1 }));
   const pace = pacing(lineup.filter(({ level }) => level < 0).map(({ level }) => policies[-1 - level]));
-  const envs = createEnvs({ envs: PER_JOB, seed, lineup, botEnv: 1, frameSkip: pace.skip });
+  // For the shadow rule: the hamsters REACTION_TICKS ago and when each last swung,
+  // as the bot in the game keeps them.
+  const seen = [];
+  const onTick = (g, e) => {
+    let h = seen[e];
+    if (!h || h.g !== g) h = seen[e] = { g, past: [], swung: [] };
+    h.past.push(snapshot(g));
+    if (h.past.length > REACTION_TICKS + 1) h.past.shift();
+    for (const p of h.past[0].players) if (p.swing) h.swung[p.id] = g.time;
+  };
+  const envs = createEnvs({ envs: PER_JOB, seed, lineup, botEnv: 1, frameSkip: pace.skip, onTick });
   seatViews(envs, MAX_P, (i) => (lineup[i] && lineup[i].level < 0 ? policies[-1 - lineup[i].level] : null));
   const actions = new Uint8Array(PER_JOB * MAX_P * 3);
   const results = [];
@@ -50,7 +63,14 @@ function job(policies, mode, seed) {
         if (level >= 0) return;
         const p = policies[-1 - level];
         const at = (e * MAX_P + i) * OBS;
-        seatMove(actions, (e * MAX_P + i) * 3, p, envs.obs.subarray(at, at + OBS), pace.due(p, step));
+        const due = pace.due(p, step);
+        seatMove(actions, (e * MAX_P + i) * 3, p, envs.obs.subarray(at, at + OBS), due);
+        const h = seen[e];
+        if (!due || !p.shadow || !h) return;
+        const dir = shadow(h.g, h.g.players[i], h.past[0].players, h.swung);
+        if (dir < 0) return;
+        actions[(e * MAX_P + i) * 3] = dir;
+        actions[(e * MAX_P + i) * 3 + 1] = 0;
       });
     }
     envs.act(actions);
@@ -97,7 +117,7 @@ function fit(results) {
 }
 
 if (process.env.ELO_JOBS) {
-  const policies = named.map(([, path]) => readPolicy(path, readFileSync));
+  const policies = named.map(([, path]) => Object.assign(readPolicy(path.replace(/\+shadow$/, ''), readFileSync), { shadow: path.endsWith('+shadow') }));
   const out = [];
   for (const spec of JSON.parse(process.env.ELO_JOBS)) out.push(...job(policies, spec.mode, spec.seed));
   process.stdout.write(JSON.stringify(out));
