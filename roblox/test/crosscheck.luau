@@ -49,7 +49,7 @@ end
 
 -- Free-for-all and team rounds are counted apart.
 local function tally()
-	return { rounds = 0, ticks = 0, samples = 0, exact = 0, obs = 0, logits = 0, place = 0, sum = 0, clock = 0, choices = 0, otherwise = 0, ends = 0, clumps = 0, felled = 0, timeouts = 0, loose = 0, fell = 0, swayed = 0, worst = table.create(OBS, 0) }
+	return { tied = 0, rounds = 0, ticks = 0, samples = 0, exact = 0, obs = 0, logits = 0, place = 0, sum = 0, clock = 0, choices = 0, otherwise = 0, ends = 0, clumps = 0, felled = 0, timeouts = 0, loose = 0, fell = 0, swayed = 0, worst = table.create(OBS, 0) }
 end
 local totals = { solo = tally(), team = tally() }
 local complaints = {}
@@ -87,7 +87,11 @@ local function play(number)
 	local clumps = 0
 	local felled = 0
 
+	-- Where a bonk landed on a rounding tie (trace.mjs, bonkTie) the two sims may
+	-- part ways that tick: the round is compared up to it and no further.
+	local tie = trace.tie
 	for t, line in trace.ticks do
+		local cut = tie ~= nil and t > tie
 		for _, event in trace.events[tostring(t)] or {} do
 			if event.time then
 				g.time = event.time
@@ -106,6 +110,12 @@ local function play(number)
 		end
 		assert(#line == #ids + 1 and #g.players == #ids, `round {number} tick {t}: the seats do not add up`)
 
+		if cut then
+			if string.byte(line, 1) == 83 then
+				at += 16 + #ids * (24 + 4 * OBS + 4 * LOGITS)
+			end
+			continue
+		end
 		local past = RLObserve.seenLate(g)
 		local inputs = {}
 		local sum = 0
@@ -213,16 +223,21 @@ local function play(number)
 		table.insert(winners, table.find(ids, id) - 1)
 	end
 	table.sort(winners)
-	local ended = g.tick == last.tick and g.phase == last.phase and g.timeout == last.timeout and table.concat(winners, ",") == table.concat(last.winners, ",")
+	local ended = tie ~= nil or g.tick == last.tick and g.phase == last.phase and g.timeout == last.timeout and table.concat(winners, ",") == table.concat(last.winners, ",")
 	-- With the same knock-outs, throws, seeds and pockets picked along the way.
 	local tallies = {}
 	for k, id in ids do
 		local p = g.byId[id]
-		total.place = math.max(total.place, math.abs(p.x * PX - last.places[2 * k - 1]), math.abs(p.y * PX - last.places[2 * k]))
+		if not tie then
+			total.place = math.max(total.place, math.abs(p.x * PX - last.places[2 * k - 1]), math.abs(p.y * PX - last.places[2 * k]))
+		end
 		table.move({ p.kills, p.throws, p.deaths, p.seeds, p.steals }, 1, 5, #tallies + 1, tallies)
 	end
-	ended = ended and table.concat(tallies, ",") == table.concat(last.tallies, ",") and clumps == last.clumps and felled == last.felled
+	ended = ended and (tie ~= nil or table.concat(tallies, ",") == table.concat(last.tallies, ",") and clumps == last.clumps and felled == last.felled)
 	total.rounds += 1
+	if tie then
+		total.tied += 1
+	end
 	total.clumps += clumps
 	total.felled += felled
 	if g.timeout then
@@ -237,7 +252,8 @@ local function play(number)
 	total.samples += round.samples
 	total.obs = math.max(total.obs, round.obs)
 	total.logits = math.max(total.logits, round.logits)
-	print(string.format("round %2d  %-56s %5d ticks  %5d compared  obs %.3g  logits %.3g  %s", number, trace.name, #trace.ticks, round.samples, round.obs, round.logits, if ended then "same end" else "OTHER END"))
+	local how = if tie then `cut at tick {tie}` elseif ended then "same end" else "OTHER END"
+	print(string.format("round %2d  %-56s %5d ticks  %5d compared  obs %.3g  logits %.3g  %s", number, trace.name, #trace.ticks, round.samples, round.obs, round.logits, how))
 end
 
 local rounds = require("./out/rounds")
@@ -255,7 +271,8 @@ local function report(what, total)
 		end
 	end
 	print()
-	print(`{what}: {total.rounds} rounds, {total.ticks} ticks, {total.ends} ended as on the web, {total.timeouts} of them on time`)
+	print(`{what}: {total.rounds} rounds, {total.ticks} ticks, {total.ends - total.tied} ended as on the web, {total.timeouts} of them on time`)
+	print(`  {total.tied} compared only up to a bonk that landed on a rounding tie`)
 	print(`  the two sims: clocks apart by at most {total.clock} s, places by at most {total.place} px;`)
 	print(`    every tick, everyone's place summed: apart by at most {total.sum} px`)
 	print(`    bonks that took a clump of team-mates: {total.clumps}, with {total.felled} hamsters down, as on the web`)

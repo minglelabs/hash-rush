@@ -15,7 +15,7 @@ import * as constants from '../../src/sim/constants.js';
 import { mulberry32 } from '../../src/sim/rng.js';
 import { OBS, DIRS, REACTION_TICKS, observe, snapshot, fields, jobs } from '../../src/ai/observe.js';
 import { decodePolicy, loadPolicy } from '../../src/ai/policy.js';
-import { createRLBot, loadRLPolicy } from '../../src/ai/rl-bot.js';
+import { createRLBot, loadRLPolicy, shadow } from '../../src/ai/rl-bot.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const out = join(here, '..', 'test', 'out');
@@ -113,7 +113,7 @@ function mirror(seed) {
   let choice = null;
   let loose = false;
   let tick = 0;
-  return (g, id, then) => {
+  return (g, id, then, swung) => {
     const policy = policyOf(g.players[id]);
     const fresh = tick++ % (policy.meta.frameSkip || 4) === 0;
     if (fresh || !choice) {
@@ -121,15 +121,59 @@ function mirror(seed) {
       const view = mine.subarray(id * OBS, (id + 1) * OBS);
       choice = policy.act(view, policy.meta.temperature ?? 1, random);
       loose = fickle(g, then, id, view);
+      // The rule on top of the networks: after a carrier that does not fight back.
+      const dir = shadow(g, g.players[id], then.players, swung);
+      if (dir >= 0) {
+        choice[0] = dir;
+        choice[1] = 0;
+      }
     }
     // `loose`: the choice was made on a view that hangs on a rounding.
     return { dir: choice[0], bonk: fresh && choice[1] === 1, throw: choice[2] === 1, loose };
   };
 }
 
+// A swing that landed with two hamsters the same distance away, or one right at
+// the edge of its reach or its arc: which one it took hangs on the sim's last bit,
+// and the Roblox sim, in studs, need not round the same way. That happens where
+// several press against one carrier at once, pickpocketing it. crosscheck.luau
+// compares such a round up to that tick only.
+const TIE = 1e-7;
+function bonkTie(g) {
+  const hitAt = new Map();
+  for (const e of g.events) if (e.type === 'bonk') hitAt.set(e.id, e);
+  const { reach, arcCos } = constants.BONK;
+  for (const e of g.events) {
+    if (e.type !== 'impact') continue;
+    const a = g.players.find((p) => p.id === e.id);
+    if (!a) continue;
+    const near = [];
+    for (const v of g.players) {
+      if (v === a || allied(a, v)) continue;
+      // Where it stood when the swing landed: a hamster bonked is home by now.
+      const spot = hitAt.get(v.id) || v;
+      if (!hitAt.has(v.id) && inHome(g, v)) continue;
+      const dx = spot.x - e.x;
+      const dy = spot.y - e.y;
+      const d = Math.hypot(dx, dy);
+      if (Math.abs(d - reach) < TIE || Math.abs(d - constants.HAMSTER_R) < TIE) return true;
+      if (d > reach) continue;
+      if (d > constants.HAMSTER_R) {
+        const c = (dx * e.dx + dy * e.dy) / d;
+        if (Math.abs(c - arcCos) < TIE) return true;
+        if (c < arcCos) continue;
+      }
+      near.push(d);
+    }
+    near.sort((x, y) => x - y);
+    if (near.length > 1 && near[1] - near[0] < TIE) return true;
+  }
+  return false;
+}
+
 // Takes seat `k` out of the round as Roblox's Sim.remove does. The web game
 // counts on a hamster's id being its place in the list, so the rest move up.
-function leave(g, past, k) {
+function leave(g, past, k, swung) {
   const renumber = (id) => (id === k ? -1 : id > k ? id - 1 : id);
   g.players.splice(k, 1);
   for (const p of g.players) {
@@ -140,9 +184,21 @@ function leave(g, past, k) {
   // And nobody sees it any more, not even late.
   for (const then of past) {
     then.players = then.players.filter((p) => p.id !== k);
-    for (const p of then.players) p.id = renumber(p.id);
+    for (const p of then.players) {
+      p.id = renumber(p.id);
+      if (p.pickOn >= 0) p.pickOn = renumber(p.pickOn);
+    }
     then.nibbler = then.nibbler >= 0 ? renumber(then.nibbler) : -1;
   }
+  // When each was last seen swinging goes with it to its new number.
+  const kept = [];
+  swung.forEach((at, id) => {
+    if (renumber(id) >= 0) kept[renumber(id)] = at;
+  });
+  swung.length = 0;
+  kept.forEach((at, id) => {
+    swung[id] = at;
+  });
 }
 
 // A clear stretch of meadow, 150 px from left to right, away from home, the
@@ -264,6 +320,8 @@ ROUNDS.forEach((round, index) => {
     return { kind, seed, think: kind === 'p' ? (t) => round.script(i, t) : wanderer(seed) };
   });
   const past = [];
+  let tie = 0; // the tick (from 1) whose bonk landed on a rounding tie, if any
+  const swung = []; // [id] = g.time when last seen (late) swinging, as rl-bot.js keeps it
   const ticks = [];
   const events = {};
   const parts = [];
@@ -285,7 +343,7 @@ ROUNDS.forEach((round, index) => {
         else if ('place' in e) Object.assign(g.players[e.place[0]], { x: e.place[1], y: e.place[2] });
         else if ('seed' in e) g.players[e.seed].carrying = true;
         else {
-          leave(g, past, e.remove);
+          leave(g, past, e.remove, swung);
           seats.splice(e.remove, 1);
           left = true;
         }
@@ -295,12 +353,13 @@ ROUNDS.forEach((round, index) => {
     past.push(snapshot(g));
     if (past.length > REACTION_TICKS + 1) past.shift();
     const then = past[0];
+    for (const p of then.players) if (p.swing) swung[p.id] = g.time;
 
     const inputs = [];
     let line = '';
     g.players.forEach((p, i) => {
       const seat = seats[i];
-      const a = seat.kind === 'R' ? seat.think(g, i, then) : seat.think(t);
+      const a = seat.kind === 'R' ? seat.think(g, i, then, swung) : seat.think(t);
       if (seat.kind === 'R' && t % (policyOf(p).meta.frameSkip || 4) === 0) decisions++;
       if (seat.real) {
         const b = seat.real.think(g, i);
@@ -364,6 +423,7 @@ ROUNDS.forEach((round, index) => {
     // Where everyone is, in one number per tick: the two sims are held to it.
     sums.push(g.players.reduce((sum, p, i) => sum + (i + 1) * (p.x + 2 * p.y), 0));
     step(g, inputs);
+    if (!tie && bonkTie(g)) tie = t + 1;
 
     // What the tick did: a throw's bonks follow it, a swing's come before its impact.
     let thrown = 0;
@@ -400,12 +460,13 @@ ROUNDS.forEach((round, index) => {
     seats: [...round.seats].map((kind, i) => ({ learned: kind === 'R', seed: round.seed * 100 + i, team: side(i) })),
     events,
     ticks,
+    ...(tie ? { tie } : {}),
     last: { tick: g.tick, phase: g.phase, time: g.time, timeout: g.timeout, winners: [...g.winners].sort((a, b) => a - b), places: g.players.flatMap((p) => [p.x, p.y]), tallies: g.players.flatMap((p) => [p.kills, p.throws, p.deaths, p.seeds, p.steals]), clumps, felled },
     sums: base64(new Float64Array(sums)),
     samples: Buffer.concat(parts).toString('base64'),
   };
   writeFileSync(join(out, `round${String(index + 1).padStart(2, '0')}.luau`), `return ${lua(trace)}\n`);
-  console.log(`round ${index + 1}: ${round.name}: ${t} ticks, ${g.timeout ? `time ran out, seats ${g.winners.join(' ')} take it` : g.phase === 'over' ? `seat ${g.winner} home` : 'cut short'}, time ${g.time.toFixed(1)}`);
+  console.log(`round ${index + 1}: ${round.name}: ${t} ticks, ${g.timeout ? `time ran out, seats ${g.winners.join(' ')} take it` : g.phase === 'over' ? `seat ${g.winner} home` : 'cut short'}, time ${g.time.toFixed(1)}${tie ? `, a bonk on a rounding tie at tick ${tie}` : ''}`);
 });
 
 writeFileSync(join(out, 'rounds.luau'), `return ${ROUNDS.length}\n`);

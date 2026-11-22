@@ -4631,7 +4631,13 @@ return Lobby
 -- It sees what it saw in training (RLObserve): itself as it is now and the other
 -- hamsters a few ticks late. Like in training it picks a move every few ticks and
 -- holds it in between.
+--
+-- One habit is a rule on top of the networks (shadow, below), as on the web:
+-- going after a rival that runs home with a seed and does not fight back. Through
+-- rl20 the networks never learned to take a seed off a carrier; they swing from
+-- behind, which mostly falls short, and so lost to bots that only grab a seed and run.
 
+local Config = require(game:GetService("ReplicatedStorage"):WaitForChild("Config"))
 local Map = require(game:GetService("ReplicatedStorage"):WaitForChild("Map"))
 local RLObserve = require(script.Parent:WaitForChild("RLObserve"))
 local RLPolicy = require(script.Parent:WaitForChild("RLPolicy"))
@@ -4682,6 +4688,51 @@ local function loadPolicies()
 	return policies
 end
 
+-- Empty-handed with a rival carrier within `near` studs that has not swung for
+-- `quiet` seconds: run at the spot just ahead of it on its way home and keep the
+-- paws down, so the pickpocketing gauge fills. A carrier that swings back is left
+-- to the network, which bonks it. `seen` is the late view, `swung` when each was
+-- last seen swinging. Returns the move to make (an index into DIRS from 0), or -1.
+-- The web game's shadow() in src/ai/rl-bot.js; 100 px there is 10 studs here.
+RLBot.SHADOW = { near = 10, quiet = 10, lead = 0.15 }
+function RLBot.shadow(g, me, seen, swung)
+	local SHADOW = RLBot.SHADOW
+	if me.carrying then
+		return -1
+	end
+	local c = nil
+	local best = SHADOW.near
+	for _, q in seen do
+		-- Not one that has left the round since: the late view still holds it a while.
+		local skip = q.id == me.id or g.byId[q.id] == nil or not q.carrying or (me.team >= 0 and q.team == me.team) or q.x < g.homeX
+		if not skip and swung[q.id] ~= nil and g.time - swung[q.id] < SHADOW.quiet then
+			skip = true
+		end
+		if not skip then
+			local d = math.sqrt((q.x - me.x) ^ 2 + (q.y - me.y) ^ 2)
+			if d < best then
+				best = d
+				c = q
+			end
+		end
+	end
+	if not c then
+		return -1
+	end
+	local tx = c.x - SHADOW.lead * Config.SPEED * Config.CARRY_SPEED - me.x
+	local ty = c.y - me.y
+	local move = -1
+	local most = -math.huge
+	for k = 2, #DIRS do
+		local dot = DIRS[k][1] * tx + DIRS[k][2] * ty
+		if dot > most then
+			most = dot
+			move = k - 1
+		end
+	end
+	return move
+end
+
 -- The network that plays the hamster `p`: the team one if it is in a team.
 function RLBot.policyFor(p)
 	local all = loadPolicies()
@@ -4710,6 +4761,10 @@ function RLBot.new(options)
 			RLObserve.observe(g, past, id, view)
 			local choice = brain.act(view, brain.meta.temperature or 1, random)
 			move, bonk, throw = choice[1], choice[2], choice[3]
+			local chase = RLBot.shadow(g, g.byId[id], past.players, RLObserve.swung(g))
+			if chase >= 0 then
+				move, bonk = chase, 0
+			end
 		end
 		local dir = DIRS[move + 1]
 		-- A swing is one press, at the start of a choice, as in training.
@@ -5058,7 +5113,7 @@ function RLObserve.seenLate(g)
 	local F = fields(g.map)
 	local v = views[g]
 	if not v then
-		v = { tick = -1, past = {} }
+		v = { tick = -1, past = {}, swung = {} }
 		views[g] = v
 	end
 	if v.tick ~= g.tick then
@@ -5090,8 +5145,20 @@ function RLObserve.seenLate(g)
 		end
 		table.insert(v.past, now)
 		v.tick = g.tick
+		-- When each one was last seen swinging, by the clock now (RLBot's shadow).
+		for _, q in v.past[1].players do
+			if q.windup or q.recovery then
+				v.swung[q.id] = g.time
+			end
+		end
 	end
 	return v.past[1]
+end
+
+-- [id] = g.time when that hamster was last seen (late) swinging, for this round.
+function RLObserve.swung(g)
+	local v = views[g]
+	return if v then v.swung else {}
 end
 
 -- The observation ------------------------------------------------------------

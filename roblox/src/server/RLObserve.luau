@@ -336,7 +336,7 @@ function RLObserve.seenLate(g)
 	local F = fields(g.map)
 	local v = views[g]
 	if not v then
-		v = { tick = -1, past = {} }
+		v = { tick = -1, past = {}, swung = {} }
 		views[g] = v
 	end
 	if v.tick ~= g.tick then
@@ -368,8 +368,20 @@ function RLObserve.seenLate(g)
 		end
 		table.insert(v.past, now)
 		v.tick = g.tick
+		-- When each one was last seen swinging, by the clock now (RLBot's shadow).
+		for _, q in v.past[1].players do
+			if q.windup or q.recovery then
+				v.swung[q.id] = g.time
+			end
+		end
 	end
 	return v.past[1]
+end
+
+-- [id] = g.time when that hamster was last seen (late) swinging, for this round.
+function RLObserve.swung(g)
+	local v = views[g]
+	return if v then v.swung else {}
 end
 
 -- The observation ------------------------------------------------------------
