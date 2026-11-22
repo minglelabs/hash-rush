@@ -33,6 +33,7 @@ WORDS.ko = {
 	-- Lobby
 	ready = "✅ 준비 완료!",
 	readyPrompt = "▶ 준비!",
+	startNow = "▶ 바로 시작!",
 	readyKey = " (Enter)",
 	lobbyBots = "🤖 봇 %d마리 · %s",
 	botCount = "🤖 봇 %d",
@@ -148,7 +149,7 @@ WORDS.ko = {
 		},
 		{ title = "소매치기", text = "해씨 든 상대에게 딱 붙어 있으면 해씨를 슬쩍 가져와요.\n빼앗긴 쪽은 1초 동안 되찾을 수 없어요.", label = "붙어요!" },
 		{ title = "순간이동", text = "보라색 🌀 소용돌이에 들어가면 둥지로 순간이동해요. 해씨가 없을 때만 돼요.\n앞서가는 상대를 집 앞에서 막으러 갈 때 써요!", label = "들어가요!" },
-		{ title = "끝!", text = "이제 준비 버튼을 눌러 진짜 판을 해 봐요!\n1:20부터는 연장전: 집이 넓어지고, 쓰러지면 잠깐 기절해요." },
+		{ title = "끝!", text = "▶ 시작하기!를 누르면 바로 진짜 판이 시작돼요!\n1:20부터는 연장전: 집이 넓어지고, 쓰러지면 잠깐 기절해요." },
 	},
 
 	-- Map signs
@@ -168,6 +169,7 @@ WORDS.en = {
 
 	ready = "✅ Ready!",
 	readyPrompt = "▶ Ready?",
+	startNow = "▶ Play now!",
 	readyKey = " (Enter)",
 	lobbyBots = "🤖 %d bots · %s",
 	botCount = "🤖 Bots %d",
@@ -271,7 +273,7 @@ WORDS.en = {
 		},
 		{ title = "Snatch", text = "Stick close to a rival holding a seed to snatch it.\nWhoever lost it can't take it back for 1 second.", label = "Get close!" },
 		{ title = "Warp", text = "Step into a purple 🌀 swirl to warp to your nest. Empty paws only.\nUse it to cut off a rival heading home!", label = "In you go!" },
-		{ title = "Done!", text = "Press Ready and play a real round!\nFrom 1:20 it's overtime: home grows, and a bonk stuns for a moment." },
+		{ title = "Done!", text = "Press ▶ Let's play! and a real round starts right away!\nFrom 1:20 it's overtime: home grows, and a bonk stuns for a moment." },
 	},
 
 	homeSign = "🏠 HOME",

@@ -254,13 +254,14 @@ local myReady = false
 local myPlaying = true
 local amHost = false
 local lobbyFull = false
+local alone = false -- nobody else plays the next round: the button starts it
 local function showReady()
 	if not myPlaying then
 		readyButton.Text = Lang.t("joinPrompt")
 		readyButton.BackgroundColor3 = Color3.fromRGB(70, 120, 190)
 		return
 	end
-	readyButton.Text = if myReady then Lang.t("ready") else Lang.t("readyPrompt") .. (if touchOnly then "" else Lang.t("readyKey"))
+	readyButton.Text = if myReady then Lang.t("ready") else Lang.t(if alone then "startNow" else "readyPrompt") .. (if touchOnly then "" else Lang.t("readyKey"))
 	readyButton.BackgroundColor3 = if myReady then Color3.fromRGB(120, 130, 140) else Color3.fromRGB(96, 196, 96)
 end
 local function setReady(want)
@@ -940,8 +941,13 @@ local function startTutorial()
 	})
 end
 
+-- Skip leaves the tutorial; on its last step the button goes straight into a round.
 tutorButton.Activated:Connect(function()
+	local play = onLastStep
 	endTutorial()
+	if play and myPlaying then
+		setReady(true)
+	end
 end)
 
 -- Whoever has never played a round is taken through it once, on arrival.
@@ -982,7 +988,13 @@ roundRemote.OnClientEvent:Connect(function(msg)
 		timerLabel.TextColor3 = WHITE
 		timerScale.Scale = 1
 		if not readyButton.Visible then
+			-- As the server has it: the tutorial's last button may have asked already.
 			myReady = false
+			for _, person in msg.people do
+				if person.userId == player.UserId then
+					myReady = person.ready
+				end
+			end
 			showReady()
 			readyButton.Visible = true
 		end
@@ -992,6 +1004,7 @@ roundRemote.OnClientEvent:Connect(function(msg)
 		local seenBefore = lastLobby ~= nil
 		amHost = msg.host == player.UserId
 		lobbyFull = msg.count >= msg.max
+		alone = msg.count <= 1
 		for _, person in msg.people do
 			if person.userId == player.UserId then
 				myPlaying = person.playing

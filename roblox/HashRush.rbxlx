@@ -132,6 +132,7 @@ WORDS.ko = {
 	-- Lobby
 	ready = "✅ 준비 완료!",
 	readyPrompt = "▶ 준비!",
+	startNow = "▶ 바로 시작!",
 	readyKey = " (Enter)",
 	lobbyBots = "🤖 봇 %d마리 · %s",
 	botCount = "🤖 봇 %d",
@@ -247,7 +248,7 @@ WORDS.ko = {
 		},
 		{ title = "소매치기", text = "해씨 든 상대에게 딱 붙어 있으면 해씨를 슬쩍 가져와요.\n빼앗긴 쪽은 1초 동안 되찾을 수 없어요.", label = "붙어요!" },
 		{ title = "순간이동", text = "보라색 🌀 소용돌이에 들어가면 둥지로 순간이동해요. 해씨가 없을 때만 돼요.\n앞서가는 상대를 집 앞에서 막으러 갈 때 써요!", label = "들어가요!" },
-		{ title = "끝!", text = "이제 준비 버튼을 눌러 진짜 판을 해 봐요!\n1:20부터는 연장전: 집이 넓어지고, 쓰러지면 잠깐 기절해요." },
+		{ title = "끝!", text = "▶ 시작하기!를 누르면 바로 진짜 판이 시작돼요!\n1:20부터는 연장전: 집이 넓어지고, 쓰러지면 잠깐 기절해요." },
 	},
 
 	-- Map signs
@@ -267,6 +268,7 @@ WORDS.en = {
 
 	ready = "✅ Ready!",
 	readyPrompt = "▶ Ready?",
+	startNow = "▶ Play now!",
 	readyKey = " (Enter)",
 	lobbyBots = "🤖 %d bots · %s",
 	botCount = "🤖 Bots %d",
@@ -370,7 +372,7 @@ WORDS.en = {
 		},
 		{ title = "Snatch", text = "Stick close to a rival holding a seed to snatch it.\nWhoever lost it can't take it back for 1 second.", label = "Get close!" },
 		{ title = "Warp", text = "Step into a purple 🌀 swirl to warp to your nest. Empty paws only.\nUse it to cut off a rival heading home!", label = "In you go!" },
-		{ title = "Done!", text = "Press Ready and play a real round!\nFrom 1:20 it's overtime: home grows, and a bonk stuns for a moment." },
+		{ title = "Done!", text = "Press ▶ Let's play! and a real round starts right away!\nFrom 1:20 it's overtime: home grows, and a bonk stuns for a moment." },
 	},
 
 	homeSign = "🏠 HOME",
@@ -5842,10 +5844,27 @@ local roundNo = 0
 local game_ = nil -- the Sim game of the running round
 local seats = {} -- [seat number] = player
 local bots = {} -- [seat number] = { think, name }
-local botCount = 3 -- how many the lobby has asked for
+local fill = 4 -- how many hamsters a round has: the people, and bots for the rest
 local botLevel = "normal" -- every bot's, unless the host gave one its own
 local botLevels = {} -- [k] = the k-th bot's own level, as the web game's rooms have it
-local teams = false -- two sides instead of everyone for themselves
+local teams = true -- two sides instead of everyone for themselves
+
+-- A round at the press of one button: four hamsters, the people first and bots
+-- for the rest. Two against two by default, all at the middle level; everyone
+-- for themselves against a rookie, a regular and a pro. Changing the mode starts
+-- from its setup again; the host can change anything after.
+local QUICK = { fill = 4, solo = { "easy", "normal", "hard" } }
+local function quickSetup()
+	fill = QUICK.fill
+	botLevel = "normal"
+	table.clear(botLevels)
+	if not teams then
+		for k, level in QUICK.solo do
+			botLevels[k] = if level == botLevel then nil else level
+		end
+	end
+end
+quickSetup()
 local simInputs = {}
 local rng = Random.new()
 
@@ -5893,9 +5912,10 @@ local function readyCount()
 	return n
 end
 
--- How many bots a round with this many people in it would get.
+-- How many bots a round with this many people in it would get: enough to make
+-- `fill` hamsters, if there are seats for them.
 local function botsFor(people)
-	return math.clamp(botCount, 0, Config.MAX_PLAYERS - people)
+	return math.clamp(fill - people, 0, Config.MAX_PLAYERS - people)
 end
 
 -- Enough to play: somebody real, and a rival for it, bot or not.
@@ -5920,7 +5940,7 @@ local function sendLobby()
 	local left = if enough(readied) and readied < count then math.ceil(timer) else nil
 	local people = {}
 	local hostId = if lobby.host then lobby.host.UserId else 0
-	local mark = { count, readied, left or -1, botCount, botLevel, if teams then 1 else 0, hostId }
+	local mark = { count, readied, left or -1, fill, botLevel, if teams then 1 else 0, hostId }
 	-- The bots the next round would seat, after the people, each with its level.
 	local base = math.max(1, readied)
 	local botList = {}
@@ -6189,9 +6209,13 @@ lobbyRemote.OnServerEvent:Connect(function(player, what, value, want)
 		return
 	end
 	if what == "bots" and type(value) == "number" then
-		botCount = math.clamp(botCount + (if value > 0 then 1 else -1), 0, Config.MAX_PLAYERS - 1)
+		-- One bot more or fewer than the lobby shows now.
+		local people = math.max(1, readyCount())
+		local count = math.clamp(botsFor(people) + (if value > 0 then 1 else -1), 0, Config.MAX_PLAYERS - people)
+		fill = people + count
 	elseif what == "teams" then
 		teams = not teams
+		quickSetup()
 	elseif what == "level" then
 		-- Everyone's level: the ones set bot by bot go back to it.
 		botLevel = nextLevel(botLevel)
@@ -7954,13 +7978,14 @@ local myReady = false
 local myPlaying = true
 local amHost = false
 local lobbyFull = false
+local alone = false -- nobody else plays the next round: the button starts it
 local function showReady()
 	if not myPlaying then
 		readyButton.Text = Lang.t("joinPrompt")
 		readyButton.BackgroundColor3 = Color3.fromRGB(70, 120, 190)
 		return
 	end
-	readyButton.Text = if myReady then Lang.t("ready") else Lang.t("readyPrompt") .. (if touchOnly then "" else Lang.t("readyKey"))
+	readyButton.Text = if myReady then Lang.t("ready") else Lang.t(if alone then "startNow" else "readyPrompt") .. (if touchOnly then "" else Lang.t("readyKey"))
 	readyButton.BackgroundColor3 = if myReady then Color3.fromRGB(120, 130, 140) else Color3.fromRGB(96, 196, 96)
 end
 local function setReady(want)
@@ -8640,8 +8665,13 @@ local function startTutorial()
 	})
 end
 
+-- Skip leaves the tutorial; on its last step the button goes straight into a round.
 tutorButton.Activated:Connect(function()
+	local play = onLastStep
 	endTutorial()
+	if play and myPlaying then
+		setReady(true)
+	end
 end)
 
 -- Whoever has never played a round is taken through it once, on arrival.
@@ -8682,7 +8712,13 @@ roundRemote.OnClientEvent:Connect(function(msg)
 		timerLabel.TextColor3 = WHITE
 		timerScale.Scale = 1
 		if not readyButton.Visible then
+			-- As the server has it: the tutorial's last button may have asked already.
 			myReady = false
+			for _, person in msg.people do
+				if person.userId == player.UserId then
+					myReady = person.ready
+				end
+			end
 			showReady()
 			readyButton.Visible = true
 		end
@@ -8692,6 +8728,7 @@ roundRemote.OnClientEvent:Connect(function(msg)
 		local seenBefore = lastLobby ~= nil
 		amHost = msg.host == player.UserId
 		lobbyFull = msg.count >= msg.max
+		alone = msg.count <= 1
 		for _, person in msg.people do
 			if person.userId == player.UserId then
 				myPlaying = person.playing
