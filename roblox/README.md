@@ -41,13 +41,13 @@ Workspace의 `StreamingEnabled`와 Players의 `CharacterAutoLoads`는 꺼져 있
 - `Lang`: 화면에 나오는 말 전부(한국어·영어). 로블록스 언어가 한국어인 사람은 한국어, 나머지는 영어로 봅니다. 봇 이름·난이도·팀 이름도 여기서 옮기고, 맵 표지판은 서버가 쓴 것을 클라이언트가 자기 말로 다시 씁니다. Studio에서 영어로 보려면 ReplicatedStorage에 문자열 속성 `Locale` = `en-us`를 넣고 플레이합니다.
 - `Fx`, `Sounds`: 음악과 효과음, 별·먼지, 튀어나오는 글자, 화면 흔들림, 히트스톱. 소리는 웹판 것을 그대로 씁니다(아래 소리).
 - `Bot`, `BotNav`, `BotSearch`, `BotRng`: 웹판 규칙 기반 봇(`src/ai/bot.js`, `nav.js`, `search.js`)을 옮긴 것.
-- `RLBot`, `RLObserve`, `RLPolicy`, `weights/`: 웹판 RL 봇. `weights/`는 `python3 tools/pack_weights.py`가 `src/ai/rl-solo.bin`에서 만듭니다.
+- `RLBot`, `RLObserve`, `RLPolicy`, `weights/`: 웹판 RL 봇. `weights/`는 `python3 tools/pack_weights.py`가 `src/ai/rl-solo.bin`에서 만듭니다. 웹판처럼 네트워크 위에 규칙 하나(그림자)를 얹습니다: 빈손일 때 10스터드 안에 해씨를 들고 10초 동안 꿀밤을 안 친 상대가 있으면, 그 앞쪽으로 붙어 따라가며 꿀밤을 참아 소매치기 게이지를 채웁니다.
 
 ## 봇 검증
 
 `node`와 `luau` 명령줄이 있으면 로블록스 없이 돌릴 수 있습니다.
 
-- `sh roblox/test/run.sh`: 웹판과 같은 판을 양쪽에서 돌려 RL 봇이 보는 숫자 230개와 고르는 행동이 같은지 비교하고, 판단 한 번에 걸리는 시간을 잽니다.
+- `sh roblox/test/run.sh`: 웹판과 같은 판을 양쪽에서 돌려 RL 봇이 보는 숫자 230개와 고르는 행동이 같은지 비교하고, 판단 한 번에 걸리는 시간을 잽니다. 꿀밤이 사거리 끝이나 같은 거리의 두 햄스터 사이에 떨어진 판(여럿이 한 햄스터에 붙어 소매치기할 때 생김)은 누가 맞는지가 소수점 마지막 자리 반올림에 달려 있어, 그 틱까지만 비교합니다.
 - `node roblox/tools/wrap.mjs && luau --codegen roblox/test/bots.luau`: 규칙 기반 봇끼리 난이도별로 판을 돌려 해씨를 캐고 꿀밤을 치고 집에 돌아오는지 확인합니다.
 - `node roblox/tools/wrap.mjs && luau roblox/test/tutorial.luau`: 튜토리얼을 처음부터 끝까지 플레이해 단계가 차례로 넘어가는지 확인합니다. Studio 없이 돕니다.
 - `node roblox/tools/wrap.mjs && luau roblox/test/lobby.luau`: 방장이 넘어가는 순서, 8자리, 넣기·빼기 권한, 빈 자리 채우기를 확인합니다.
