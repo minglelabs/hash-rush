@@ -313,3 +313,25 @@ share: easy 24% (30%), normal 57% (54%), hard 73% (67%), ace 48% (47%).
 
 Still open: it does not pick pockets (0.00 seeds taken a round), and among
 three easy bots it wins no more than its fair share.
+
+## A rule on top of the networks: shadowing a carrier that does not fight back
+
+rl19 (more rounds against a single bot level, a bigger cost for losing and being
+robbed) and rl20 (practice starts with the pickpocketing gauge part filled) did
+not beat rl18 against 초보 and neither ever takes a seed off a carrier: placed
+next to one they swing on the first choice 95% of the time, which empties the
+gauge. Neither is shipped.
+
+What ships instead is `shadow` in `src/ai/rl-bot.js`: empty-handed, with a rival
+carrier within 100 px that has not swung for 10 s, the bot runs at it and keeps
+its paws down. rl18, 300 rounds each, without → with the rule:
+
+| against | 2 v 2 | 1 + 3 free-for-all |
+|---|---|---|
+| 초보 | 45% → 75% | 25% → 32% |
+| 중수 | 72% → 76% | 53% → 55% |
+| 고수 | 86% → 83% | 65% → 60% |
+| 초고수 | 64% → 64% | 53% → 48% |
+
+With 3 s of quiet instead of 10 it wins more against 초보 (80%, 39%) and loses
+to three 초고수 (53% → 42%), bonked by the others while it trails one.
