@@ -103,10 +103,27 @@ local roundNo = 0
 local game_ = nil -- the Sim game of the running round
 local seats = {} -- [seat number] = player
 local bots = {} -- [seat number] = { think, name }
-local botCount = 3 -- how many the lobby has asked for
+local fill = 4 -- how many hamsters a round has: the people, and bots for the rest
 local botLevel = "normal" -- every bot's, unless the host gave one its own
 local botLevels = {} -- [k] = the k-th bot's own level, as the web game's rooms have it
-local teams = false -- two sides instead of everyone for themselves
+local teams = true -- two sides instead of everyone for themselves
+
+-- A round at the press of one button: four hamsters, the people first and bots
+-- for the rest. Two against two by default, all at the middle level; everyone
+-- for themselves against a rookie, a regular and a pro. Changing the mode starts
+-- from its setup again; the host can change anything after.
+local QUICK = { fill = 4, solo = { "easy", "normal", "hard" } }
+local function quickSetup()
+	fill = QUICK.fill
+	botLevel = "normal"
+	table.clear(botLevels)
+	if not teams then
+		for k, level in QUICK.solo do
+			botLevels[k] = if level == botLevel then nil else level
+		end
+	end
+end
+quickSetup()
 local simInputs = {}
 local rng = Random.new()
 
@@ -154,9 +171,10 @@ local function readyCount()
 	return n
 end
 
--- How many bots a round with this many people in it would get.
+-- How many bots a round with this many people in it would get: enough to make
+-- `fill` hamsters, if there are seats for them.
 local function botsFor(people)
-	return math.clamp(botCount, 0, Config.MAX_PLAYERS - people)
+	return math.clamp(fill - people, 0, Config.MAX_PLAYERS - people)
 end
 
 -- Enough to play: somebody real, and a rival for it, bot or not.
@@ -181,7 +199,7 @@ local function sendLobby()
 	local left = if enough(readied) and readied < count then math.ceil(timer) else nil
 	local people = {}
 	local hostId = if lobby.host then lobby.host.UserId else 0
-	local mark = { count, readied, left or -1, botCount, botLevel, if teams then 1 else 0, hostId }
+	local mark = { count, readied, left or -1, fill, botLevel, if teams then 1 else 0, hostId }
 	-- The bots the next round would seat, after the people, each with its level.
 	local base = math.max(1, readied)
 	local botList = {}
@@ -450,9 +468,13 @@ lobbyRemote.OnServerEvent:Connect(function(player, what, value, want)
 		return
 	end
 	if what == "bots" and type(value) == "number" then
-		botCount = math.clamp(botCount + (if value > 0 then 1 else -1), 0, Config.MAX_PLAYERS - 1)
+		-- One bot more or fewer than the lobby shows now.
+		local people = math.max(1, readyCount())
+		local count = math.clamp(botsFor(people) + (if value > 0 then 1 else -1), 0, Config.MAX_PLAYERS - people)
+		fill = people + count
 	elseif what == "teams" then
 		teams = not teams
+		quickSetup()
 	elseif what == "level" then
 		-- Everyone's level: the ones set bot by bot go back to it.
 		botLevel = nextLevel(botLevel)
