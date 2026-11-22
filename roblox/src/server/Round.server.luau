@@ -104,7 +104,8 @@ local game_ = nil -- the Sim game of the running round
 local seats = {} -- [seat number] = player
 local bots = {} -- [seat number] = { think, name }
 local botCount = 3 -- how many the lobby has asked for
-local botLevel = "normal"
+local botLevel = "normal" -- every bot's, unless the host gave one its own
+local botLevels = {} -- [k] = the k-th bot's own level, as the web game's rooms have it
 local teams = false -- two sides instead of everyone for themselves
 local simInputs = {}
 local rng = Random.new()
@@ -163,6 +164,16 @@ local function enough(readied)
 	return readied >= 1 and readied + botsFor(readied) >= MIN_PLAYERS
 end
 
+-- The k-th bot's level: its own if the host set one, else everyone's.
+local function levelOf(k)
+	return botLevels[k] or botLevel
+end
+
+-- The level after `level`, round the list.
+local function nextLevel(level)
+	return LEVELS[(table.find(LEVELS, level) or 0) % #LEVELS + 1]
+end
+
 local function sendLobby()
 	local count = lobby:count()
 	local readied = readyCount()
@@ -171,6 +182,15 @@ local function sendLobby()
 	local people = {}
 	local hostId = if lobby.host then lobby.host.UserId else 0
 	local mark = { count, readied, left or -1, botCount, botLevel, if teams then 1 else 0, hostId }
+	-- The bots the next round would seat, after the people, each with its level.
+	local base = math.max(1, readied)
+	local botList = {}
+	local mixed = false
+	for k = 1, botsFor(base) do
+		table.insert(botList, { seat = base + k, level = levelOf(k) })
+		table.insert(mark, "b" .. levelOf(k))
+		mixed = mixed or levelOf(k) ~= botLevel
+	end
 	for _, player in joined do
 		local playing = lobby:isPlaying(player)
 		table.insert(people, { name = player.DisplayName, userId = player.UserId, ready = ready[player] == true, playing = playing })
@@ -190,7 +210,9 @@ local function sendLobby()
 		left = left,
 		people = people,
 		bots = botsFor(math.max(1, readied)),
+		botList = botList,
 		level = botLevel,
+		mixed = mixed,
 		teams = teams,
 		host = hostId,
 		max = Config.MAX_PLAYERS,
@@ -216,10 +238,11 @@ local function startRound()
 	for k = 1, botsFor(#slots) do
 		local i = #slots + 1
 		local seed = rng:NextInteger(1, 2 ^ 30)
-		local brain = if botLevel == "rl" then RLBot.new({ seed = seed, offset = k }) else Bot.new({ difficulty = botLevel, seed = seed })
+		local level = levelOf(k)
+		local brain = if level == "rl" then RLBot.new({ seed = seed, offset = k }) else Bot.new({ difficulty = level, seed = seed })
 		-- A bot is named after its seat's hamster in the web game. Each client
 		-- writes the name in its own language; this one keeps the score.
-		bots[i] = { brain = brain, name = Lang.WORDS.ko.names[i], level = botLevel }
+		bots[i] = { brain = brain, name = Lang.WORDS.ko.names[i], level = level }
 		simInputs[i] = { mx = 0, my = 0, bonk = false, throw = false }
 		slots[i] = { id = i, name = bots[i].name }
 	end
@@ -431,7 +454,13 @@ lobbyRemote.OnServerEvent:Connect(function(player, what, value, want)
 	elseif what == "teams" then
 		teams = not teams
 	elseif what == "level" then
-		botLevel = LEVELS[(table.find(LEVELS, botLevel) or 0) % #LEVELS + 1]
+		-- Everyone's level: the ones set bot by bot go back to it.
+		botLevel = nextLevel(botLevel)
+		table.clear(botLevels)
+	elseif what == "botLevel" and type(value) == "number" and value >= 1 and value <= Config.MAX_PLAYERS and value % 1 == 0 then
+		-- One bot's own level, as the web game's rooms let the host set it.
+		local level = nextLevel(levelOf(value))
+		botLevels[value] = if level == botLevel then nil else level
 	end
 end)
 
